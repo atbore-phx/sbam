@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+bin/ha-fronius-bm
 
 # Test binary, built with `go test -c`
 *.test
@@ -22,6 +23,9 @@ go.work
 
 # env files
 .env*
+
+# config yaml files
+config.yaml
 
 #ide
 .vscode
