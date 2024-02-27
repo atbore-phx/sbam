@@ -1,4 +1,4 @@
-package forecast
+package power
 
 type Power struct{}
 

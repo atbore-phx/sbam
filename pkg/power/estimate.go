@@ -1,4 +1,4 @@
-package forecast
+package power
 
 import (
 	"encoding/json"
@@ -6,10 +6,6 @@ import (
 	"net/http"
 	"time"
 )
-
-func New() *Power {
-	return &Power{}
-}
 
 func getForecast(apiKey string, url string) (Forecasts, error) {
 	req, err := http.NewRequest("GET", url, nil)
@@ -49,6 +45,10 @@ func getTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 
 	// The calculated totalPower is in KWh
 	return totalPower, nil
+}
+
+func New() *Power {
+	return &Power{}
 }
 
 func (power *Power) Handler(apiKey string, url string) (float64, error) {
