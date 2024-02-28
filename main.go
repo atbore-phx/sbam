@@ -31,14 +31,14 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Forecast Solar Power is:", solarPowerProduction)
+		fmt.Println("Forecast Solar Power:", solarPowerProduction)
 
 		str := storage.New()
 		capacity2charge, err := str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Battery Capacity to charge is:", capacity2charge)
+		fmt.Println("Battery Capacity to charge:", capacity2charge)
 	},
 }
 

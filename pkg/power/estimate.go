@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func getForecast(apiKey string, url string) (Forecasts, error) {
+func GetForecast(apiKey string, url string) (Forecasts, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return Forecasts{}, err
@@ -30,7 +30,7 @@ func getForecast(apiKey string, url string) (Forecasts, error) {
 	return forecasts, nil
 }
 
-func getTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, error) {
+func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, error) {
 	totalPower := 0.0
 	for _, forecast := range forecasts.Forecasts {
 		periodEnd, err := time.Parse(time.RFC3339, forecast.PeriodEnd)
@@ -53,14 +53,14 @@ func New() *Power {
 
 func (power *Power) Handler(apiKey string, url string) (float64, error) {
 	production := 0.0
-	forecasts, err := getForecast(apiKey, url)
+	forecasts, err := GetForecast(apiKey, url)
 	if err != nil {
 		fmt.Println("Error getting forecast:", err)
 		return production, err
 	}
 
 	tomorrow := time.Now().AddDate(0, 0, 1)
-	production, err = getTotalDayPowerEstimate(forecasts, tomorrow)
+	production, err = GetTotalDayPowerEstimate(forecasts, tomorrow)
 	if err != nil {
 		fmt.Println("Error getting total power estimate:", err)
 		return production, err
