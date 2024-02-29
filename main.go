@@ -1,6 +1,8 @@
 package main
 
-import "ha-fronius-bm/pkg/cmd"
+import (
+	"ha-fronius-bm/pkg/cmd"
+)
 
 func main() {
 	cmd.Execute()

@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// filesCmd represents the files command
 var estCmd = &cobra.Command{
 	Use:   "estimate",
 	Short: "Estimate Forecast Solar Power",
