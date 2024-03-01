@@ -43,8 +43,8 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 		}
 	}
 
-	// The calculated totalPower is in KWh
-	return totalPower, nil
+	// The calculated totalPower is in Wh
+	return totalPower * 1000, nil
 }
 
 func New() *Power {

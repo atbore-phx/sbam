@@ -60,7 +60,7 @@ func TestGetTotalDayPowerEstimate(t *testing.T) {
 	//tomorrow = tomorrow.AddDate(0, 0, 0)
 	totalPower, err := power.GetTotalDayPowerEstimate(forecasts, day)
 	assert.NoError(t, err)
-	assert.Equal(t, 125.0, totalPower)
+	assert.Equal(t, 125000.0, totalPower)
 }
 
 func TestHandler(t *testing.T) {
@@ -91,5 +91,5 @@ func TestHandler(t *testing.T) {
 	// Call the Handler function with the mock HTTP server's URL
 	production, err := power.Handler("apiKey", ts.URL)
 	assert.NoError(t, err)
-	assert.Equal(t, 125.0, production)
+	assert.Equal(t, 125000.0, production)
 }
