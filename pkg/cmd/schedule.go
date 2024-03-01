@@ -40,21 +40,21 @@ var scdCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Forecast Solar Power:", solarPowerProduction)
+		fmt.Printf("Forecast Solar Power:%d W\n", int(solarPowerProduction))
 
 		str := storage.New()
 		capacity2charge, err := str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Battery Capacity to charge:", capacity2charge)
-		fmt.Println("your Daily consumption is:", pw_consumption)
+		fmt.Printf("Battery Capacity to charge: %d W\n", int(capacity2charge))
+		fmt.Printf("your Daily consumption is:%d W\n", int(pw_consumption))
 
 		scd := fronius.New()
 		charge_pc, _ := scd.Handler(solarPowerProduction, capacity2charge, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
 
 		if charge_pc != 0 {
-			fmt.Printf("Set Charging at: %dW", charge_pc*100)
+			fmt.Printf("Set Charging at: %dW\n", charge_pc*100)
 		} else {
 			fmt.Println("Disabling Charging and setting to defaults")
 		}
