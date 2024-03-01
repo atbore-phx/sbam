@@ -6,6 +6,7 @@ import (
 	"ha-fronius-bm/pkg/power"
 	"ha-fronius-bm/pkg/storage"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -16,6 +17,8 @@ var scdCmd = &cobra.Command{
 	Short: "Schedule Battery Storage Charge",
 	Long:  `Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range`,
 	Run: func(cmd *cobra.Command, args []string) {
+		now := time.Now()
+		fmt.Println(now.Format("2006-01-02 15:04:05"))
 		url := viper.GetString("url")
 		apiKey := viper.GetString("apikey")
 		fronius_ip := viper.GetString("fronius_ip")
