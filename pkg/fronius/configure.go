@@ -12,9 +12,10 @@ const (
 	InWRte      = 40357
 	MinRsvPct   = 40351
 	ChaGriSet   = 40361
+	WChaMax     = 40346
 )
 
-// defaults
+// defaults to r/w
 var mdsc = map[uint16]int16{
 	StorCtl_Mod: 0,     // no limits
 	OutWRte:     10000, // 100% w 2 sf
@@ -35,7 +36,8 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 	return nil
 }
 
-func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
+func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, error) {
+	values := []int16{}
 	for r, v := range modbusStorageCfg {
 		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
 		fmt.Printf("register: %d ; value: %v\n", r, value)
@@ -43,8 +45,19 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 			fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", r, v)
 			panic(err)
 		}
+		values = append(values, int16(value))
 	}
-	return nil
+	return values, nil
+}
+
+func ReadFroniusModbusRegister(address uint16) (int16, error) {
+	value, err := modbusClient.ReadRegister(address-1, modbus.HOLDING_REGISTER)
+	fmt.Printf("register: %d ; value: %v\n", address, value)
+	if err != nil {
+		fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", address, value)
+		panic(err)
+	}
+	return int16(value), nil
 }
 
 func Setdefaults(modbus_ip string, modbus_port string) error {

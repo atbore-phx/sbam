@@ -3,7 +3,6 @@ package storage
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 )
@@ -11,10 +10,6 @@ import (
 const (
 	Req_url = "/solar_api/v1/GetStorageRealtimeData.cgi"
 )
-
-func New() *Storage {
-	return &Storage{}
-}
 
 func GetStorage(fronius_ip string) (Batteries, error) {
 	url := "http://" + fronius_ip + Req_url
@@ -58,22 +53,4 @@ func GetCapacityStorage2Charge(batteries Batteries) (float64, error) {
 	}
 
 	return capacity - status, nil
-}
-
-func (storage *Storage) Handler(fronius_ip string) (float64, error) {
-	charge := 0.0
-
-	batteries, err := GetStorage(fronius_ip)
-	if err != nil {
-		fmt.Println("Error getting Storage Charge Data:", err)
-		return charge, err
-	}
-
-	charge, err = GetCapacityStorage2Charge(batteries)
-	if err != nil {
-		fmt.Println("Error getting Full Storage Capacity to Charge:", err)
-		return charge, err
-	}
-	return charge, nil
-
 }
