@@ -40,7 +40,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 	values := []int16{}
 	for r, v := range modbusStorageCfg {
 		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
-		fmt.Printf("register: %d ; value: %v\n", r, value)
+		//		fmt.Printf("register: %d ; value: %v\n", r, value)
 		if err != nil {
 			fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", r, v)
 			panic(err)
@@ -52,7 +52,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 
 func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	value, err := modbusClient.ReadRegister(address-1, modbus.HOLDING_REGISTER)
-	fmt.Printf("register: %d ; value: %v\n", address, value)
+	// fmt.Printf("register: %d ; value: %v\n", address, value)
 	if err != nil {
 		fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", address, value)
 		panic(err)
