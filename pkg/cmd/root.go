@@ -30,12 +30,6 @@ func Execute() {
 
 func init() {
 	viper.AutomaticEnv()
-	rootCmd.PersistentFlags().String("url", "", "URL")
-	rootCmd.PersistentFlags().String("apikey", "", "APIKEY")
-	rootCmd.PersistentFlags().String("fronius_ip", "", "FRONIUS_IP")
-	viper.BindPFlag("url", rootCmd.PersistentFlags().Lookup("url"))
-	viper.BindPFlag("apikey", rootCmd.PersistentFlags().Lookup("apikey"))
-	viper.BindPFlag("apikey", rootCmd.PersistentFlags().Lookup("fronius_ip"))
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
