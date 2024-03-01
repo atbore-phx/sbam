@@ -3,8 +3,8 @@ before:
     - go mod tidy
 
 builds:
-  - id: "check-amount-integrity"
-    binary: bin/check-amount-integrity
+  - id: "ha-fronius-bm"
+    binary: bin/ha-fronius-bm
     env:
       - CGO_ENABLED=0
 changelog:

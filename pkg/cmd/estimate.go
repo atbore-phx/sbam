@@ -5,6 +5,7 @@ import (
 	"ha-fronius-bm/pkg/power"
 	"ha-fronius-bm/pkg/storage"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -28,6 +29,8 @@ var estCmd = &cobra.Command{
 			fmt.Println("The --url flag must be set")
 			return
 		}
+		now := time.Now()
+		fmt.Println(now.Format("2006-01-02 15:04:05"))
 
 		pwr := power.New()
 		solarPowerProduction, err := pwr.Handler(apiKey, url)
