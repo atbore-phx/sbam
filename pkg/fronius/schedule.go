@@ -7,6 +7,7 @@ import (
 
 func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_consumption float64, max_charge int, start_hr string, end_hr string, fronius_ip string) (int16, error) {
 	var ch_pc int16 = 0
+	pw_grid := 0.0
 	time, _ := CheckTimeRange(start_hr, end_hr)
 
 	if !time { // out of the time range => do not charge
@@ -21,19 +22,21 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		OpenModbusClient(fronius_ip)
 		pw_max, _ := ReadFroniusModbusRegister(WChaMax)
 		ClosemodbusClient()
-		if pw_pv_net <= 0 { // net pv power is not enough => charge the diff
+		if pw_pv_net <= 0 { // net pv power is not enough
 			u.Log.Infof("Net Forecast Power is not enough: %f W", pw_pv_net)
-			ch_pc = SetChargePower(float64(pw_max), -1*pw_pv_net, float64(max_charge))
-			ForceCharge(fronius_ip, ch_pc)
-		} else { // there is pv power available
-			u.Log.Infof("Net Forecast Power is enough: %f W", pw_pv_net)
-			pw_grid := pw_batt2charge - pw_pv_net
-			if pw_grid > 0 { // it's less than the battery's capacity to charge => charge the the diff
-				ch_pc = SetChargePower(float64(pw_max), pw_grid, float64(max_charge))
+			pw_batt := float64(pw_max) - pw_batt2charge
+			pw_grid = pw_batt + pw_pv_net
+			if pw_grid < 0 { // Battery Capacity is not enough => charge the diff
+				u.Log.Infof("Battery Capacity is not enough: %f W", pw_batt)
+				ch_pc = SetChargePower(float64(pw_max), -1*pw_grid, float64(max_charge))
 				ForceCharge(fronius_ip, ch_pc)
-			} else { // it is bigger than than battery capacity to charge => do not charge
+			} else { // Battery Capacity is enough => do not charge
+				u.Log.Infof("Battery Capacity is enough: %f W", pw_batt)
 				Setdefaults(fronius_ip)
 			}
+		} else { // net pv power is enough => do not charge
+			u.Log.Infof("Net Forecast Power is enough: %f W", pw_pv_net)
+			Setdefaults(fronius_ip)
 		}
 	}
 	return ch_pc, nil
