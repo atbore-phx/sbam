@@ -77,7 +77,7 @@ func Setdefaults(modbus_ip string) error {
 }
 
 func ForceCharge(modbus_ip string, power_prc int16) error {
-	u.Log.Infof("Setting Fronius Storage Force Charge at %d%", power_prc)
+	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {
 		regList := mdsc
 

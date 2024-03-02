@@ -65,8 +65,8 @@ func TestGetTotalDayPowerEstimate(t *testing.T) {
 
 func TestHandler(t *testing.T) {
 	now := time.Now()
-	pe := now.AddDate(0, 0, 1).Format(time.RFC3339)
-	pe30 := now.AddDate(0, 0, 1).Add(time.Minute * 30).Format(time.RFC3339)
+	pe := now.Format(time.RFC3339)
+	pe30 := now.Add(time.Minute * 30).Format(time.RFC3339)
 	// Create a mock HTTP server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

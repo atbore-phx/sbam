@@ -61,7 +61,7 @@ func init() {
 	scdCmd.Flags().StringP("url", "u", "", "URL")
 	scdCmd.Flags().StringP("apikey", "k", "", "APIKEY")
 	scdCmd.Flags().StringP("fronius_ip", "H", "", "FRONIUS_IP")
-	scdCmd.Flags().StringP("start_hr", "s", "22:00", "START_HR")
+	scdCmd.Flags().StringP("start_hr", "s", "00:00", "START_HR")
 	scdCmd.Flags().StringP("end_hr", "e", "06:00", "END_HR")
 	scdCmd.Flags().Float64P("pw_consumption", "c", 0.0, "PW_CONSUMPTION")
 	scdCmd.Flags().IntP("max_charge", "m", 3500, "MAX_CHARGE")

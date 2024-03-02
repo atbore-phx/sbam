@@ -4,17 +4,17 @@ import (
 	"log"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var Log *zap.SugaredLogger
 
 func init() {
-	logger, err := zap.NewProduction()
+	config := zap.NewProductionConfig()
+	config.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+	logger, err := config.Build()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("can't initialize zap logger: %v", err)
 	}
-
 	Log = logger.Sugar()
-	defer logger.Sync()
-
 }
