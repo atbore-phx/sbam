@@ -1,6 +1,8 @@
 package storage
 
-import "fmt"
+import (
+	u "ha-fronius-bm/src/utils"
+)
 
 func New() *Storage {
 	return &Storage{}
@@ -11,13 +13,13 @@ func (storage *Storage) Handler(fronius_ip string) (float64, error) {
 
 	batteries, err := GetStorage(fronius_ip)
 	if err != nil {
-		fmt.Println("Error getting Storage Charge Data:", err)
+		u.Log.Errorln("Error getting Storage Charge Data:", err)
 		return charge, err
 	}
 
 	charge, err = GetCapacityStorage2Charge(batteries)
 	if err != nil {
-		fmt.Println("Error getting Full Storage Capacity to Charge:", err)
+		u.Log.Errorln("Error getting Full Storage Capacity to Charge:", err)
 		return charge, err
 	}
 	return charge, nil

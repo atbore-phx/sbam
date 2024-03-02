@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"errors"
+	u "ha-fronius-bm/src/utils"
 	"net/http"
 	"time"
 )
@@ -51,6 +52,7 @@ func GetCapacityStorage2Charge(batteries Batteries) (float64, error) {
 		err := errors.New("Battery Cluster is disabled")
 		return capacity - status, err
 	}
-
-	return capacity - status, nil
+	tc := capacity - status
+	u.Log.Infof("Battery Capacity to charge: %d W", int(tc))
+	return tc, nil
 }

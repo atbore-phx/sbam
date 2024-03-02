@@ -1,7 +1,7 @@
 package power
 
 import (
-	"fmt"
+	u "ha-fronius-bm/src/utils"
 	"time"
 )
 
@@ -13,14 +13,14 @@ func (power *Power) Handler(apiKey string, url string) (float64, error) {
 	production := 0.0
 	forecasts, err := GetForecast(apiKey, url)
 	if err != nil {
-		fmt.Println("Error getting forecast:", err)
+		u.Log.Errorln("Error getting forecast:", err)
 		return production, err
 	}
 
 	day := checkMidnight(time.Now())
 	production, err = GetTotalDayPowerEstimate(forecasts, day)
 	if err != nil {
-		fmt.Println("Error getting total power estimate:", err)
+		u.Log.Errorln("Error getting total power estimate:", err)
 		return production, err
 	}
 

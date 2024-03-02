@@ -2,7 +2,7 @@ package power
 
 import (
 	"encoding/json"
-	"fmt"
+	u "ha-fronius-bm/src/utils"
 	"net/http"
 	"time"
 )
@@ -26,7 +26,6 @@ func GetForecast(apiKey string, url string) (Forecasts, error) {
 	if err != nil {
 		return Forecasts{}, err
 	}
-
 	return forecasts, nil
 }
 
@@ -35,7 +34,7 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 	for _, forecast := range forecasts.Forecasts {
 		periodEnd, err := time.Parse(time.RFC3339, forecast.PeriodEnd)
 		if err != nil {
-			fmt.Println("Error parsing time:", err)
+			u.Log.Errorln("Error parsing time:", err)
 			return totalPower, err
 		}
 		if periodEnd.Year() == day.Year() && periodEnd.YearDay() == day.YearDay() {
@@ -44,7 +43,9 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 	}
 
 	// The calculated totalPower is in Wh
-	return totalPower * 1000, nil
+	totalPower = totalPower * 1000
+	u.Log.Infof("Forecast Solar Power: %d W", int(totalPower))
+	return totalPower, nil
 }
 
 func checkMidnight(now time.Time) time.Time {

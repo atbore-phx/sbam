@@ -5,8 +5,8 @@ import (
 	"ha-fronius-bm/pkg/fronius"
 	"ha-fronius-bm/pkg/power"
 	"ha-fronius-bm/pkg/storage"
+	u "ha-fronius-bm/src/utils"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -17,8 +17,6 @@ var scdCmd = &cobra.Command{
 	Short: "Schedule Battery Storage Charge",
 	Long:  `Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range`,
 	Run: func(cmd *cobra.Command, args []string) {
-		now := time.Now()
-		fmt.Println(now.Format("2006-01-02 15:04:05"))
 		url := viper.GetString("url")
 		apiKey := viper.GetString("apikey")
 		fronius_ip := viper.GetString("fronius_ip")
@@ -43,25 +41,19 @@ var scdCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Forecast Solar Power:%d W\n", int(solarPowerProduction))
 
 		str := storage.New()
 		capacity2charge, err := str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Battery Capacity to charge: %d W\n", int(capacity2charge))
-		fmt.Printf("your Daily consumption is:%d W\n", int(pw_consumption))
+		u.Log.Infof("your Daily consumption is:%d W", int(pw_consumption))
 
 		scd := fronius.New()
-		charge_pc, _ := scd.Handler(solarPowerProduction, capacity2charge, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
-
-		if charge_pc != 0 {
-			fmt.Printf("Set Charging at: %dW\n", charge_pc*100)
-		} else {
-			fmt.Println("Disabling Charging and setting to defaults")
+		_, err = scd.Handler(solarPowerProduction, capacity2charge, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
+		if err != nil {
+			panic(err)
 		}
-
 	},
 }
 

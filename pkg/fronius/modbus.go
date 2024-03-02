@@ -1,7 +1,7 @@
 package fronius
 
 import (
-	"fmt"
+	u "ha-fronius-bm/src/utils"
 	"time"
 
 	"github.com/simonvetter/modbus"
@@ -17,17 +17,17 @@ func OpenModbusClient(url string) error {
 		Timeout: 1 * time.Second,
 	})
 	if err != nil {
-		fmt.Print("Someting goes wrong configuring Modbus Client")
+		u.Log.Error("Someting goes wrong configuring Modbus Client")
 		panic(err)
 	}
 	err = modbusClient.Open()
 	if err != nil {
-		fmt.Print("Someting goes wrong opening Modbus Client")
+		u.Log.Error("Someting goes wrong opening Modbus Client")
 		panic(err)
 	}
 	err = modbusClient.SetUnitId(1)
 	if err != nil {
-		fmt.Print("Someting goes wrong setting Modbus Client SlaveID")
+		u.Log.Error("Someting goes wrong setting Modbus Client SlaveID")
 		panic(err)
 	}
 
@@ -38,7 +38,7 @@ func OpenModbusClient(url string) error {
 func ClosemodbusClient() error {
 	modbusClient.Close()
 	if err != nil {
-		fmt.Print("Someting goes wrong closing Modbus Client")
+		u.Log.Error("Someting goes wrong closing Modbus Client")
 		panic(err)
 	}
 

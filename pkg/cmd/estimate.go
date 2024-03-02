@@ -5,7 +5,6 @@ import (
 	"ha-fronius-bm/pkg/power"
 	"ha-fronius-bm/pkg/storage"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -16,8 +15,6 @@ var estCmd = &cobra.Command{
 	Short: "Estimate Forecast Solar Power",
 	Long:  `Print the solar forecast and the battery storage power`,
 	Run: func(cmd *cobra.Command, args []string) {
-		now := time.Now()
-		fmt.Println(now.Format("2006-01-02 15:04:05"))
 		url := viper.GetString("url")
 		apiKey := viper.GetString("apikey")
 		fronius_ip := viper.GetString("fronius_ip")
@@ -33,18 +30,16 @@ var estCmd = &cobra.Command{
 		}
 
 		pwr := power.New()
-		solarPowerProduction, err := pwr.Handler(apiKey, url)
+		_, err := pwr.Handler(apiKey, url)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Forecast Solar Power:", solarPowerProduction)
 
 		str := storage.New()
-		capacity2charge, err := str.Handler(fronius_ip)
+		_, err = str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Battery Capacity to charge:", capacity2charge)
 	},
 }
 

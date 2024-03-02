@@ -3,6 +3,8 @@ package fronius
 import (
 	"fmt"
 
+	u "ha-fronius-bm/src/utils"
+
 	"github.com/simonvetter/modbus"
 )
 
@@ -27,9 +29,10 @@ var mdsc = map[uint16]int16{
 func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
 	for r, v := range modbusStorageCfg {
+		u.Log.Infof("Writing register: %d ; value: %v", r, uint16(v))
 		err = modbusClient.WriteRegister(r-1, uint16(v))
 		if err != nil {
-			fmt.Printf("Something goes wrong writing the register: %d, value: %d\n", r, v)
+			u.Log.Errorf("Something goes wrong writing the register: %d, value: %d", r, v)
 			panic(err)
 		}
 	}
@@ -40,9 +43,9 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 	values := []int16{}
 	for r, v := range modbusStorageCfg {
 		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
-		//		fmt.Printf("register: %d ; value: %v\n", r, value)
+		u.Log.Infof("Reading register: %d ; value: %v", r, value)
 		if err != nil {
-			fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", r, v)
+			u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", r, v)
 			panic(err)
 		}
 		values = append(values, int16(value))
@@ -52,28 +55,29 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 
 func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	value, err := modbusClient.ReadRegister(address-1, modbus.HOLDING_REGISTER)
-	// fmt.Printf("register: %d ; value: %v\n", address, value)
+	u.Log.Infof("Reading register: %d ; value: %v", address, value)
 	if err != nil {
-		fmt.Printf("Something goes wrong reading the register: %d, value: %d\n", address, value)
+		u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", address, value)
 		panic(err)
 	}
 	return int16(value), nil
 }
 
 func Setdefaults(modbus_ip string) error {
+	u.Log.Info("Setting Fronius Storage Defaults start...")
 	regList := mdsc
-
 	OpenModbusClient(modbus_ip)
 
 	WriteFroniusModbusRegisters(regList)
 	ReadFroniusModbusRegisters(regList)
 
 	ClosemodbusClient()
-
+	u.Log.Info("Setting Fronius Modbus Defaults done.")
 	return nil
 }
 
 func ForceCharge(modbus_ip string, power_prc int16) error {
+	u.Log.Infof("Setting Fronius Storage Force Charge at %d% start...", power_prc)
 	if power_prc > 0 {
 		regList := mdsc
 
@@ -91,5 +95,6 @@ func ForceCharge(modbus_ip string, power_prc int16) error {
 	} else {
 		panic(fmt.Errorf("someting goes wrong when force charging, percent of charging is negative: %d", power_prc))
 	}
+	u.Log.Info("Setting Fronius Storage Force Charge done.")
 	return nil
 }

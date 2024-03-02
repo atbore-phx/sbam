@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"ha-fronius-bm/pkg/fronius"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -15,8 +14,6 @@ var cfgCmd = &cobra.Command{
 	Short: "Configure Battery Storage Charge",
 	Long:  `connect via modbus to the fronius inverter and set charging`,
 	Run: func(cmd *cobra.Command, args []string) {
-		now := time.Now()
-		fmt.Println(now.Format("2006-01-02 15:04:05"))
 		fronius_ip := viper.GetString("fronius_ip")
 		if len(strings.TrimSpace(fronius_ip)) == 0 {
 			fmt.Println("The --fronius_ip flag must be set")
