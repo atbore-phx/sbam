@@ -74,17 +74,22 @@ func Setdefaults(modbus_ip string) error {
 }
 
 func ForceCharge(modbus_ip string, power_prc int16) error {
-	regList := mdsc
+	if power_prc > 0 {
+		regList := mdsc
 
-	regList[StorCtl_Mod] = 2 // Limit Decharging
-	regList[OutWRte] = -100 * power_prc
+		regList[StorCtl_Mod] = 2 // Limit Decharging
+		regList[OutWRte] = -100 * power_prc
 
-	OpenModbusClient(modbus_ip)
+		OpenModbusClient(modbus_ip)
 
-	WriteFroniusModbusRegisters(regList)
-	ReadFroniusModbusRegisters(regList)
+		WriteFroniusModbusRegisters(regList)
+		ReadFroniusModbusRegisters(regList)
 
-	ClosemodbusClient()
-
+		ClosemodbusClient()
+	} else if power_prc == 0 {
+		Setdefaults(modbus_ip)
+	} else {
+		panic(fmt.Errorf("someting goes wrong when force charging, percent of charging is negative: %d", power_prc))
+	}
 	return nil
 }

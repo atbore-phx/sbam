@@ -9,25 +9,26 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	var ch_pc int16 = 0
 	time, _ := CheckTimeRange(start_hr, end_hr)
 
-	if !time || pw_batt2charge == 0 { // out of the time range => do not charge
+	if !time || pw_batt2charge == 0 { // out of the time range or battery 100% => do not charge
 		fmt.Printf("Out time range start_time: %s - end_time: %s\n", start_hr, end_hr)
 		Setdefaults(fronius_ip)
 	} else { // in the time range
 		pw_pv_net := pw_forecast - pw_consumption
+		// TODO: we know that from Estimate via Solar API, use that vaule instead.
 		OpenModbusClient(fronius_ip)
 		pw_max, _ := ReadFroniusModbusRegister(WChaMax)
 		ClosemodbusClient()
-		if pw_pv_net > 0 { // there is pv power available
-			pw_grid := pw_batt2charge - pw_pv_net
-			if pw_grid > 0 { // and it's less than battery capacity to charge => charge the the diff
-				ch_pc = SetChargePower(float64(pw_max), pw_grid, float64(max_charge))
-				ForceCharge(fronius_ip, ch_pc)
-			} else { // or it is bigger than than battery capacity to charge => do not charge
-				Setdefaults(fronius_ip)
-			}
-		} else { // or pv power is not enough => charge the diff
+		if pw_pv_net <= 0 { // net pv power is not enough => charge the diff
 			ch_pc = SetChargePower(float64(pw_max), -1*pw_pv_net, float64(max_charge))
 			ForceCharge(fronius_ip, ch_pc)
+		} else { // there is pv power available
+			pw_grid := pw_batt2charge - pw_pv_net
+			if pw_grid > 0 { // it's less than the battery's capacity to charge => charge the the diff
+				ch_pc = SetChargePower(float64(pw_max), pw_grid, float64(max_charge))
+				ForceCharge(fronius_ip, ch_pc)
+			} else { // it is bigger than than battery capacity to charge => do not charge
+				Setdefaults(fronius_ip)
+			}
 		}
 	}
 	return ch_pc, nil
