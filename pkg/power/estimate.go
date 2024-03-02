@@ -46,3 +46,14 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 	// The calculated totalPower is in Wh
 	return totalPower * 1000, nil
 }
+
+func checkMidnight(now time.Time) time.Time {
+	hour := now.Hour()
+	if hour < 12 {
+		return now
+	} else if hour == 12 && now.Minute() == 0 && now.Second() == 0 {
+		return now
+	} else {
+		return now.AddDate(0, 0, 1)
+	}
+}

@@ -1,0 +1,20 @@
+{
+	"forecasts": [
+		{
+			"period_end": "2024-03-03T00:00:00Z",
+			"pv_estimate": 1
+		},
+		{
+			"period_end": "2024-03-03T00:30:00Z",
+			"pv_estimate": 1
+        },
+		{
+			"period_end": "2024-04-03T00:00:00Z",
+			"pv_estimate": 2
+		},
+		{
+			"period_end": "2024-04-03T00:30:00Z",
+			"pv_estimate": 2
+        }
+	]
+}
