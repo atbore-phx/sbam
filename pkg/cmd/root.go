@@ -8,17 +8,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	version = "dev"
-	commit  = "HEAD"
-	date    = "today"
-)
-
 var rootCmd = &cobra.Command{
-	Use:     "ha-fronius-bm",
-	Short:   "ha-fronius-bm handles battery charge using weather forecast",
-	Long:    `initiate parameters from command line, env variables or config.yaml file.`,
-	Version: fmt.Sprintf("Version: %s\nCommit: %s\nDate: %s\n", version, commit, date),
+	Use:   "ha-fronius-bm",
+	Short: "ha-fronius-bm handles battery charge using weather forecast",
+	Long:  `initiate parameters from command line, env variables or config.yaml file.`,
 }
 
 func Execute() {
@@ -46,4 +39,8 @@ func init() {
 	if err != nil {
 		fmt.Printf("Error reading config, %s", err)
 	}
+}
+
+func SetVersionInfo(version, commit, date string) {
+	rootCmd.Version = fmt.Sprintf("%s (Built on %s from Git SHA %s)", version, date, commit)
 }

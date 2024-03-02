@@ -1,4 +1,4 @@
-VERSION=$(shell git describe --tags --abbrev=0 --always)
+VERSION=$(shell git describe --tags --always)
 COMMIT=$(shell git rev-parse --short HEAD)
 DATE=$(shell date)
 
