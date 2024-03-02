@@ -60,11 +60,10 @@ func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	return int16(value), nil
 }
 
-func Setdefaults(modbus_ip string, modbus_port string) error {
-	url := "tcp://" + modbus_ip + ":" + modbus_port
+func Setdefaults(modbus_ip string) error {
 	regList := mdsc
 
-	OpenModbusClient(url)
+	OpenModbusClient(modbus_ip)
 
 	WriteFroniusModbusRegisters(regList)
 	ReadFroniusModbusRegisters(regList)
@@ -74,14 +73,13 @@ func Setdefaults(modbus_ip string, modbus_port string) error {
 	return nil
 }
 
-func ForceCharge(modbus_ip string, modbus_port string, power_prc int16) error {
-	url := "tcp://" + modbus_ip + ":" + modbus_port
+func ForceCharge(modbus_ip string, power_prc int16) error {
 	regList := mdsc
 
 	regList[StorCtl_Mod] = 2 // Limit Decharging
 	regList[OutWRte] = -100 * power_prc
 
-	OpenModbusClient(url)
+	OpenModbusClient(modbus_ip)
 
 	WriteFroniusModbusRegisters(regList)
 	ReadFroniusModbusRegisters(regList)

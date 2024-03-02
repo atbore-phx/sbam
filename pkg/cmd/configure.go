@@ -23,14 +23,14 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 		if cmd.Flags().Changed("defaults") {
-			fronius.Setdefaults(fronius_ip, "502")
+			fronius.Setdefaults(fronius_ip)
 		} else if cmd.Flags().Changed("force-charge") {
 			power := viper.GetViper().GetInt("power")
 			if power == 0 {
 				fmt.Println("The --power flag must be set when using --force-charge")
 				return
 			}
-			fronius.ForceCharge(fronius_ip, "502", int16(power))
+			fronius.ForceCharge(fronius_ip, int16(power))
 		}
 
 	},

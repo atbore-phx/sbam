@@ -9,36 +9,33 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	var ch_pc int16 = 0
 	time, _ := CheckTimeRange(start_hr, end_hr)
 
-	if !time { // out of the time range => do not charge
-		Setdefaults(fronius_ip, "502")
+	if !time || pw_batt2charge == 0 { // out of the time range => do not charge
+		fmt.Printf("Out time range start_time: %s - end_time: %s\n", start_hr, end_hr)
+		Setdefaults(fronius_ip)
 	} else { // in the time range
-		pw_pv_av, pw_pv_net, _ := CheckPowerPVAvailability(pw_forecast, pw_batt2charge, pw_consumption)
+		pw_pv_net := pw_forecast - pw_consumption
+		OpenModbusClient(fronius_ip)
 		pw_max, _ := ReadFroniusModbusRegister(WChaMax)
-		if pw_pv_av { // there is pv power available
+		ClosemodbusClient()
+		if pw_pv_net > 0 { // there is pv power available
 			pw_grid := pw_batt2charge - pw_pv_net
 			if pw_grid > 0 { // and it's less than battery capacity to charge => charge the the diff
-				ch_pc = pw_max / int16(pw_grid) * 100
-				ch_pc = min(ch_pc, int16(max_charge))
-				ForceCharge(fronius_ip, "502", ch_pc)
+				ch_pc = SetChargePower(float64(pw_max), pw_grid, float64(max_charge))
+				ForceCharge(fronius_ip, ch_pc)
 			} else { // or it is bigger than than battery capacity to charge => do not charge
-				Setdefaults(fronius_ip, "502")
+				Setdefaults(fronius_ip)
 			}
 		} else { // or pv power is not enough => charge the diff
-			ch_pc = pw_max / int16(pw_pv_net) * -100
-			ch_pc = min(ch_pc, int16(max_charge))
-			ForceCharge(fronius_ip, "502", ch_pc)
+			ch_pc = SetChargePower(float64(pw_max), -1*pw_pv_net, float64(max_charge))
+			ForceCharge(fronius_ip, ch_pc)
 		}
 	}
 	return ch_pc, nil
 }
 
-func CheckPowerPVAvailability(pw_forecast float64, pw_batt2charge float64, pw_consumption float64) (bool, float64, error) {
-	day_net_power := pw_forecast - pw_consumption
+func SetChargePower(max float64, load float64, limit float64) int16 {
 
-	if day_net_power < 0 {
-		return false, day_net_power, nil
-	}
-	return true, day_net_power, nil
+	return int16(min(load*100/max, limit*100/max))
 
 }
 

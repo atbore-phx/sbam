@@ -11,6 +11,7 @@ var modbusClient *modbus.ModbusClient
 var err error
 
 func OpenModbusClient(url string) error {
+	url = "tcp://" + url + ":" + "502"
 	modbusClient, err = modbus.NewClient(&modbus.ClientConfiguration{
 		URL:     url,
 		Timeout: 1 * time.Second,
