@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-bin/sbam
+bin/
 
 # Test binary, built with `go test -c`
 *.test

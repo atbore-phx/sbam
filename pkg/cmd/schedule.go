@@ -35,7 +35,7 @@ var scdCmd = &cobra.Command{
 		} else if len(strings.TrimSpace(url)) == 0 {
 			fmt.Println("The --url flag must be set")
 			return
-		} else if isStartBeforeEnd(start_hr, end_hr) {
+		} else if !isStartBeforeEnd(start_hr, end_hr) {
 			fmt.Printf("start_hr %s is not before end_hr %s", start_hr, end_hr)
 			return
 		}
