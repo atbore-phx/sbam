@@ -7,6 +7,7 @@ import (
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -33,6 +34,9 @@ var scdCmd = &cobra.Command{
 			return
 		} else if len(strings.TrimSpace(url)) == 0 {
 			fmt.Println("The --url flag must be set")
+			return
+		} else if isStartBeforeEnd(start_hr, end_hr) {
+			fmt.Printf("start_hr %s is not before end_hr %s", start_hr, end_hr)
 			return
 		}
 
@@ -74,4 +78,25 @@ func init() {
 	viper.BindPFlag("end_hr", scdCmd.Flags().Lookup("end_hr"))
 	viper.BindPFlag("max_charge", scdCmd.Flags().Lookup("max_charge"))
 	rootCmd.AddCommand(scdCmd)
+}
+
+func isStartBeforeEnd(start, end string) bool {
+	// Define a layout for parsing time strings
+	layout := "15:04"
+
+	// Parse the time strings
+	startTime, err := time.Parse(layout, start)
+	if err != nil {
+		u.Log.Error("Something goes wrong parsing start time")
+		panic(err)
+	}
+
+	endTime, err := time.Parse(layout, end)
+	if err != nil {
+		u.Log.Error("Something goes wrong parsing end time")
+		panic(err)
+	}
+
+	// Compare the times
+	return startTime.Before(endTime)
 }

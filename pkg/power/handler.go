@@ -17,7 +17,7 @@ func (power *Power) Handler(apiKey string, url string) (float64, error) {
 		return production, err
 	}
 
-	day := checkMidnight(time.Now())
+	day := checkSun(time.Now())
 	production, err = GetTotalDayPowerEstimate(forecasts, day)
 	if err != nil {
 		u.Log.Errorln("Error getting total power estimate:", err)

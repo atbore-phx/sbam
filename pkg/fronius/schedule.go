@@ -68,10 +68,5 @@ func CheckTimeRange(start_hr string, end_hr string) (bool, error) {
 	startTime = time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 	endTime = time.Date(now.Year(), now.Month(), now.Day(), endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
 
-	// If the end time is before the start time, add 24 hours to it
-	if endTime.Before(startTime) {
-		endTime = endTime.Add(24 * time.Hour)
-	}
-
 	return (now.After(startTime) || now.Equal(startTime)) && (now.Before(endTime) || now.Equal(endTime)), nil
 }

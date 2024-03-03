@@ -2,8 +2,8 @@ package power
 
 import (
 	"encoding/json"
-	u "sbam/src/utils"
 	"net/http"
+	u "sbam/src/utils"
 	"time"
 )
 
@@ -44,17 +44,16 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 
 	// The calculated totalPower is in Wh
 	totalPower = totalPower * 1000
-	u.Log.Infof("Forecast Solar Power: %d W", int(totalPower))
+	u.Log.Infof("Forecast Solar Power %d/%d/%d: %d W", int(totalPower), day.Day(), day.Month(), day.Year())
 	return totalPower, nil
 }
 
-func checkMidnight(now time.Time) time.Time {
-	hour := now.Hour()
-	if hour < 12 {
+func checkSun(now time.Time) time.Time {
+
+	switch time := now; {
+	case time.Hour() < 12:
 		return now
-	} else if hour == 12 && now.Minute() == 0 && now.Second() == 0 {
-		return now
-	} else {
+	default:
 		return now.AddDate(0, 0, 1)
 	}
 }
