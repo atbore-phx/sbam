@@ -1,7 +1,7 @@
 package main
 
 import (
-	"ha-fronius-bm/pkg/cmd"
+	"sbam/pkg/cmd"
 )
 
 var (

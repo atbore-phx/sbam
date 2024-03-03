@@ -2,7 +2,7 @@ package power
 
 import (
 	"encoding/json"
-	u "ha-fronius-bm/src/utils"
+	u "sbam/src/utils"
 	"net/http"
 	"time"
 )

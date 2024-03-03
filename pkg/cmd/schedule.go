@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"ha-fronius-bm/pkg/fronius"
-	"ha-fronius-bm/pkg/power"
-	"ha-fronius-bm/pkg/storage"
-	u "ha-fronius-bm/src/utils"
+	"sbam/pkg/fronius"
+	"sbam/pkg/power"
+	"sbam/pkg/storage"
+	u "sbam/src/utils"
 	"strings"
 
 	"github.com/spf13/cobra"

@@ -1,7 +1,7 @@
 package storage
 
 import (
-	u "ha-fronius-bm/src/utils"
+	u "sbam/src/utils"
 )
 
 func New() *Storage {

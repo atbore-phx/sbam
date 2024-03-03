@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-bin/ha-fronius-bm
+bin/sbam
 
 # Test binary, built with `go test -c`
 *.test

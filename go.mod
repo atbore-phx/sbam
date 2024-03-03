@@ -1,4 +1,4 @@
-module ha-fronius-bm
+module sbam
 
 go 1.22.0
 

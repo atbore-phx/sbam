@@ -2,7 +2,7 @@ package power_test
 
 import (
 	"fmt"
-	"ha-fronius-bm/pkg/power"
+	"sbam/pkg/power"
 	"net/http"
 	"net/http/httptest"
 	"testing"

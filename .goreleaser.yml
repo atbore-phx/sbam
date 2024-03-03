@@ -3,8 +3,8 @@ before:
     - go mod tidy
 
 builds:
-  - id: "ha-fronius-bm"
-    binary: bin/ha-fronius-bm
+  - id: "sbam"
+    binary: bin/sbam
     env:
       - CGO_ENABLED=0
 changelog:

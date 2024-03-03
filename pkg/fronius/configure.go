@@ -3,7 +3,7 @@ package fronius
 import (
 	"fmt"
 
-	u "ha-fronius-bm/src/utils"
+	u "sbam/src/utils"
 
 	"github.com/simonvetter/modbus"
 )

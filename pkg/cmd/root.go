@@ -9,8 +9,8 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "ha-fronius-bm",
-	Short: "ha-fronius-bm handles battery charge using weather forecast",
+	Use:   "sbam",
+	Short: "sbam handles battery charge using weather forecast",
 	Long:  `initiate parameters from command line, env variables or config.yaml file.`,
 }
 

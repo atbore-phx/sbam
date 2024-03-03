@@ -1,7 +1,7 @@
 package fronius
 
 import (
-	u "ha-fronius-bm/src/utils"
+	u "sbam/src/utils"
 	"time"
 )
 

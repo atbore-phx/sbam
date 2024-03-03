@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"ha-fronius-bm/pkg/storage"
+	"sbam/pkg/storage"
 )
 
 var mockServer *httptest.Server

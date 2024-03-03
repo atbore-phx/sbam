@@ -3,7 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"errors"
-	u "ha-fronius-bm/src/utils"
+	u "sbam/src/utils"
 	"net/http"
 	"time"
 )

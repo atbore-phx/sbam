@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"ha-fronius-bm/pkg/fronius"
+	"sbam/pkg/fronius"
 	"strings"
 
 	"github.com/spf13/cobra"
