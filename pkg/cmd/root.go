@@ -10,8 +10,10 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
-	Short: "sbam handles battery charge using weather forecast",
-	Long:  `initiate parameters from command line, env variables or config.yaml file.`,
+	Short: "sbam",
+	Long: `sbam - Smart Battery Avanced Management.
+	Charge Fronius© battery using weather forecast.
+	Initiate parameters from command line, env variables or config.yaml file.`,
 }
 
 func Execute() {

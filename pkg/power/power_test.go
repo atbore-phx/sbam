@@ -2,9 +2,9 @@ package power_test
 
 import (
 	"fmt"
-	"sbam/pkg/power"
 	"net/http"
 	"net/http/httptest"
+	"sbam/pkg/power"
 	"testing"
 	"time"
 
@@ -65,8 +65,12 @@ func TestGetTotalDayPowerEstimate(t *testing.T) {
 
 func TestHandler(t *testing.T) {
 	now := time.Now()
+	tomorrow := now.AddDate(0, 0, 1)
 	pe := now.Format(time.RFC3339)
 	pe30 := now.Add(time.Minute * 30).Format(time.RFC3339)
+	pet := tomorrow.Format(time.RFC3339)
+	pet30 := tomorrow.Add(time.Minute * 30).Format(time.RFC3339)
+
 	// Create a mock HTTP server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -78,6 +82,14 @@ func TestHandler(t *testing.T) {
 				},
 				{
 					"period_end": "`+pe30+`",
+					"pv_estimate": 150
+				},
+				{
+					"period_end": "`+pet+`",
+					"pv_estimate": 100
+				},
+				{
+					"period_end": "`+pet30+`",
 					"pv_estimate": 150
 				}
 			]
