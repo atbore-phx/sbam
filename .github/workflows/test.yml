@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  - pull_request
+
+jobs:
+  build:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v4
+      - name: Git checkout
+        uses: actions/checkout@v4
+      - name: go testing
+        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: Upload coverage to codecov
+        uses: codecov/codecov-action@v4
+        with:
+              token: ${{ secrets.CODECOV_TOKEN }}
+              slug: atbore-phx/sbam

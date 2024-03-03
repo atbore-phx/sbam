@@ -1,0 +1,15 @@
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: "sbam"
+    binary: bin/sbam
+    env:
+      - CGO_ENABLED=0
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

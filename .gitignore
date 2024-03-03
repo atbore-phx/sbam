@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+bin/sbam
 
 # Test binary, built with `go test -c`
 *.test
@@ -19,3 +20,12 @@
 
 # Go workspace file
 go.work
+
+# env files
+.env*
+
+# config yaml files
+config.yaml
+
+#ide
+.vscode
