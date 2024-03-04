@@ -63,10 +63,14 @@ func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	return int16(value), nil
 }
 
-func Setdefaults(modbus_ip string) error {
+func Setdefaults(modbus_ip string, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
 	regList := mdsc
-	OpenModbusClient(modbus_ip)
+	OpenModbusClient(modbus_ip, p)
 
 	ReadFroniusModbusRegisters(regList)
 	WriteFroniusModbusRegisters(regList)
@@ -76,7 +80,11 @@ func Setdefaults(modbus_ip string) error {
 	return nil
 }
 
-func ForceCharge(modbus_ip string, power_prc int16) error {
+func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {
 		regList := mdsc
@@ -84,7 +92,7 @@ func ForceCharge(modbus_ip string, power_prc int16) error {
 		regList[StorCtl_Mod] = 2 // Limit Decharging
 		regList[OutWRte] = -100 * power_prc
 
-		OpenModbusClient(modbus_ip)
+		OpenModbusClient(modbus_ip, p)
 
 		ReadFroniusModbusRegisters(regList)
 		WriteFroniusModbusRegisters(regList)

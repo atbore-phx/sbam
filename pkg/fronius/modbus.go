@@ -10,8 +10,12 @@ import (
 var modbusClient *modbus.ModbusClient
 var err error
 
-func OpenModbusClient(url string) error {
-	url = "tcp://" + url + ":" + "502"
+func OpenModbusClient(url string, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	url = "tcp://" + url + ":" + p
 	modbusClient, err = modbus.NewClient(&modbus.ClientConfiguration{
 		URL:     url,
 		Timeout: 1 * time.Second,
