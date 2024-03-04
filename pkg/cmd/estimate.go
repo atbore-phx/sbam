@@ -36,7 +36,7 @@ var estCmd = &cobra.Command{
 		}
 
 		str := storage.New()
-		_, err = str.Handler(fronius_ip)
+		_, _, err = str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
