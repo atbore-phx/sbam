@@ -105,5 +105,14 @@ func TestHandler(t *testing.T) {
 	teardown()
 
 	assert.NoError(err, "Handler returned an error")
-	// assert.Equal(expectedValue, chargePc, "Handler returned wrong value")
+}
+
+func TestOpenCloseModbusClient(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+	err = fronius.OpenModbusClient(modbus_ip, modbus_port)
+	err = fronius.ClosemodbusClient()
+	teardown()
+	assert.NoError(err, "OpenModbusClient returned an error")
+
 }
