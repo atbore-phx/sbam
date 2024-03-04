@@ -99,7 +99,7 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 
 		ClosemodbusClient()
 	} else if power_prc == 0 {
-		Setdefaults(modbus_ip)
+		Setdefaults(modbus_ip, p)
 	} else {
 		panic(fmt.Errorf("someting goes wrong when force charging, percent of charging is negative: %d", power_prc))
 	}

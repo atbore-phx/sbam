@@ -18,7 +18,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		u.Log.Infof("Out time range start_time: %s - end_time: %s", start_hr, end_hr)
 		Setdefaults(fronius_ip, p)
 	} else if pw_batt2charge == 0 { // battery 100% => do not charge
-		u.Log.Infof("Battery to charge: %f%", pw_batt2charge)
+		u.Log.Infof("Battery to charge: %f %%", pw_batt2charge)
 		Setdefaults(fronius_ip, p)
 	} else { // in the time range
 		pw_pv_net := pw_forecast - pw_consumption
