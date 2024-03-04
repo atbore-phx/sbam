@@ -88,3 +88,22 @@ func TestForceCharge(t *testing.T) {
 
 	assert.NoError(t, err)
 }
+
+func TestHandler(t *testing.T) {
+	assert := assert.New(t)
+	fronius := fronius.New()
+
+	pwForecast := 1.0
+	pwBatt2charge := 1.0
+	pwConsumption := 1.0
+	maxCharge := 5
+	startHr := "09:00"
+	endHr := "17:00"
+
+	setup()
+	_, err := fronius.Handler(pwForecast, pwBatt2charge, pwConsumption, maxCharge, startHr, endHr, modbus_ip, modbus_port)
+	teardown()
+
+	assert.NoError(err, "Handler returned an error")
+	// assert.Equal(expectedValue, chargePc, "Handler returned wrong value")
+}
