@@ -3,8 +3,8 @@ package storage
 import (
 	"encoding/json"
 	"errors"
-	u "sbam/src/utils"
 	"net/http"
+	u "sbam/src/utils"
 	"time"
 )
 
@@ -35,7 +35,7 @@ func GetStorage(fronius_ip string) (Batteries, error) {
 	return batteries, nil
 }
 
-func GetCapacityStorage2Charge(batteries Batteries) (float64, error) {
+func GetCapacityStorage2Charge(batteries Batteries) (float64, float64, error) {
 	capacity := 0.0
 	status := 0.0
 	disabled := true
@@ -50,9 +50,10 @@ func GetCapacityStorage2Charge(batteries Batteries) (float64, error) {
 
 	if disabled {
 		err := errors.New("Battery Cluster is disabled")
-		return capacity - status, err
+		return capacity - status, capacity, err
 	}
 	tc := capacity - status
 	u.Log.Infof("Battery Capacity to charge: %d W", int(tc))
-	return tc, nil
+	u.Log.Infof("Battery Capacity Max: %d W", int(capacity))
+	return tc, capacity, nil
 }

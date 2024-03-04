@@ -47,14 +47,14 @@ var scdCmd = &cobra.Command{
 		}
 
 		str := storage.New()
-		capacity2charge, err := str.Handler(fronius_ip)
+		capacity2charge, capacity_max, err := str.Handler(fronius_ip)
 		if err != nil {
 			panic(err)
 		}
 		u.Log.Infof("your Daily consumption is:%d W", int(pw_consumption))
 
 		scd := fronius.New()
-		_, err = scd.Handler(solarPowerProduction, capacity2charge, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
+		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
 		if err != nil {
 			panic(err)
 		}
