@@ -40,7 +40,7 @@ func OpenModbusClient(url string, port ...string) error {
 }
 
 func ClosemodbusClient() error {
-	modbusClient.Close()
+	err = modbusClient.Close()
 	if err != nil {
 		u.Log.Error("Someting goes wrong closing Modbus Client")
 		return err
