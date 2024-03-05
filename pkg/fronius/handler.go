@@ -1,5 +1,7 @@
 package fronius
 
+import u "sbam/src/utils"
+
 func New() *Fronius {
 	return &Fronius{}
 }
@@ -10,7 +12,11 @@ func (fronius *Fronius) Handler(pw_forecast float64, pw_batt2charge float64, pw_
 		p = fronius_port[0]
 	}
 
-	charge_pc, _ := SetFroniusChargeBatteryMode(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, p)
+	charge_pc, err := SetFroniusChargeBatteryMode(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, p)
+	if err != nil {
+		u.Log.Errorln("Error setting Fronius Battery charge: %s ", err)
+		return charge_pc, err
+	}
 
 	return charge_pc, nil
 

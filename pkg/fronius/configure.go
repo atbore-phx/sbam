@@ -1,8 +1,7 @@
 package fronius
 
 import (
-	"fmt"
-
+	"errors"
 	u "sbam/src/utils"
 
 	"github.com/simonvetter/modbus"
@@ -33,7 +32,7 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 		err = modbusClient.WriteRegister(r-1, uint16(v))
 		if err != nil {
 			u.Log.Errorf("Something goes wrong writing the register: %d, value: %d", r, v)
-			panic(err)
+			return err
 		}
 	}
 	return nil
@@ -46,7 +45,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 		u.Log.Infof("Reading register: %d ; value: %v", r, value)
 		if err != nil {
 			u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", r, v)
-			panic(err)
+			return values, err
 		}
 		values = append(values, int16(value))
 	}
@@ -58,7 +57,7 @@ func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	u.Log.Infof("Reading register: %d ; value: %v", address, value)
 	if err != nil {
 		u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", address, value)
-		panic(err)
+		return int16(value), err
 	}
 	return int16(value), nil
 }
@@ -70,12 +69,11 @@ func Setdefaults(modbus_ip string, port ...string) error {
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
 	regList := mdsc
-	OpenModbusClient(modbus_ip, p)
-
-	ReadFroniusModbusRegisters(regList)
-	WriteFroniusModbusRegisters(regList)
-
-	ClosemodbusClient()
+	err = Connectmodbus(modbus_ip, regList, p)
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
 	u.Log.Info("Setting Fronius Modbus Defaults done.")
 	return nil
 }
@@ -92,17 +90,50 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 		regList[StorCtl_Mod] = 2 // Limit Decharging
 		regList[OutWRte] = -100 * power_prc
 
-		OpenModbusClient(modbus_ip, p)
+		err = Connectmodbus(modbus_ip, regList, p)
+		if err != nil {
+			u.Log.Errorf("Something goes wrong %s", err)
+			return err
+		}
 
-		ReadFroniusModbusRegisters(regList)
-		WriteFroniusModbusRegisters(regList)
-
-		ClosemodbusClient()
 	} else if power_prc == 0 {
 		Setdefaults(modbus_ip, p)
 	} else {
-		panic(fmt.Errorf("someting goes wrong when force charging, percent of charging is negative: %d", power_prc))
+		err = errors.New("percent of charging is negative")
+		u.Log.Errorf("someting goes wrong when force charging, %s", err)
+		return err
 	}
 	u.Log.Info("Setting Fronius Storage Force Charge done.")
+	return nil
+}
+
+func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	err = OpenModbusClient(url, p)
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
+
+	_, err = ReadFroniusModbusRegisters(regList)
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
+	err = WriteFroniusModbusRegisters(regList)
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
+
+	err = ClosemodbusClient()
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
+
 	return nil
 }

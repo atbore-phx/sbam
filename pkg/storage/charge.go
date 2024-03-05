@@ -16,12 +16,14 @@ func GetStorage(fronius_ip string) (Batteries, error) {
 	url := "http://" + fronius_ip + Req_url
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		u.Log.Errorf("Something goes wrong creating the http request: %s", err)
 		return Batteries{}, err
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		u.Log.Errorf("Something goes wrong opening http connection: %s", err)
 		return Batteries{}, err
 	}
 	defer resp.Body.Close()
@@ -29,6 +31,7 @@ func GetStorage(fronius_ip string) (Batteries, error) {
 	var batteries Batteries
 	err = json.NewDecoder(resp.Body).Decode(&batteries)
 	if err != nil {
+		u.Log.Errorf("Something goes wrong retriving json: %s", err)
 		return Batteries{}, err
 	}
 
