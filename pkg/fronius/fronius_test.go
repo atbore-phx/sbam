@@ -80,13 +80,18 @@ func TestSetdefaults(t *testing.T) {
 }
 
 func TestForceCharge(t *testing.T) {
-	power_prc := int16(50)
 
-	setup()
-	err := fronius.ForceCharge(modbus_ip, power_prc, modbus_port)
-	teardown()
+	test_power_prc := []int16{
+		50,
+		0,
+	}
 
-	assert.NoError(t, err)
+	for _, power_prc := range test_power_prc {
+		setup()
+		err := fronius.ForceCharge(modbus_ip, power_prc, modbus_port)
+		teardown()
+		assert.NoError(t, err)
+	}
 }
 
 func TestHandler(t *testing.T) {
@@ -126,6 +131,7 @@ func TestSetChargePower(t *testing.T) {
 
 	result = fronius.SetChargePower(100.0, 80.0, 50.0)
 	assert.Equal(int16(50), result, "SetChargePower returned wrong value")
+
 }
 
 func TestCheckTimeRange(t *testing.T) {
@@ -145,7 +151,7 @@ func TestBatteryChargeMode1(t *testing.T) {
 	setup()
 	result, err := fronius.SetFroniusChargeBatteryMode(1000, 0, 11000, 9000, 3500, "00:00", "05:00", modbus_ip, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
-	assert.NoError(err, "CheckTimeRange returned an error")
+	assert.NoError(err)
 
 	teardown()
 }
@@ -156,7 +162,7 @@ func TestBatteryChargeMode2(t *testing.T) {
 
 	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, "00:00", "23:59", modbus_ip, modbus_port)
 	assert.Equal(int16(31), result, "SetFroniusChargeBatteryMode returned wrong value")
-	assert.NoError(err, "CheckTimeRange returned an error")
+	assert.NoError(err)
 
 	teardown()
 }
@@ -167,7 +173,18 @@ func TestBatteryChargeMode3(t *testing.T) {
 
 	result, err := fronius.SetFroniusChargeBatteryMode(10000, 5000, 11000, 9000, 3500, "00:00", "23:59", modbus_ip, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
-	assert.NoError(err, "CheckTimeRange returned an error")
+	assert.NoError(err)
+
+	teardown()
+}
+
+func TestBatteryChargeMode4(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+
+	result, err := fronius.SetFroniusChargeBatteryMode(10000, 0, 11000, 9000, 3500, "00:00", "23:59", modbus_ip, modbus_port)
+	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
+	assert.NoError(err)
 
 	teardown()
 }

@@ -11,12 +11,12 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
 	Short: "sbam",
-	Long: `sbam - Smart Battery Avanced Management.
+	Long: `sbam - Smart Battery Avanced Manager.
 	Charge Fronius© battery using weather forecast.
 	Initiate parameters from command line, env variables or config.yaml file.`,
 }
 
-func Execute() {
+func Execute() error {
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -28,6 +28,7 @@ func Execute() {
 			os.Exit(0)
 		}
 	}
+	return nil
 }
 
 func init() {
@@ -43,6 +44,7 @@ func init() {
 	}
 }
 
-func SetVersionInfo(version, commit, date string) {
+func SetVersionInfo(version, commit, date string) error {
 	rootCmd.Version = fmt.Sprintf("%s (Built on %s from Git SHA %s)", version, date, commit)
+	return nil
 }
