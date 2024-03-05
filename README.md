@@ -67,7 +67,8 @@ Flags:
   -e, --end_hr string          END_HR (default "06:00")
   -H, --fronius_ip string      FRONIUS_IP
   -h, --help                   help for schedule
-  -m, --max_charge int         MAX_CHARGE (default 3500)
+  -m, --max_charge float         MAX_CHARGE (default 3500)
+  -r, --pw_batt_reserve float   PW_BATT_RESERVE
   -c, --pw_consumption float   PW_CONSUMPTION
   -s, --start_hr string        START_HR (default "00:00")
   -u, --url string             URL
