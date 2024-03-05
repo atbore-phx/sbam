@@ -24,7 +24,8 @@ var scdCmd = &cobra.Command{
 		pw_consumption := viper.GetFloat64("pw_consumption")
 		start_hr := viper.GetString("start_hr")
 		end_hr := viper.GetString("end_hr")
-		max_charge := viper.GetInt("max_charge")
+		max_charge := viper.GetFloat64("max_charge")
+		pw_batt_reserve := viper.GetFloat64("pw_batt_reserve")
 
 		if len(strings.TrimSpace(fronius_ip)) == 0 {
 			fmt.Println("The --fronius_ip flag must be set")
@@ -54,7 +55,7 @@ var scdCmd = &cobra.Command{
 		u.Log.Infof("your Daily consumption is:%d W", int(pw_consumption))
 
 		scd := fronius.New()
-		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, start_hr, end_hr, fronius_ip)
+		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip)
 		if err != nil {
 			panic(err)
 		}
@@ -68,7 +69,8 @@ func init() {
 	scdCmd.Flags().StringP("start_hr", "s", "00:00", "START_HR")
 	scdCmd.Flags().StringP("end_hr", "e", "06:00", "END_HR")
 	scdCmd.Flags().Float64P("pw_consumption", "c", 0.0, "PW_CONSUMPTION")
-	scdCmd.Flags().IntP("max_charge", "m", 3500, "MAX_CHARGE")
+	scdCmd.Flags().Float64P("max_charge", "m", 3500, "MAX_CHARGE")
+	scdCmd.Flags().Float64P("pw_batt_reserve", "r", 0, "PW_BATT_RESERVE")
 
 	viper.BindPFlag("url", scdCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", scdCmd.Flags().Lookup("apikey"))
@@ -77,6 +79,8 @@ func init() {
 	viper.BindPFlag("start_hr", scdCmd.Flags().Lookup("start_hr"))
 	viper.BindPFlag("end_hr", scdCmd.Flags().Lookup("end_hr"))
 	viper.BindPFlag("max_charge", scdCmd.Flags().Lookup("max_charge"))
+	viper.BindPFlag("pw_batt_reserve", scdCmd.Flags().Lookup("pw_batt_reserve"))
+
 	rootCmd.AddCommand(scdCmd)
 }
 
