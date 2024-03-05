@@ -14,26 +14,50 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	pw_pv_net := pw_forecast - pw_consumption // Net solar power
 	pw_batt := pw_batt_max - pw_batt2charge   // actual battery power
 
-	time, _ := CheckTimeRange(start_hr, end_hr)
-
+	time, err := CheckTimeRange(start_hr, end_hr)
+	if err != nil {
+		u.Log.Errorln("Error checking time range: %s ", err)
+		return ch_pc, err
+	}
 	switch {
 	case !time: // out of the time range => do not charge
 		u.Log.Infof("Out time range start_time: %s - end_time: %s", start_hr, end_hr)
-		Setdefaults(fronius_ip, p)
+		err = Setdefaults(fronius_ip, p)
+		if err != nil {
+			u.Log.Errorln("Error Setting Defaults: %s ", err)
+			return ch_pc, err
+		}
 	case pw_batt2charge == 0: // battery 100% => do not charge
 		u.Log.Info("Battery is full charged")
-		Setdefaults(fronius_ip, p)
+		err = Setdefaults(fronius_ip, p)
+		if err != nil {
+			u.Log.Errorln("Error Setting Defaults: %s ", err)
+			return ch_pc, err
+		}
 	case pw_batt < pw_batt_reserve: // battery is less than reserve => charge
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve, max_charge)
-		ForceCharge(fronius_ip, ch_pc, p)
+		err = ForceCharge(fronius_ip, ch_pc, p)
+		if err != nil {
+			u.Log.Errorln("Error forcing charge: %s ", err)
+			return ch_pc, err
+		}
 
 	default:
 		pw_grid, charge_enabled := ChargeBattery(pw_pv_net, pw_batt)
+
 		if charge_enabled {
 			ch_pc = SetChargePower(pw_batt_max, -1*pw_grid, max_charge)
-			ForceCharge(fronius_ip, ch_pc, p)
+			err = ForceCharge(fronius_ip, ch_pc, p)
+			if err != nil {
+				u.Log.Errorln("Error forcing charge: %s ", err)
+				return ch_pc, err
+			}
 		} else {
-			Setdefaults(fronius_ip, p)
+			err = Setdefaults(fronius_ip, p)
+			if err != nil {
+				u.Log.Errorln("Error Setting Defaults: %s ", err)
+				return ch_pc, err
+			}
 		}
 
 	}
@@ -73,13 +97,13 @@ func CheckTimeRange(start_hr string, end_hr string) (bool, error) {
 	startTime, err := time.Parse(layout, start_hr)
 	if err != nil {
 		u.Log.Error("Something goes wrong parsing start time")
-		panic(err)
+		return false, err
 	}
 
 	endTime, err := time.Parse(layout, end_hr)
 	if err != nil {
 		u.Log.Error("Something goes wrong parsing end time")
-		panic(err)
+		return false, err
 	}
 
 	// Convert the current time to a time.Time value for today's date with the hour and minute set to the parsed start and end times

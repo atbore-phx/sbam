@@ -22,17 +22,17 @@ func OpenModbusClient(url string, port ...string) error {
 	})
 	if err != nil {
 		u.Log.Error("Someting goes wrong configuring Modbus Client")
-		panic(err)
+		return err
 	}
 	err = modbusClient.Open()
 	if err != nil {
 		u.Log.Error("Someting goes wrong opening Modbus Client")
-		panic(err)
+		return err
 	}
 	err = modbusClient.SetUnitId(1)
 	if err != nil {
 		u.Log.Error("Someting goes wrong setting Modbus Client SlaveID")
-		panic(err)
+		return err
 	}
 
 	return nil
@@ -43,7 +43,7 @@ func ClosemodbusClient() error {
 	modbusClient.Close()
 	if err != nil {
 		u.Log.Error("Someting goes wrong closing Modbus Client")
-		panic(err)
+		return err
 	}
 
 	return nil
