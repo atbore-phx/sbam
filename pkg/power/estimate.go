@@ -48,7 +48,7 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 	return totalPower, nil
 }
 
-func checkSun(now time.Time) time.Time {
+func CheckSun(now time.Time) time.Time {
 
 	switch time := now; {
 	case time.Hour() < 12:

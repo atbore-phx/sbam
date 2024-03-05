@@ -57,10 +57,26 @@ func TestGetTotalDayPowerEstimate(t *testing.T) {
 	}
 
 	day, _ := time.Parse("2006-01-02", "2023-06-29")
-	//tomorrow = tomorrow.AddDate(0, 0, 0)
 	totalPower, err := power.GetTotalDayPowerEstimate(forecasts, day)
 	assert.NoError(t, err)
 	assert.Equal(t, 125000.0, totalPower)
+}
+
+func TestErrorGetTotalDayPowerEstimate(t *testing.T) {
+	forecasts := power.Forecasts{
+		Forecasts: []power.Forecast{
+			{
+				PeriodEnd:  "InvalidTime",
+				PVEstimate: 100,
+			},
+		},
+	}
+
+	day, _ := time.Parse("2006-01-02", "2023-06-29")
+	_, err := power.GetTotalDayPowerEstimate(forecasts, day)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing time \"InvalidTime\"")
+
 }
 
 func TestHandler(t *testing.T) {
@@ -104,4 +120,30 @@ func TestHandler(t *testing.T) {
 	production, err := power.Handler("apiKey", ts.URL)
 	assert.NoError(t, err)
 	assert.Equal(t, 125000.0, production)
+}
+
+func TestCheckSun(t *testing.T) {
+	tests := []struct {
+		name         string
+		time         time.Time
+		expectedTime time.Time
+	}{
+		{
+			name:         "Check time before noon",
+			time:         time.Date(2022, 1, 1, 10, 0, 0, 0, time.UTC),
+			expectedTime: time.Date(2022, 1, 1, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			name:         "Check time after noon",
+			time:         time.Date(2022, 1, 1, 14, 0, 0, 0, time.UTC),
+			expectedTime: time.Date(2022, 1, 2, 14, 0, 0, 0, time.UTC),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actualTime := power.CheckSun(test.time)
+			assert.Equal(t, test.expectedTime, actualTime)
+		})
+	}
 }
