@@ -25,7 +25,8 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	case pw_batt2charge == 0: // battery 100% => do not charge
 		u.Log.Info("Battery is full charged")
 	case pw_batt < pw_batt_reserve: // battery is less than reserve => charge
-		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve, max_charge)
+		u.Log.Infof("battery %f W < reserve %f W", pw_batt, pw_batt_reserve)
+		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw_batt, max_charge)
 	default:
 		pw_grid, charge_enabled := ChargeBattery(pw_pv_net, pw_batt)
 		if charge_enabled {
