@@ -69,7 +69,50 @@ func Setdefaults(modbus_ip string, port ...string) error {
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
 	regList := mdsc
-	err = OpenModbusClient(modbus_ip, p)
+	err = Connectmodbus(modbus_ip, regList, p)
+	if err != nil {
+		u.Log.Errorf("Something goes wrong %s", err)
+		return err
+	}
+	u.Log.Info("Setting Fronius Modbus Defaults done.")
+	return nil
+}
+
+func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
+	if power_prc > 0 {
+		regList := mdsc
+
+		regList[StorCtl_Mod] = 2 // Limit Decharging
+		regList[OutWRte] = -100 * power_prc
+
+		err = Connectmodbus(modbus_ip, regList, p)
+		if err != nil {
+			u.Log.Errorf("Something goes wrong %s", err)
+			return err
+		}
+
+	} else if power_prc == 0 {
+		Setdefaults(modbus_ip, p)
+	} else {
+		err = errors.New("percent of charging is negative")
+		u.Log.Errorf("someting goes wrong when force charging, %s", err)
+		return err
+	}
+	u.Log.Info("Setting Fronius Storage Force Charge done.")
+	return nil
+}
+
+func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	err = OpenModbusClient(url, p)
 	if err != nil {
 		u.Log.Errorf("Something goes wrong %s", err)
 		return err
@@ -91,51 +134,6 @@ func Setdefaults(modbus_ip string, port ...string) error {
 		u.Log.Errorf("Something goes wrong %s", err)
 		return err
 	}
-	u.Log.Info("Setting Fronius Modbus Defaults done.")
-	return nil
-}
 
-func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
-	p := "502"
-	if len(port) > 0 {
-		p = port[0]
-	}
-	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
-	if power_prc > 0 {
-		regList := mdsc
-
-		regList[StorCtl_Mod] = 2 // Limit Decharging
-		regList[OutWRte] = -100 * power_prc
-
-		err = OpenModbusClient(modbus_ip, p)
-		if err != nil {
-			u.Log.Errorf("Something goes wrong %s", err)
-			return err
-		}
-
-		_, err = ReadFroniusModbusRegisters(regList)
-		if err != nil {
-			u.Log.Errorf("Something goes wrong %s", err)
-			return err
-		}
-		err = WriteFroniusModbusRegisters(regList)
-		if err != nil {
-			u.Log.Errorf("Something goes wrong %s", err)
-			return err
-		}
-
-		err = ClosemodbusClient()
-		if err != nil {
-			u.Log.Errorf("Something goes wrong %s", err)
-			return err
-		}
-	} else if power_prc == 0 {
-		Setdefaults(modbus_ip, p)
-	} else {
-		err = errors.New("percent of charging is negative")
-		u.Log.Errorf("someting goes wrong when force charging, %s", err)
-		return err
-	}
-	u.Log.Info("Setting Fronius Storage Force Charge done.")
 	return nil
 }

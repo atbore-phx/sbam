@@ -22,44 +22,29 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	switch {
 	case !time: // out of the time range => do not charge
 		u.Log.Infof("Out time range start_time: %s - end_time: %s", start_hr, end_hr)
-		err = Setdefaults(fronius_ip, p)
-		if err != nil {
-			u.Log.Errorln("Error Setting Defaults: %s ", err)
-			return ch_pc, err
-		}
 	case pw_batt2charge == 0: // battery 100% => do not charge
 		u.Log.Info("Battery is full charged")
-		err = Setdefaults(fronius_ip, p)
-		if err != nil {
-			u.Log.Errorln("Error Setting Defaults: %s ", err)
-			return ch_pc, err
-		}
 	case pw_batt < pw_batt_reserve: // battery is less than reserve => charge
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve, max_charge)
+	default:
+		pw_grid, charge_enabled := ChargeBattery(pw_pv_net, pw_batt)
+		if charge_enabled {
+			ch_pc = SetChargePower(pw_batt_max, -1*pw_grid, max_charge)
+		}
+	}
+
+	if ch_pc != 0 {
 		err = ForceCharge(fronius_ip, ch_pc, p)
 		if err != nil {
 			u.Log.Errorln("Error forcing charge: %s ", err)
 			return ch_pc, err
 		}
-
-	default:
-		pw_grid, charge_enabled := ChargeBattery(pw_pv_net, pw_batt)
-
-		if charge_enabled {
-			ch_pc = SetChargePower(pw_batt_max, -1*pw_grid, max_charge)
-			err = ForceCharge(fronius_ip, ch_pc, p)
-			if err != nil {
-				u.Log.Errorln("Error forcing charge: %s ", err)
-				return ch_pc, err
-			}
-		} else {
-			err = Setdefaults(fronius_ip, p)
-			if err != nil {
-				u.Log.Errorln("Error Setting Defaults: %s ", err)
-				return ch_pc, err
-			}
+	} else {
+		err = Setdefaults(fronius_ip, p)
+		if err != nil {
+			u.Log.Errorln("Error Setting Defaults: %s ", err)
+			return ch_pc, err
 		}
-
 	}
 
 	return ch_pc, nil
