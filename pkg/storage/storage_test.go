@@ -14,30 +14,38 @@ import (
 
 var mockServer *httptest.Server
 
-func setup() {
+var resp string = `{
+	"Body" : {
+	   "Data" : {
+		  "0" : {
+			 "Controller" : {
+				"DesignedCapacity" : 11059.0,
+				"Enable" : 1,
+				"StateOfCharge_Relative" : 82.0
+			 }
+			},
+			 "1" : {
+				"Controller" : {
+				   "DesignedCapacity" : 13809.0,
+				   "Enable" : 1,
+				   "StateOfCharge_Relative" : 70.0
+			 }
+		  }
+	   }
+	}
+}`
+
+var respJsonErr string = `{
+	"Body" : {
+	   "Data" : {
+		  3
+}`
+
+func setup(response string) {
 
 	mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
-			"Body" : {
-			   "Data" : {
-				  "0" : {
-					 "Controller" : {
-						"DesignedCapacity" : 11059.0,
-						"Enable" : 1,
-						"StateOfCharge_Relative" : 82.0
-					 }
-					},
-					 "1" : {
-						"Controller" : {
-						   "DesignedCapacity" : 13809.0,
-						   "Enable" : 1,
-						   "StateOfCharge_Relative" : 70.0
-					 }
-				  }
-			   }
-			}
-}`)
+		fmt.Fprint(w, response)
 	}))
 
 }
@@ -47,7 +55,7 @@ func teardown() {
 }
 
 func TestGetStorage(t *testing.T) {
-	setup()
+	setup(resp)
 	ip := strings.TrimPrefix(mockServer.URL, "http://")
 	batteries, err := storage.GetStorage(ip)
 	if err != nil {
@@ -61,8 +69,27 @@ func TestGetStorage(t *testing.T) {
 	teardown()
 }
 
+func TestGetStorageError1(t *testing.T) {
+	setup(respJsonErr)
+	ip := strings.TrimPrefix(mockServer.URL, "http://")
+	_, err := storage.GetStorage(ip)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid character '3'")
+
+	teardown()
+}
+
+func TestGetStorageError2(t *testing.T) {
+	ip := "|"
+	_, err := storage.GetStorage(ip)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "|")
+}
+
 func TestGetCapacityStorage2Charge(t *testing.T) {
-	setup()
+	setup(resp)
 
 	ip := strings.TrimPrefix(mockServer.URL, "http://")
 	batteries, err := storage.GetStorage(ip)
@@ -81,7 +108,7 @@ func TestGetCapacityStorage2Charge(t *testing.T) {
 }
 
 func TestGetCapacityStorageMax(t *testing.T) {
-	setup()
+	setup(resp)
 
 	ip := strings.TrimPrefix(mockServer.URL, "http://")
 	batteries, err := storage.GetStorage(ip)
@@ -99,60 +126,8 @@ func TestGetCapacityStorageMax(t *testing.T) {
 	teardown()
 }
 
-func TestHandler(t *testing.T) {
-	setup()
-
-	st := storage.New()
-	ip := strings.TrimPrefix(mockServer.URL, "http://")
-	charge, charge_max, err := st.Handler(ip)
-	if err != nil {
-		t.Errorf("Error getting storage charge: %s", err)
-	}
-	assert.Equal(t, 6133.32, charge)
-	assert.Equal(t, 24868.0, charge_max)
-	assert.NoError(t, err)
-
-	teardown()
-}
-
-func TestHandlerError(t *testing.T) {
-	setup()
-
-	storage := storage.New()
-
-	mockServer.Close() // Simulate an error by closing the mock server
-
-	charge, charge_max, err := storage.Handler(mockServer.URL)
-	assert.Equal(t, float64(0), charge)
-	assert.Equal(t, float64(0), charge_max)
-	assert.Error(t, err)
-
-	teardown()
-}
-
-func TestHandlerError2(t *testing.T) {
-	setup()
-
-	st := storage.New()
-
-	mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == storage.Req_url {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		} else {
-			http.Error(w, "Not Found", http.StatusNotFound)
-		}
-	}))
-
-	charge, charge_max, err := st.Handler(mockServer.URL)
-	assert.Equal(t, float64(0), charge)
-	assert.Equal(t, float64(0), charge_max)
-	assert.Error(t, err)
-
-	teardown()
-}
-
 func TestGetCapacityStorage2ChargeError(t *testing.T) {
-	setup()
+	setup(resp)
 
 	controller := storage.Controller{
 		Enable: 0,
@@ -176,6 +151,58 @@ func TestGetCapacityStorage2ChargeError(t *testing.T) {
 	capacity, capacity_max, err := storage.GetCapacityStorage2Charge(batteries)
 	assert.Equal(t, float64(0), capacity)
 	assert.Equal(t, float64(0), capacity_max)
+	assert.Error(t, err)
+
+	teardown()
+}
+
+func TestHandler(t *testing.T) {
+	setup(resp)
+
+	st := storage.New()
+	ip := strings.TrimPrefix(mockServer.URL, "http://")
+	charge, charge_max, err := st.Handler(ip)
+	if err != nil {
+		t.Errorf("Error getting storage charge: %s", err)
+	}
+	assert.Equal(t, 6133.32, charge)
+	assert.Equal(t, 24868.0, charge_max)
+	assert.NoError(t, err)
+
+	teardown()
+}
+
+func TestHandlerError(t *testing.T) {
+	setup(resp)
+
+	storage := storage.New()
+
+	mockServer.Close() // Simulate an error by closing the mock server
+
+	charge, charge_max, err := storage.Handler(mockServer.URL)
+	assert.Equal(t, float64(0), charge)
+	assert.Equal(t, float64(0), charge_max)
+	assert.Error(t, err)
+
+	teardown()
+}
+
+func TestHandlerError2(t *testing.T) {
+	setup(resp)
+
+	st := storage.New()
+
+	mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == storage.Req_url {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		} else {
+			http.Error(w, "Not Found", http.StatusNotFound)
+		}
+	}))
+
+	charge, charge_max, err := st.Handler(mockServer.URL)
+	assert.Equal(t, float64(0), charge)
+	assert.Equal(t, float64(0), charge_max)
 	assert.Error(t, err)
 
 	teardown()
