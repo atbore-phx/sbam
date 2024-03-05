@@ -35,6 +35,27 @@ var resp string = `{
 	}
 }`
 
+var respBD string = `{
+	"Body" : {
+	   "Data" : {
+		  "0" : {
+			 "Controller" : {
+				"DesignedCapacity" : 11059.0,
+				"Enable" : 0,
+				"StateOfCharge_Relative" : 82.0
+			 }
+			},
+			 "1" : {
+				"Controller" : {
+				   "DesignedCapacity" : 13809.0,
+				   "Enable" : 0,
+				   "StateOfCharge_Relative" : 70.0
+			 }
+		  }
+	   }
+	}
+}`
+
 var respJsonErr string = `{
 	"Body" : {
 	   "Data" : {
@@ -201,6 +222,20 @@ func TestHandlerError2(t *testing.T) {
 	}))
 
 	charge, charge_max, err := st.Handler(mockServer.URL)
+	assert.Equal(t, float64(0), charge)
+	assert.Equal(t, float64(0), charge_max)
+	assert.Error(t, err)
+
+	teardown()
+}
+
+func TestHandlerError3(t *testing.T) {
+	setup(respBD)
+
+	st := storage.New()
+	ip := strings.TrimPrefix(mockServer.URL, "http://")
+
+	charge, charge_max, err := st.Handler(ip)
 	assert.Equal(t, float64(0), charge)
 	assert.Equal(t, float64(0), charge_max)
 	assert.Error(t, err)
