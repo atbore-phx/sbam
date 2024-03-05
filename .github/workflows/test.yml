@@ -4,7 +4,7 @@ on:
   - pull_request
 
 jobs:
-  build:
+  tests:
     name: Tests
     runs-on: ubuntu-latest
     steps:
@@ -19,3 +19,5 @@ jobs:
         with:
               token: ${{ secrets.CODECOV_TOKEN }}
               slug: atbore-phx/sbam
+      - name: Build
+        run: make build
