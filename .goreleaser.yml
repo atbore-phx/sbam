@@ -2,11 +2,15 @@ before:
   hooks:
     - go mod tidy
 
+release:
+  prerelease: true
+
 builds:
   - id: "sbam"
     binary: bin/sbam
     env:
       - CGO_ENABLED=0
+
 changelog:
   sort: asc
   filters:

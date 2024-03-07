@@ -1,0 +1,11 @@
+{
+  "name": "sbam",
+  "version": "1.3.0",
+  "slug": "sbam",
+  "description": "Smart Battery Avanced Manager",
+  "arch": [
+    "amd64"
+  ],
+  "url": "https://github.com/atbore-phx/sbam",
+  "image": "ghcr.io/atbore-phx/ha-sbam"
+}
