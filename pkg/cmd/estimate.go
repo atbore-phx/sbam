@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
 	"sbam/pkg/power"
 	"sbam/pkg/storage"
+	u "sbam/src/utils"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,28 +19,14 @@ var estCmd = &cobra.Command{
 		url := viper.GetString("url")
 		apiKey := viper.GetString("apikey")
 		fronius_ip := viper.GetString("fronius_ip")
-		if len(strings.TrimSpace(fronius_ip)) == 0 {
-			fmt.Println("The --fronius_ip flag must be set")
-			return
-		} else if len(strings.TrimSpace(apiKey)) == 0 {
-			fmt.Println("The --apiKey flag must be set")
-			return
-		} else if len(strings.TrimSpace(url)) == 0 {
-			fmt.Println("The --url flag must be set")
-			return
-		}
 
-		pwr := power.New()
-		_, err := pwr.Handler(apiKey, url)
+		err := CheckEstimate(apiKey, url, fronius_ip)
 		if err != nil {
-			panic(err)
+			u.Log.Error(err)
+			return
 		}
+		estimate(apiKey, url, fronius_ip)
 
-		str := storage.New()
-		_, _, err = str.Handler(fronius_ip)
-		if err != nil {
-			panic(err)
-		}
 	},
 }
 
@@ -51,4 +38,34 @@ func init() {
 	viper.BindPFlag("apikey", estCmd.Flags().Lookup("apikey"))
 	viper.BindPFlag("fronius_ip", estCmd.Flags().Lookup("fronius_ip"))
 	rootCmd.AddCommand(estCmd)
+}
+
+func CheckEstimate(apiKey string, url string, fronius_ip string) error {
+	if len(strings.TrimSpace(fronius_ip)) == 0 {
+		err := errors.New("the --fronius_ip flag must be set")
+		return err
+	} else if len(strings.TrimSpace(apiKey)) == 0 {
+		err := errors.New("the --apiKey flag must be set")
+		return err
+	} else if len(strings.TrimSpace(url)) == 0 {
+		err := errors.New("the --url flag must be set")
+		return err
+	}
+	return nil
+}
+
+func estimate(apiKey string, url string, fronius_ip string) {
+	pwr := power.New()
+	_, err := pwr.Handler(apiKey, url)
+	if err != nil {
+		u.Log.Error(err)
+		panic(err)
+	}
+
+	str := storage.New()
+	_, _, err = str.Handler(fronius_ip)
+	if err != nil {
+		u.Log.Error(err)
+		panic(err)
+	}
 }

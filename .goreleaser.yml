@@ -2,9 +2,6 @@ before:
   hooks:
     - go mod tidy
 
-release:
-  prerelease: true
-
 builds:
   - id: "sbam"
     binary: bin/sbam

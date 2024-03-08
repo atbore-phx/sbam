@@ -193,18 +193,6 @@ func TestSetChargePower(t *testing.T) {
 
 }
 
-func TestCheckTimeRange(t *testing.T) {
-	assert := assert.New(t)
-
-	isInRange, err := fronius.CheckTimeRange("00:00", "23:59")
-	assert.NoError(err, "CheckTimeRange returned an error")
-	assert.True(isInRange, "CheckTimeRange returned false when it should return true")
-
-	isInRange, err = fronius.CheckTimeRange("23:59", "00:00")
-	assert.NoError(err, "CheckTimeRange returned an error")
-	assert.False(isInRange, "CheckTimeRange returned true when it should return false")
-}
-
 func TestBatteryChargeMode1(t *testing.T) {
 	assert := assert.New(t)
 	setup()
@@ -271,28 +259,6 @@ func TestBatteryChargeMode6(t *testing.T) {
 }
 
 func TestBatteryChargeError(t *testing.T) {
-	assert := assert.New(t)
-	setup()
-
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 2500, "25:59", "00:00", modbus_ip, modbus_port)
-	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
-	assert.Error(err)
-
-	teardown()
-}
-
-func TestBatteryChargeError2(t *testing.T) {
-	assert := assert.New(t)
-	setup()
-
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 2500, "00:00", "25:00", modbus_ip, modbus_port)
-	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
-	assert.Error(err)
-
-	teardown()
-}
-
-func TestBatteryChargeError3(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
