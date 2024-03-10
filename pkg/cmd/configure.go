@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
 	"sbam/pkg/fronius"
+	u "sbam/src/utils"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,20 +16,15 @@ var cfgCmd = &cobra.Command{
 	Long:  `connect via modbus to the fronius inverter and set charging`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fronius_ip := viper.GetString("fronius_ip")
-		if len(strings.TrimSpace(fronius_ip)) == 0 {
-			fmt.Println("The --fronius_ip flag must be set")
+		power := viper.GetViper().GetInt("power")
+
+		err := checkConfigure(fronius_ip)
+		if err != nil {
+			u.Log.Error(err)
 			return
 		}
-		if cmd.Flags().Changed("defaults") {
-			fronius.Setdefaults(fronius_ip)
-		} else if cmd.Flags().Changed("force-charge") {
-			power := viper.GetViper().GetInt("power")
-			if power == 0 {
-				fmt.Println("The --power flag must be set when using --force-charge")
-				return
-			}
-			fronius.ForceCharge(fronius_ip, int16(power))
-		}
+
+		configure(fronius_ip, power, cmd)
 
 	},
 }
@@ -41,4 +37,33 @@ func init() {
 	viper.BindPFlag("fronius_ip", cfgCmd.Flags().Lookup("fronius_ip"))
 	viper.BindPFlag("power", cfgCmd.Flags().Lookup("power"))
 	rootCmd.AddCommand(cfgCmd)
+}
+
+func checkConfigure(fronius_ip string) error {
+	if len(strings.TrimSpace(fronius_ip)) == 0 {
+		err := errors.New("the --fronius_ip flag must be set")
+		return err
+	}
+	return nil
+}
+
+func configure(fronius_ip string, power int, cmd *cobra.Command) {
+	if cmd.Flags().Changed("defaults") {
+		err := fronius.Setdefaults(fronius_ip)
+		if err != nil {
+			u.Log.Error(err)
+			panic(err)
+		}
+	} else if cmd.Flags().Changed("force-charge") {
+		if power == 0 {
+			u.Log.Error("The --power flag must be set when using --force-charge")
+			return
+		}
+		err := fronius.ForceCharge(fronius_ip, int16(power))
+		if err != nil {
+			u.Log.Error(err)
+			panic(err)
+		}
+	}
+
 }

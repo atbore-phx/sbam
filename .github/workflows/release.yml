@@ -7,9 +7,11 @@ on:
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,3 +28,20 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+      - name: copy binary to local ha folder
+        run: |
+          mkdir home-assistant/addons/sbam/bin/
+          cp -v dist/sbam_linux_amd64_v1/bin/sbam home-assistant/addons/sbam/bin/
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish build - Home Assistant builder
+        uses: home-assistant/builder@2024.01.0
+        with:
+          args: |
+            --amd64 \
+            --target /data/home-assistant/addons/sbam \
+            --addon

@@ -1,0 +1,36 @@
+{
+  "name": "sbam",
+  "version": "latest",
+  "slug": "sbam",
+  "init": "false",
+  "description": "Smart Battery Avanced Manager",
+  "arch": [
+    "amd64"
+  ],
+  "url": "https://github.com/atbore-phx/sbam",
+  "image": "ghcr.io/atbore-phx/ha-sbam",
+  "options": {
+    "url": "https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json",
+    "apikey": "",
+    "fronius_ip": "",
+    "start_hr": "00:00",
+    "end_hr": "06:00",
+    "crontab": "00 00-05 * * *",
+    "pw_consumption": "11000",
+    "max_charge": "3500",
+    "pw_batt_reserve": "4000",
+    "defaults": "true"
+  },
+  "schema": {
+    "url": "str",
+    "apikey": "password",
+    "fronius_ip": "match(^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)(\\.(?!$)|$)){4}$)",
+    "start_hr": "match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)",
+    "end_hr": "match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)",
+    "crontab": "match(^((((\\d+,)+\\d+|(\\d+(\/|-|#)\\d+)|\\d+L?|\\*(\/\\d+)?|L(-\\d+)?|\\?|[A-Z]{3}(-[A-Z]{3})?) ?){5,7})|(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\\d+(ns|us|µs|ms|s|m|h))+)$)",
+    "pw_consumption": "float",
+    "max_charge": "float",
+    "pw_batt_reserve": "float",
+    "defaults": "bool"
+  }
+}
