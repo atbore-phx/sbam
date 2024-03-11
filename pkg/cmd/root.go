@@ -38,10 +38,7 @@ func init() {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 
-	err := viper.ReadInConfig()
-	if err != nil {
-		fmt.Printf("Error reading config, %s", err)
-	}
+	viper.ReadInConfig()
 }
 
 func SetVersionInfo(version, commit, date string) error {

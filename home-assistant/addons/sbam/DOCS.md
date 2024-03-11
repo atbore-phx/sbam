@@ -1,1 +1,1 @@
-[sbam](https://github.com/atbore-phx/sbam)
+[sbam](https://github.com/atbore-phx/sbam/blob/main/README.md)
