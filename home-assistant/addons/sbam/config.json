@@ -1,14 +1,17 @@
 {
   "name": "sbam",
-  "version": "latest",
+  "version": "1.3.1",
   "slug": "sbam",
   "init": "false",
   "description": "Smart Battery Avanced Manager",
   "arch": [
-    "amd64"
+    "amd64",
+    "i386",
+    "armv7",
+    "aarch64"
   ],
   "url": "https://github.com/atbore-phx/sbam",
-  "image": "ghcr.io/atbore-phx/ha-sbam",
+  "image": "ghcr.io/atbore-phx/ha-{arch}-sbam",
   "options": {
     "url": "https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json",
     "apikey": "",

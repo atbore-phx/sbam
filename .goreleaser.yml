@@ -7,6 +7,17 @@ builds:
     binary: bin/sbam
     env:
       - CGO_ENABLED=0
+    goos:
+    - linux
+    - windows
+    - darwin
+    goarch:
+      - amd64
+      - 386
+      - arm64
+      - arm
+    goarm:
+        - 7
 
 changelog:
   sort: asc
