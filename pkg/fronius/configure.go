@@ -25,6 +25,14 @@ var mdsc = map[uint16]int16{
 	ChaGriSet:   1,     //  Grid enabled
 }
 
+func copyMap(src map[uint16]int16) map[uint16]int16 {
+	dst := make(map[uint16]int16)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
 	for r, v := range modbusStorageCfg {
@@ -68,7 +76,7 @@ func Setdefaults(modbus_ip string, port ...string) error {
 		p = port[0]
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
-	regList := mdsc
+	regList := copyMap(mdsc)
 	err = Connectmodbus(modbus_ip, regList, p)
 	if err != nil {
 		u.Log.Errorf("Something goes wrong %s", err)
@@ -85,7 +93,7 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {
-		regList := mdsc
+		regList := copyMap(mdsc)
 
 		regList[StorCtl_Mod] = 2 // Limit Decharging
 		regList[OutWRte] = -100 * power_prc
