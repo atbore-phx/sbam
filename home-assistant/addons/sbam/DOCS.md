@@ -35,9 +35,12 @@ Sbam uses the local Fronius API to retrieve data related to the battery:
 I chose the site solcast.com for weather forecasts and solar production estimates. I have tried many but I consider Solcast the best in the Freemium category (Max 10 API calls/day): https://solcast.com/free-rooftop-solar-forecasting
 
 After adding your installation, you will obtain a forecast link like this:
-https://api.solcast.com.au/rooftop_sites/*<your-site>*/forecasts?format=json
 
-Where *<your-site>* is an identifier of your installation. Copy it as it will be needed later for the configuration of sbam.
+```
+https://api.solcast.com.au/rooftop_sites/your-site/forecasts?format=json
+```
+
+Where *your-site* is an identifier of your installation. Copy it as it will be needed later for the configuration of sbam.
 
 
 The last step is to obtain the API key from the Fronius site:
