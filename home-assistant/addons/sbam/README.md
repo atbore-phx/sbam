@@ -1,4 +1,4 @@
-# sbam - Smart Battery Avanced Manager
+# sbam - Smart Battery Advanced Manager
 
 Manage Fronius Battery using Solcast weather forecast.
 

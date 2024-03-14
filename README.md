@@ -1,11 +1,39 @@
-# sbam - Smart Battery Avanced Manager.
-[![codecov](https://codecov.io/gh/atbore-phx/sbam/graph/badge.svg?token=0fgSvHFiTx)](https://codecov.io/gh/atbore-phx/sbam)
-## Intro
 
+[![codecov](https://codecov.io/gh/atbore-phx/sbam/graph/badge.svg?token=0fgSvHFiTx)](https://codecov.io/gh/atbore-phx/sbam)
+
+# sbam - Smart Battery Advanced Manager.
 Charge Fronius battery using SolCast weather forecast.
 
+## Introduction
+
+After installing a Fronius Gen24 plus Solar system including a BYD battery, I wanted during months of low solar production to charge the battery at night when electricity costs are generally lower, in order to use the stored energy during the day.
+
+Fronius through the local web interface reachable from the inverter's LAN IP provides the **Battery Management** utility -> **Time-dependent battery control**.
+
+Indeed, it is possible to charge at night, but the process is static. Many times, I found the battery to be either too charged or too discharged the next day. I wanted something more advanced, dynamic, and adaptive that takes into account:
+- weather forecasts
+- daily electricity consumption related to my home
+- the current battery charge
+- the minimum reserve of the battery not to go below
+- the time range when the energy operator offers cheaper electricity to force the charge.
+
+Here **sbam** is all this and much more :)
+
+
+### Home Assistant:
+
+Sbam is available as an add-on for HAOS (Home Assistant OS).
+
+**N.B. HAOS must be able to reach the Fronius inverter on its LAN IP.**
+
+follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
+
+
+### Stand Alone:
+**sbam** can be run via cli with the following parameters:
+
 ``` bash
-sbam - Smart Battery Avanced Manager.
+sbam - Smart Battery Advanced Manager.
         Charge Fronius© battery using weather forecast.
         Initiate parameters from command line, env variables or config.yaml file.
 
@@ -76,3 +104,5 @@ Flags:
   -u, --url string              URL
 
 ```
+
+A configuration file config.yml and/or environment variables are also supported.
