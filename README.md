@@ -1,11 +1,11 @@
-# sbam - Smart Battery Avanced Manager.
+# sbam - Smart Battery Advanced Manager.
 [![codecov](https://codecov.io/gh/atbore-phx/sbam/graph/badge.svg?token=0fgSvHFiTx)](https://codecov.io/gh/atbore-phx/sbam)
 ## Intro
 
 Charge Fronius battery using SolCast weather forecast.
 
 ``` bash
-sbam - Smart Battery Avanced Manager.
+sbam - Smart Battery Advanced Manager.
         Charge Fronius© battery using weather forecast.
         Initiate parameters from command line, env variables or config.yaml file.
 
