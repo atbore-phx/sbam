@@ -43,7 +43,7 @@ https://api.solcast.com.au/rooftop_sites/your-site/forecasts?format=json
 Where *your-site* is an identifier of your installation. Copy it as it will be needed later for the configuration of sbam.
 
 
-The last step is to obtain the API key from the Fronius site:
+The last step is to obtain the API key from the Solcast site:
 - Click on your name at the top right
 - **Your Api Key**
 - Generate the ApiKey and copy it as it will be needed later for the configuration of sbam.
@@ -89,11 +89,11 @@ Once added, it can be installed:
 
 ![chrome_SmnmvcaiXV](https://github.com/atbore-phx/sbam/assets/11421185/2c6aba6a-ef80-40fd-9455-ac19cf30b5b4)
 
-4. **Install**
+3. **Install**
 
 ![chrome_NT8Mrf6ls1](https://github.com/atbore-phx/sbam/assets/11421185/cb9eafe3-a274-4164-a789-1c31a87308e1)
 
-6. Enable **Start on boot** and **Watchdog**
+4. Enable **Start on boot** and **Watchdog**
 
 ![chrome_JsiS3CyShs](https://github.com/atbore-phx/sbam/assets/11421185/413e2d3d-638b-417c-b906-34d46aee62c0)
 
