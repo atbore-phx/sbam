@@ -63,7 +63,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish build - Home Assistant builder ${{matrix.goos }}, $${{matrix.haarch}}
-        uses: home-assistant/builder@2024.01.0
+        uses: home-assistant/builder@2024.03.5
         with:
           args: |
             --${{matrix.haarch}} \
