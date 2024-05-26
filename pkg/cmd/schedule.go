@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
-	"sbam/pkg/power"
+	pw "sbam/pkg/power"
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
 	"strconv"
@@ -19,49 +19,97 @@ import (
 	"github.com/spf13/viper"
 )
 
+var s_apiKey string
+var s_url string
+var pw_consumption float64
+var start_hr string
+var end_hr string
+var max_charge float64
+var pw_batt_reserve float64
+var crontab string
+var s_defaults bool
+
+const (
+	const_pc = 0.0
+	const_sh = "00:00"
+	const_eh = "05:55"
+	const_mc = 3500
+	const_pbr = 0
+	const_ct = "0 0 0 0 0"
+)
+
+
 var scdCmd = &cobra.Command{
 	Use:   "schedule",
 	Short: "Schedule Battery Storage Charge",
 	Long:  `Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range`,
 	Run: func(cmd *cobra.Command, args []string) {
-		url := viper.GetString("url")
-		apiKey := viper.GetString("apikey")
-		fronius_ip := viper.GetString("fronius_ip")
-		pw_consumption := viper.GetFloat64("pw_consumption")
-		start_hr := viper.GetString("start_hr")
-		end_hr := viper.GetString("end_hr")
-		max_charge := viper.GetFloat64("max_charge")
-		pw_batt_reserve := viper.GetFloat64("pw_batt_reserve")
-		crontab := viper.GetString("crontab")
-		defaults := viper.GetBool("defaults")
+		if len(s_url) == 0 {s_url = viper.GetString("url")}
+		if len(s_apiKey) == 0 {s_apiKey = viper.GetString("apikey")}
+		if len(fronius_ip) == 0 {fronius_ip = viper.GetString("fronius_ip")}
+		if pw_consumption == const_pc {
+			if _, exists := os.LookupEnv("PW_CONSUMPTION"); exists {
+				pw_consumption= viper.GetFloat64("pw_consumption")
+			}
+		}
+		if start_hr == const_sh {
+			if _, exists := os.LookupEnv("START_HR"); exists {
+				start_hr = viper.GetString("start_hr")
+			}
+		}
+		if end_hr == const_eh {
+			if _, exists := os.LookupEnv("END_HR"); exists {
+				start_hr = viper.GetString("end_hr")
+			}
+		}
+		if max_charge == const_mc {
+			if _, exists := os.LookupEnv("MAX_CHARGE"); exists {
+				max_charge = viper.GetFloat64("max_charge")
+			}
+		}
+		if pw_batt_reserve == const_pbr {
+			if _, exists := os.LookupEnv("PW_BATT_RESERVE"); exists {
+				pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
+			}
+		}
+		if crontab == const_ct {
+			if _, exists := os.LookupEnv("CRONTAB"); exists {
+				crontab = viper.GetString("crontab")
+			}
+		}
+		if s_defaults {
+			if _, exists := os.LookupEnv("DEFAULTS"); exists {
+				s_defaults = viper.GetBool("defaults")
+			}
+		}
 
-		err := checkScheduleschedule(crontab, apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
+		err := checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 		if err != nil {
 			u.Log.Error(err)
 			return
 		}
 
 		if crontab != "0 0 0 0 0" {
-			crontabSchedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, defaults)
+			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults)
 
 		} else {
-			schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
+			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 
 		}
 	},
 }
 
 func init() {
-	scdCmd.Flags().StringP("url", "u", "", "URL")
-	scdCmd.Flags().StringP("apikey", "k", "", "APIKEY")
-	scdCmd.Flags().StringP("fronius_ip", "H", "", "FRONIUS_IP")
-	scdCmd.Flags().StringP("start_hr", "s", "00:00", "START_HR")
-	scdCmd.Flags().StringP("end_hr", "e", "05:55", "END_HR")
-	scdCmd.Flags().StringP("crontab", "t", "0 0 0 0 0", "crontab")
-	scdCmd.Flags().Float64P("pw_consumption", "c", 0.0, "PW_CONSUMPTION")
-	scdCmd.Flags().Float64P("max_charge", "m", 3500, "MAX_CHARGE")
-	scdCmd.Flags().Float64P("pw_batt_reserve", "r", 0, "PW_BATT_RESERVE")
-	scdCmd.Flags().BoolP("defaults", "d", true, "DEFAULTS")
+	scdCmd.Flags().StringVarP(&s_url,"url", "u", "", "URL")
+	scdCmd.Flags().StringVarP(&s_apiKey,"apikey", "k", "", "APIKEY")
+	scdCmd.Flags().StringVarP(&fronius_ip,"fronius_ip", "H", "", "FRONIUS_IP")
+	scdCmd.Flags().StringVarP(&start_hr,"start_hr", "s", const_sh, "START_HR")
+	scdCmd.Flags().StringVarP(&end_hr,"end_hr", "e", const_eh, "END_HR")
+	scdCmd.Flags().StringVarP(&crontab,"crontab", "t", const_ct, "CRONTAB")
+	scdCmd.Flags().Float64VarP(&pw_consumption,"pw_consumption", "c", const_pc, "PW_CONSUMPTION")
+	scdCmd.Flags().Float64VarP(&max_charge,"max_charge", "m", const_mc, "MAX_CHARGE")
+	scdCmd.Flags().Float64VarP(&pw_batt_reserve,"pw_batt_reserve", "r", const_pbr, "PW_BATT_RESERVE")
+	scdCmd.Flags().BoolVarP(&s_defaults,"defaults", "d", true, "DEFAULTS")
 
 	viper.BindPFlag("url", scdCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", scdCmd.Flags().Lookup("apikey"))
@@ -156,7 +204,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 	if !CheckTimeRange(start_hr, end_hr) {
 		u.Log.Info("not in time range: " + start_hr + " <= t <= " + end_hr)
 	} else {
-		pwr := power.New()
+		pwr := pw.New()
 		solarPowerProduction, err := pwr.Handler(apiKey, url)
 		if err != nil {
 			u.Log.Error(err)
