@@ -59,7 +59,7 @@ var scdCmd = &cobra.Command{
 		}
 		if end_hr == const_eh {
 			if _, exists := os.LookupEnv("END_HR"); exists {
-				start_hr = viper.GetString("end_hr")
+				end_hr = viper.GetString("end_hr")
 			}
 		}
 		if max_charge == const_mc {
