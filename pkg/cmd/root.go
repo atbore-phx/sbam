@@ -8,6 +8,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+
+var fronius_ip string
+
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
 	Short: "sbam",
