@@ -21,7 +21,7 @@ jobs:
           - arm64
           - arm
         goos:
-         - linux
+          - linux
         include:
           - goarch: amd64
             haarch: amd64
@@ -39,10 +39,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
 
       - name: GoReleaser Install
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           install-only: true
 
@@ -63,7 +63,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish build - Home Assistant builder ${{matrix.goos }}, $${{matrix.haarch}}
-        uses: home-assistant/builder@2024.03.5
+        uses: home-assistant/builder@2024.08.2
         with:
           args: |
             --${{matrix.haarch}} \
@@ -79,10 +79,10 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           args: release --clean
