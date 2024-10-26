@@ -38,8 +38,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version from github Tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" | tee -a $GITHUB_ENV
+      - name: Get version from github tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" | tee -a $GITHUB_ENV
+          VERSION_FROM_FILE=$(jq -r '.version' home-assistant/addons/sbam/config.json)
+          if [ "$VERSION_FROM_FILE" != "$VERSION" ]; then
+            echo "Version mismatch under home-assistant/addons/sbam/config.json: expected $VERSION but found $VERSION_FROM_FILE"
+            exit 1
+          else
+            echo "Version matches under home-assistant/addons/sbam/config.json: $VERSION"
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
