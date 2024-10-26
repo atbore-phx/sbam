@@ -56,7 +56,7 @@ func GetCapacityStorage2Charge(batteries Batteries) (float64, float64, error) {
 		return capacity - status, capacity, err
 	}
 	tc := capacity - status
-	u.Log.Infof("Battery Capacity to charge: %d W", int(tc))
-	u.Log.Infof("Battery Capacity Max: %d W", int(capacity))
+	u.Log.Infof("Battery Capacity to charge: %d Wh", int(tc))
+	u.Log.Infof("Battery Capacity Max: %d Wh", int(capacity))
 	return tc, capacity, nil
 }

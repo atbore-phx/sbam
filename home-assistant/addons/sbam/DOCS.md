@@ -1,6 +1,17 @@
 ## Prerequisites
 
-sbam requires two prerequisites to function correctly:
+sbam requires the following prerequisites to function correctly:
+
+### Allow Battery Charging from the Public Grid
+
+Check if your inverter permits battery charging from the public grid:
+1. Open the web interface of the inverter.
+2. Select the **"Device Configuration -> Components"** section.
+3. Expand the battery section. 
+4. Enable **"Allow Battery Charging from the Public Grid."**
+
+![allow_charge](https://github.com/user-attachments/assets/3b366999-cf9c-4003-93d4-654d137ba001)
+
 
 ### Enabled Modbus and Solar API:
 
@@ -107,9 +118,9 @@ Do not start yet but configure it:
 5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
 6. **end_hr:** End time of the advantageous network operator rate (default 06:00)
 7. **crontab:** Crontab to run sbam (default: 00 00-05 * * *)
-8. **pw_consumprion:** Daily electrical consumption in W (Default: 11000)
+8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
-10. **pw_batt_reserve:** Minimum battery capacity to maintain in W (Default: 4000)
+10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
 11. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
 
 ![chrome_FibpWCPrIW](https://github.com/atbore-phx/sbam/assets/11421185/7d17c36b-9e7c-4499-a0f9-557d0ddbe7bb)
