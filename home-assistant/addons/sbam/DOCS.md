@@ -1,6 +1,17 @@
 ## Prerequisites
 
-sbam requires two prerequisites to function correctly:
+sbam requires the following prerequisites to function correctly:
+
+### Allow Battery Charging from the Public Grid
+
+Check if your inverter permits battery charging from the public grid:
+1. Open the web interface of the inverter.
+2. Select the **"Device Configuration -> Components"** section.
+3. Expand the battery section. 
+4. Enable **"Allow Battery Charging from the Public Grid."**
+
+![allow_charge](https://github.com/user-attachments/assets/3b366999-cf9c-4003-93d4-654d137ba001)
+
 
 ### Enabled Modbus and Solar API:
 
