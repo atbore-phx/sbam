@@ -38,6 +38,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get version from github Tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" | tee -a $GITHUB_ENV
+
       - name: Set up Go
         uses: actions/setup-go@v5
 
@@ -62,13 +65,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish build - Home Assistant builder ${{matrix.goos }}, $${{matrix.haarch}}
         uses: home-assistant/builder@2024.08.2
         with:
           args: |
             --${{matrix.haarch}} \
             --target /data/home-assistant/addons/sbam \
-            --addon
+            --addon \
+            --version ${{ env.VERSION }}
 
   release-os:
     runs-on: ubuntu-latest
