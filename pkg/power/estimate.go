@@ -44,7 +44,7 @@ func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, erro
 
 	// The calculated totalPower is in Wh
 	totalPower = totalPower * 1000
-	u.Log.Infof("Forecast Solar Power for %d/%d/%d: %d W", day.Day(), day.Month(), day.Year(), int(totalPower))
+	u.Log.Infof("Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(totalPower))
 	return totalPower, nil
 }
 
