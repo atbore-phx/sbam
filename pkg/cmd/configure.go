@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-
 var c_defaults bool
 var force_charge bool
 var power int
@@ -23,7 +22,9 @@ var cfgCmd = &cobra.Command{
 	Short: "Configure Battery Storage Charge",
 	Long:  `connect via modbus to the fronius inverter and set charging`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(fronius_ip) == 0 { fronius_ip = viper.GetString("fronius_ip") }
+		if len(fronius_ip) == 0 {
+			fronius_ip = viper.GetString("fronius_ip")
+		}
 		if !c_defaults {
 			if _, exists := os.LookupEnv("DEFAULTS"); exists {
 				c_defaults = viper.GetBool("defaults")
@@ -43,19 +44,19 @@ var cfgCmd = &cobra.Command{
 		err := checkConfigure(fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
-			return
+			os.Exit(1)
 		}
 
-		configure(fronius_ip, power, cmd)
+		configure(fronius_ip, power)
 
 	},
 }
 
 func init() {
-	cfgCmd.Flags().StringVarP(&fronius_ip,"fronius_ip", "H", "", "set FRONIUS_IP")
-	cfgCmd.Flags().BoolVarP(&c_defaults,"defaults", "d", false, "set DEFAULTS")
-	cfgCmd.Flags().BoolVarP(&force_charge,"force_charge", "f", false, "set FORCE_CHARGE")
-	cfgCmd.Flags().IntVarP(&power,"power", "p", const_pw, "set percent of nominal POWER")
+	cfgCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
+	cfgCmd.Flags().BoolVarP(&c_defaults, "defaults", "d", false, "set DEFAULTS")
+	cfgCmd.Flags().BoolVarP(&force_charge, "force_charge", "f", false, "set FORCE_CHARGE")
+	cfgCmd.Flags().IntVarP(&power, "power", "p", const_pw, "set percent of nominal POWER")
 	viper.BindPFlag("fronius_ip", cfgCmd.Flags().Lookup("fronius_ip"))
 	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
 	viper.BindPFlag("force_charge", cfgCmd.Flags().Lookup("force_charge"))
@@ -71,7 +72,7 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(fronius_ip string, power int, cmd *cobra.Command) {
+func configure(fronius_ip string, power int) {
 	if c_defaults {
 		err := fronius.Setdefaults(fronius_ip)
 		if err != nil {
@@ -80,8 +81,8 @@ func configure(fronius_ip string, power int, cmd *cobra.Command) {
 		}
 	} else if force_charge {
 		if power == 0 {
-			u.Log.Error("The --power flag must be set when using --force_charge")
-			return
+			u.Log.Errorf("The --power flag must be set when using --force_charge")
+			os.Exit(1)
 		}
 		err := fronius.ForceCharge(fronius_ip, int16(power))
 		if err != nil {
