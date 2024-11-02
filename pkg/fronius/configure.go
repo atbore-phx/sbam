@@ -120,7 +120,7 @@ func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
 	if len(port) > 0 {
 		p = port[0]
 	}
-	err = OpenModbusClient(url, p)
+	err = OpenModbusClient("tcp", url, p)
 	if err != nil {
 		u.Log.Errorf("Something goes wrong %s", err)
 		return err
@@ -137,11 +137,7 @@ func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
 		return err
 	}
 
-	err = ClosemodbusClient()
-	if err != nil {
-		u.Log.Errorf("Something goes wrong %s", err)
-		return err
-	}
+	ClosemodbusClient()
 
 	return nil
 }

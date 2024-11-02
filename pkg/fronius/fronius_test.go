@@ -27,6 +27,13 @@ func teardown() {
 	mockServer.Close()
 }
 
+func TestModbusConfigError(t *testing.T) {
+
+	err = fronius.OpenModbusClient("dummy://invalid://", modbus_ip, modbus_port)
+
+	assert.Error(t, err)
+}
+
 func TestWriteFroniusModbusRegisters(t *testing.T) {
 	modbusStorageCfg := map[uint16]int16{
 		40349: 2,
@@ -34,7 +41,7 @@ func TestWriteFroniusModbusRegisters(t *testing.T) {
 	}
 
 	setup()
-	fronius.OpenModbusClient(modbus_ip, modbus_port)
+	fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
 	err := fronius.WriteFroniusModbusRegisters(modbusStorageCfg)
 	fronius.ClosemodbusClient()
 	teardown()
@@ -49,7 +56,7 @@ func TestReadFroniusModbusRegisters(t *testing.T) {
 	}
 
 	setup()
-	fronius.OpenModbusClient(modbus_ip, modbus_port)
+	fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
 	values, err := fronius.ReadFroniusModbusRegisters(modbusStorageCfg)
 	fronius.ClosemodbusClient()
 	teardown()
@@ -62,7 +69,7 @@ func TestReadFroniusModbusRegister(t *testing.T) {
 	address := uint16(40349)
 
 	setup()
-	fronius.OpenModbusClient(modbus_ip, modbus_port)
+	fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
 	value, err := fronius.ReadFroniusModbusRegister(address)
 	fronius.ClosemodbusClient()
 	teardown()
@@ -166,7 +173,7 @@ func TestHandlerError(t *testing.T) {
 func TestOpenCloseModbusClient(t *testing.T) {
 	assert := assert.New(t)
 	setup()
-	err = fronius.OpenModbusClient(modbus_ip, modbus_port)
+	err = fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
 	err = fronius.ClosemodbusClient()
 	teardown()
 	assert.NoError(err, "OpenModbusClient returned an error")
@@ -176,7 +183,7 @@ func TestOpenCloseModbusClient(t *testing.T) {
 func TestOpenClientError(t *testing.T) {
 	assert := assert.New(t)
 	setup()
-	err = fronius.OpenModbusClient("123", modbus_port)
+	err = fronius.OpenModbusClient("tcp", "123", modbus_port)
 	teardown()
 	assert.Error(err, "OpenModbusClient returned an error")
 
