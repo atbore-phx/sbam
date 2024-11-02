@@ -5,7 +5,7 @@ DATE=$(shell date)
 .PHONY: build test test-build
 
 test:
-	go test ./...
+	go test -cover ./...
 
 build:
 	rm -rf bin

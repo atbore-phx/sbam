@@ -10,14 +10,14 @@ import (
 var modbusClient *modbus.ModbusClient
 var err error
 
-func OpenModbusClient(url string, port ...string) error {
+func OpenModbusClient(proto string, url string, port ...string) error {
 	p := "502"
 	if len(port) > 0 {
 		p = port[0]
 	}
-	url = "tcp://" + url + ":" + p
+	mb_url := proto + "://" + url + ":" + p
 	modbusClient, err = modbus.NewClient(&modbus.ClientConfiguration{
-		URL:     url,
+		URL:     mb_url,
 		Timeout: 1 * time.Second,
 	})
 	if err != nil {
@@ -30,21 +30,13 @@ func OpenModbusClient(url string, port ...string) error {
 		return err
 	}
 	err = modbusClient.SetUnitId(1)
-	if err != nil {
-		u.Log.Error("Someting goes wrong setting Modbus Client SlaveID")
-		return err
-	}
 
-	return nil
+	return err
 
 }
 
 func ClosemodbusClient() error {
-	err = modbusClient.Close()
-	if err != nil {
-		u.Log.Error("Someting goes wrong closing Modbus Client")
-		return err
-	}
+	modbusClient.Close()
 
 	return nil
 }
