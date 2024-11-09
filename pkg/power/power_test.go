@@ -59,9 +59,9 @@ func TestGetForecastError2(t *testing.T) {
 func TestGetForecastError429(t *testing.T) {
 	// Create a mock HTTP server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTooManyRequests) // Set status code to 429
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, "")
+		w.WriteHeader(http.StatusTooManyRequests) // Set status code to 429
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, "")
 	}))
 	defer ts.Close()
 
@@ -154,7 +154,7 @@ func TestHandler(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	production, err := power.Handler("apiKey", ts.URL + ", " + ts.URL)
+	production, err := power.Handler("apiKey", ts.URL+", "+ts.URL)
 	assert.NoError(t, err)
 	assert.Equal(t, 250000.0, production)
 }
@@ -267,10 +267,9 @@ func TestHandlerError3(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, err := power.Handler("apiKey", ts.URL + ", " + ts.URL + ", ")
+	_, err := power.Handler("apiKey", ts.URL+", "+ts.URL+", ")
 	assert.Error(t, err)
 }
-
 
 func TestCheckSun(t *testing.T) {
 	tests := []struct {

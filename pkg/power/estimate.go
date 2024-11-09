@@ -24,7 +24,7 @@ func GetForecast(apiKey string, url string) (Forecasts, error) {
 
 	if resp.StatusCode == 429 {
 		return Forecasts{}, errors.New("you have exceeded your free daily limit, too many Request to the forecast API")
-  }
+	}
 
 	var forecasts Forecasts
 	err = json.NewDecoder(resp.Body).Decode(&forecasts)
