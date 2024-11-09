@@ -105,7 +105,7 @@ var scdCmd = &cobra.Command{
 }
 
 func init() {
-	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "URL")
+	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "Set the URL. For multiple URLs, use a comma (,) to separate them")
 	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", "APIKEY")
 	scdCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "FRONIUS_IP")
 	scdCmd.Flags().StringVarP(&start_hr, "start_hr", "s", const_sh, "START_HR")
