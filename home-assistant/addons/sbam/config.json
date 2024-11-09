@@ -1,15 +1,10 @@
 {
   "name": "sbam",
-  "version": "1.3.7",
+  "version": "1.3.8",
   "slug": "sbam",
   "init": "false",
   "description": "Smart Battery Advanced Manager",
-  "arch": [
-    "amd64",
-    "i386",
-    "armv7",
-    "aarch64"
-  ],
+  "arch": ["amd64", "i386", "armv7", "aarch64"],
   "url": "https://github.com/atbore-phx/sbam",
   "image": "ghcr.io/atbore-phx/ha-{arch}-sbam",
   "options": {

@@ -2,6 +2,7 @@ package fronius
 
 import (
 	"errors"
+	"fmt"
 	u "sbam/src/utils"
 
 	"github.com/simonvetter/modbus"
@@ -38,10 +39,8 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 	for r, v := range modbusStorageCfg {
 		u.Log.Infof("Writing register: %d ; value: %v", r, uint16(v))
 		err = modbusClient.WriteRegister(r-1, uint16(v))
-		if err != nil {
-			u.Log.Errorf("Something goes wrong writing the register: %d, value: %d", r, v)
-			return err
-		}
+		handleErrorPanic(err, "Error Writing register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
+
 	}
 	return nil
 }
@@ -50,11 +49,9 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 	values := []int16{}
 	for r, v := range modbusStorageCfg {
 		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
-		u.Log.Infof("Reading register: %d ; value: %v", r, value)
-		if err != nil {
-			u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", r, v)
-			return values, err
-		}
+		handleErrorPanic(err, "Error Reading register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
+		u.Log.Infof("Reading register: %d ; value: %v; default:", r, value)
+
 		values = append(values, int16(value))
 	}
 	return values, nil
@@ -63,11 +60,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	value, err := modbusClient.ReadRegister(address-1, modbus.HOLDING_REGISTER)
 	u.Log.Infof("Reading register: %d ; value: %v", address, value)
-	if err != nil {
-		u.Log.Errorf("Something goes wrong reading the register: %d, value: %d", address, value)
-		return int16(value), err
-	}
-	return int16(value), nil
+	return int16(value), handleError(err, "Something goes wrong reading the register")
 }
 
 func Setdefaults(modbus_ip string, port ...string) error {
@@ -120,28 +113,19 @@ func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
 	if len(port) > 0 {
 		p = port[0]
 	}
-	err = OpenModbusClient(url, p)
+	err = OpenModbusClient("tcp", url, p)
 	if err != nil {
 		u.Log.Errorf("Something goes wrong %s", err)
 		return err
 	}
 
 	_, err = ReadFroniusModbusRegisters(regList)
-	if err != nil {
-		u.Log.Errorf("Something goes wrong %s", err)
-		return err
-	}
-	err = WriteFroniusModbusRegisters(regList)
-	if err != nil {
-		u.Log.Errorf("Something goes wrong %s", err)
-		return err
-	}
+	handleErrorPanic(err, "Something goes wrong reading ReadFroniusModbusRegisters")
 
-	err = ClosemodbusClient()
-	if err != nil {
-		u.Log.Errorf("Something goes wrong %s", err)
-		return err
-	}
+	err = WriteFroniusModbusRegisters(regList)
+	handleErrorPanic(err, "Something goes wrong writing FroniusModbusRegisters")
+
+	ClosemodbusClient()
 
 	return nil
 }

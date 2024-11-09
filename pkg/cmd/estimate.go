@@ -19,9 +19,15 @@ var estCmd = &cobra.Command{
 	Short: "Estimate Forecast Solar Power",
 	Long:  `Print the solar forecast and the battery storage power`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(e_url) == 0 {e_url = viper.GetString("url") }
-		if len(e_apiKey) == 0 { e_apiKey = viper.GetString("apikey") }
-		if len(fronius_ip) == 0 { fronius_ip = viper.GetString("fronius_ip") }
+		if len(e_url) == 0 {
+			e_url = viper.GetString("url")
+		}
+		if len(e_apiKey) == 0 {
+			e_apiKey = viper.GetString("apikey")
+		}
+		if len(fronius_ip) == 0 {
+			fronius_ip = viper.GetString("fronius_ip")
+		}
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
@@ -34,9 +40,9 @@ var estCmd = &cobra.Command{
 }
 
 func init() {
-	estCmd.Flags().StringVarP(&e_url,"url", "u", "", "set URL")
-	estCmd.Flags().StringVarP(&e_apiKey,"apikey", "k", "", "set APIKEY")
-	estCmd.Flags().StringVarP(&fronius_ip,"fronius_ip", "H", "", "set FRONIUS_IP")
+	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the URL. For multiple URLs, use a comma (,) to separate them")
+	estCmd.Flags().StringVarP(&e_apiKey, "apikey", "k", "", "set APIKEY")
+	estCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
 
 	viper.BindPFlag("url", estCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", estCmd.Flags().Lookup("apikey"))

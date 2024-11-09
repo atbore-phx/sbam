@@ -2,6 +2,7 @@ package power
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	u "sbam/src/utils"
 	"time"
@@ -20,6 +21,10 @@ func GetForecast(apiKey string, url string) (Forecasts, error) {
 		return Forecasts{}, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == 429 {
+		return Forecasts{}, errors.New("you have exceeded your free daily limit, too many Request to the forecast API")
+	}
 
 	var forecasts Forecasts
 	err = json.NewDecoder(resp.Body).Decode(&forecasts)
