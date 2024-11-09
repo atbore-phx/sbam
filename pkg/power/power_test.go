@@ -56,6 +56,19 @@ func TestGetForecastError2(t *testing.T) {
 	assert.Contains(t, err.Error(), "EOF")
 }
 
+func TestGetForecastError429(t *testing.T) {
+	// Create a mock HTTP server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests) // Set status code to 429
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, "")
+	}))
+	defer ts.Close()
+
+	_, err := power.GetForecast("apiKey", ts.URL)
+	assert.Error(t, err)
+}
+
 func TestGetForecastError3(t *testing.T) {
 	_, err := power.GetForecast("apiKey", "http://|")
 	assert.Error(t, err)
