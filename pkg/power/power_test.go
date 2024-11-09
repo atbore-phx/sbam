@@ -141,9 +141,9 @@ func TestHandler(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	production, err := power.Handler("apiKey", ts.URL)
+	production, err := power.Handler("apiKey", ts.URL + ", " + ts.URL)
 	assert.NoError(t, err)
-	assert.Equal(t, 125000.0, production)
+	assert.Equal(t, 250000.0, production)
 }
 
 func TestHandlerError(t *testing.T) {
@@ -215,6 +215,49 @@ func TestHandlerError2(t *testing.T) {
 	assert.Error(t, err)
 
 }
+
+func TestHandlerError3(t *testing.T) {
+	now := time.Now()
+	tomorrow := now.AddDate(0, 0, 1)
+	pe := now.Format(time.RFC3339)
+	pe30 := now.Add(time.Minute * 30).Format(time.RFC3339)
+	pet := tomorrow.Format(time.RFC3339)
+	pet30 := tomorrow.Add(time.Minute * 30).Format(time.RFC3339)
+
+	// Create a mock HTTP server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"forecasts": [
+				{
+					"period_end": "`+pe+`",
+					"pv_estimate": 100
+				},
+				{
+					"period_end": "`+pe30+`",
+					"pv_estimate": 150
+				},
+				{
+					"period_end": "`+pet+`",
+					"pv_estimate": 100
+				},
+				{
+					"period_end": "`+pet30+`",
+					"pv_estimate": 150
+				}
+			]
+		}`)
+	}))
+	defer ts.Close()
+
+	// Create a new Power object
+	power := power.New()
+
+	// Call the Handler function with the mock HTTP server's URL
+	_, err := power.Handler("apiKey", ts.URL + ", " + ts.URL + ", ")
+	assert.Error(t, err)
+}
+
 
 func TestCheckSun(t *testing.T) {
 	tests := []struct {

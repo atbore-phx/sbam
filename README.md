@@ -1,7 +1,7 @@
-
 [![codecov](https://codecov.io/gh/atbore-phx/sbam/graph/badge.svg?token=0fgSvHFiTx)](https://codecov.io/gh/atbore-phx/sbam)
 
 # sbam - Smart Battery Advanced Manager.
+
 Charge Fronius battery using SolCast weather forecast.
 
 ## Introduction
@@ -11,6 +11,7 @@ After installing a Fronius Gen24 plus Solar system including a BYD battery, I wa
 Fronius through the local web interface reachable from the inverter's LAN IP provides the **Battery Management** utility -> **Time-dependent battery control**.
 
 Indeed, it is possible to charge at night, but the process is static. Many times, I found the battery to be either too charged or too discharged the next day. I wanted something more advanced, dynamic, and adaptive that takes into account:
+
 - weather forecasts
 - daily electricity consumption related to my home
 - the current battery charge
@@ -18,7 +19,6 @@ Indeed, it is possible to charge at night, but the process is static. Many times
 - the time range when the energy operator offers cheaper electricity to force the charge.
 
 Here **sbam** is all this and much more :)
-
 
 ### Home Assistant:
 
@@ -28,11 +28,11 @@ Sbam is available as an add-on for HAOS (Home Assistant OS).
 
 follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
 
-
 ### Stand Alone:
+
 **sbam** can be run via cli with the following parameters:
 
-``` bash
+```bash
 sbam - Smart Battery Advanced Manager.
         Charge Fronius© battery using weather forecast.
         Initiate parameters from command line, env variables or config.yaml file.
@@ -53,11 +53,12 @@ Flags:
 
 Use "sbam [command] --help" for more information about a command.
 ```
+
 ## Configure
 
 Connect to the fronius inverter via modbus and set charging
 
-``` bash
+```bash
 Usage:
   sbam configure [flags]
 
@@ -70,29 +71,31 @@ Flags:
 ```
 
 ## Estimate
+
 Print the solar forecast and the battery storage power
 
-``` bash
+```bash
 Usage:
   sbam estimate [flags]
 
 Flags:
-  -k, --apikey string       APIKEY
-  -H, --fronius_ip string   FRONIUS_IP
+  -k, --apikey string       set APIKEY
+  -H, --fronius_ip string   set FRONIUS_IP
   -h, --help                help for estimate
-  -u, --url string          URL
+  -u, --url string          Set the URL. For multiple URLs, use a comma (,) to separate them
 ```
 
 ## Schedule
+
 Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range.
 
-``` bash
+```bash
 Usage:
   sbam schedule [flags]
 
 Flags:
   -k, --apikey string           APIKEY
-  -t, --crontab string          crontab (default "0 0 0 0 0")
+  -t, --crontab string          CRONTAB (default "0 0 0 0 0")
   -d, --defaults                DEFAULTS (default true)
   -e, --end_hr string           END_HR (default "05:55")
   -H, --fronius_ip string       FRONIUS_IP
@@ -101,8 +104,7 @@ Flags:
   -r, --pw_batt_reserve float   PW_BATT_RESERVE
   -c, --pw_consumption float    PW_CONSUMPTION
   -s, --start_hr string         START_HR (default "00:00")
-  -u, --url string              URL
-
+  -u, --url string              Set the URL. For multiple URLs, use a comma (,) to separate them
 ```
 
 A configuration file config.yml and/or environment variables are also supported.

@@ -5,13 +5,13 @@ sbam requires the following prerequisites to function correctly:
 ### Allow Battery Charging from the Public Grid
 
 Check if your inverter permits battery charging from the public grid:
+
 1. Open the web interface of the inverter.
 2. Select the **"Device Configuration -> Components"** section.
-3. Expand the battery section. 
+3. Expand the battery section.
 4. Enable **"Allow Battery Charging from the Public Grid."**
 
 ![allow_charge](https://github.com/user-attachments/assets/3b366999-cf9c-4003-93d4-654d137ba001)
-
 
 ### Enabled Modbus and Solar API:
 
@@ -20,6 +20,7 @@ Check if your inverter permits battery charging from the public grid:
 Remote control of the Fronius inverter's charge is only possible by enabling the **"Slave as Modbus TCP"** function: https://www.fronius.com/~/downloads/Solar%20Energy/Operating%20Instructions/42,0410,2049.pdf
 
 To activate this protocol:
+
 1. Open the web interface of the inverter
 2. Select the **"Communication"** section
 3. Open the **"Modbus"** menu
@@ -29,11 +30,10 @@ To activate this protocol:
 
 ![chrome_ru9kukCAMq](https://github.com/atbore-phx/sbam/assets/11421185/ec81bbd6-f402-4d47-a180-e20414d7a335)
 
-
-
 **Solar API:**
 
 Sbam uses the local Fronius API to retrieve data related to the battery:
+
 1. Open the web interface of the inverter
 2. Select the **"Communication"** section
 3. Open the **"Solar API"** menu
@@ -51,10 +51,10 @@ After adding your installation, you will obtain a forecast link like this:
 https://api.solcast.com.au/rooftop_sites/your-site/forecasts?format=json
 ```
 
-Where *your-site* is an identifier of your installation. Copy it as it will be needed later for the configuration of sbam.
-
+Where _your-site_ is an identifier of your installation. Copy it as it will be needed later for the configuration of sbam.
 
 The last step is to obtain the API key from the Solcast site:
+
 - Click on your name at the top right
 - **Your Api Key**
 - Generate the ApiKey and copy it as it will be needed later for the configuration of sbam.
@@ -75,7 +75,6 @@ official guide: https://www.home-assistant.io/common-tasks/os#installing-third-p
 
 ![chrome_icgQkIQh6J](https://github.com/atbore-phx/sbam/assets/11421185/531eeab3-9910-4fb8-bf71-22d09ec77f95)
 
-
 3. ADD-ON STORE
 
 ![chrome_hEKXVTu6tY](https://github.com/atbore-phx/sbam/assets/11421185/eec5866d-4a5c-4ae0-bd57-05a10fc48b67)
@@ -84,14 +83,9 @@ official guide: https://www.home-assistant.io/common-tasks/os#installing-third-p
 
 ![chrome_thaaqxEFgT](https://github.com/atbore-phx/sbam/assets/11421185/38bbcb7d-b3c7-4cbc-ba13-4d55292786ef)
 
-
 5. Add -> https://github.com/atbore-phx/sbam
 
 ![chrome_oAyxTDCxUK](https://github.com/atbore-phx/sbam/assets/11421185/bdefb7c5-04d1-4d20-892a-bc864907da31)
-
-
-
-
 
 Once added, it can be installed:
 
@@ -108,16 +102,15 @@ Once added, it can be installed:
 
 ![chrome_JsiS3CyShs](https://github.com/atbore-phx/sbam/assets/11421185/413e2d3d-638b-417c-b906-34d46aee62c0)
 
-
 Do not start yet but configure it:
 
 1. Click on the configuration tab
-2. **url:** Solcast forecast address (replace <YOUR-SITE> with your identifier)
+2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,)
 3. **apikey:** Solcast API key
 4. **fronius_ip:** Fronius inverter LAN IP
 5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
 6. **end_hr:** End time of the advantageous network operator rate (default 06:00)
-7. **crontab:** Crontab to run sbam (default: 00 00-05 * * *)
+7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \*)
 8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
 10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
