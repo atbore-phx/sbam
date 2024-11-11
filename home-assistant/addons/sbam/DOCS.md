@@ -24,11 +24,13 @@ To activate this protocol:
 1. Open the web interface of the inverter
 2. Select the **"Communication"** section
 3. Open the **"Modbus"** menu
-4. Enable **Slave as Modbus TCP**
+4. Activate **Slave (Secondary inverter) Modbus TCP**
 5. Tcp port: 502
 6. Model Type: int +SF
 
-![image](https://github.com/user-attachments/assets/dd1a93b1-7394-4be8-89d3-af5cea9984e5)
+![image](https://github.com/user-attachments/assets/afadb0b5-1edb-461c-919a-9fd249029f94)
+
+
 
 
 **Solar API:**
