@@ -28,7 +28,8 @@ To activate this protocol:
 5. Tcp port: 502
 6. Model Type: int +SF
 
-![chrome_ru9kukCAMq](https://github.com/atbore-phx/sbam/assets/11421185/ec81bbd6-f402-4d47-a180-e20414d7a335)
+![image](https://github.com/user-attachments/assets/dd1a93b1-7394-4be8-89d3-af5cea9984e5)
+
 
 **Solar API:**
 
