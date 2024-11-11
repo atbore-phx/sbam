@@ -92,7 +92,8 @@ Once added, it can be installed:
 1. If the add-on is not visible, refresh the page with F5
 2. Click the sbam add-on
 
-![chrome_SmnmvcaiXV](https://github.com/atbore-phx/sbam/assets/11421185/2c6aba6a-ef80-40fd-9455-ac19cf30b5b4)
+![image](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
+
 
 3. **Install**
 
