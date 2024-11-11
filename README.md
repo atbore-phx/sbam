@@ -20,6 +20,10 @@ Indeed, it is possible to charge at night, but the process is static. Many times
 
 Here **sbam** is all this and much more :)
 
+### Prerequisites
+
+sbam requires the following prerequisites to function correctly: [link](docs/prereq.md)
+
 ### Home Assistant:
 
 Sbam is available as an add-on for HAOS (Home Assistant OS).
