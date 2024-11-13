@@ -48,12 +48,12 @@ Once added, it can be installed:
 Do not start yet but configure it:
 
 1. Click on the configuration tab
-2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,)
+2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,) If **2 url**: API calls is split evenly, 5 API calls per array per **UTC** day.
 3. **apikey:** Solcast API key
 4. **fronius_ip:** Fronius inverter LAN IP
 5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
 6. **end_hr:** End time of the advantageous network operator rate (default 06:00)
-7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \*)
+7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \*) **2 url:** **CET**:  10 00,03,05,06 \* \* \*  (10 min past 00,03,05,06)  **UTC** you may add 1 additional hour/API call. Ie:  10 00,03,05,06,07 \* \* \* *Frequent calls close to end time to get most accurate forecast and allow time to charge.* 
 8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
 10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
