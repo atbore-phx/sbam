@@ -48,7 +48,7 @@ Once added, it can be installed:
 Do not start yet but configure it:
 
 1. Click on the configuration tab
-2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,) If **2 url**: API calls is split evenly, 5 API calls per array per **UTC** day.
+2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,); Solcast has a limit of 10 API calls per **UTC** day. If there are **two URLs**, the API calls are split evenly, with a maximum of 5 calls per array per **UTC** day
 3. **apikey:** Solcast API key
 4. **fronius_ip:** Fronius inverter LAN IP
 5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
