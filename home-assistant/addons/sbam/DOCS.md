@@ -53,7 +53,7 @@ Do not start yet but configure it:
 4. **fronius_ip:** Fronius inverter LAN IP
 5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
 6. **end_hr:** End time of the advantageous network operator rate (default 06:00)
-7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \*) **2 url:** **CET**:  10 00,03,05,06 \* \* \*  (10 min past 00,03,05,06)  **UTC** you may add 1 additional hour/API call. Ie:  10 00,03,05,06,07 \* \* \* *Frequent calls close to end time to get most accurate forecast and allow time to charge.* 
+7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \* so At minute 0 past every hour from 0 through 5.); with **two** URLs: **CET**: 10 00,03,05,06 \* \* \* (At minute 10 past hour 0, 3, 5, and 6), **UTC**: Add 1 additional hour per API call (e.g., 10 00,03,05,06,07 \* \* \*). Frequent calls are scheduled near the end time to improve forecast accuracy and allow time for charging
 8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
 10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
