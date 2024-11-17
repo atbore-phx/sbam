@@ -30,18 +30,10 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		}
 	}
 
-	if ch_pc != 0 {
-		err = ForceCharge(fronius_ip, ch_pc, p)
-		if err != nil {
-			u.Log.Errorln("Error forcing charge: %s ", err)
-			return ch_pc, err
-		}
-	} else {
-		err = Setdefaults(fronius_ip, p)
-		if err != nil {
-			u.Log.Errorln("Error Setting Defaults: %s ", err)
-			return ch_pc, err
-		}
+	err = ForceCharge(fronius_ip, ch_pc, p)
+	if err != nil {
+		u.Log.Errorln("Error forcing charge: %s ", err)
+		return ch_pc, err
 	}
 
 	return ch_pc, nil
