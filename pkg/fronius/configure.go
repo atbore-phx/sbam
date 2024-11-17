@@ -98,7 +98,12 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 		}
 
 	} else if power_prc == 0 {
-		Setdefaults(modbus_ip, p)
+		u.Log.Info("percent of charging is <1%, skipping Force Charge and set defaults.")
+		err = Setdefaults(modbus_ip, p)
+		if err != nil {
+			u.Log.Errorln("Error Setting Defaults: %s ", err)
+			return err
+		}
 	} else {
 		err = errors.New("percent of charging is negative")
 		u.Log.Errorf("someting goes wrong when force charging, %s", err)
