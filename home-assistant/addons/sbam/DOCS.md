@@ -2,7 +2,7 @@
 
 ### Prerequisites
 
-sbam requires the following prerequisites to function correctly: [link](../../../docs/prereq.md)
+sbam requires the following prerequisites to function correctly: [link](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
 
 ### Home Assistant:
 

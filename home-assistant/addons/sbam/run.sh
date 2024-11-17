@@ -10,8 +10,9 @@ export PW_CONSUMPTION=$(bashio::config 'pw_consumption')
 export MAX_CHARGE=$(bashio::config 'max_charge')
 export PW_BATT_RESERVE=$(bashio::config 'pw_batt_reserve')
 export DEFAULTS=$(bashio::config 'defaults')
+export RESET=$(bashio::config 'reset')
 export DEBUG=$(bashio::config 'debug')
 
-bashio::config 'RESET' && sbam configure -d
+[ "$RESET" = "true" ] && sbam configure -d
 
 sbam schedule

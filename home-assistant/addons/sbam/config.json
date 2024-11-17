@@ -17,9 +17,9 @@
     "pw_consumption": "11000",
     "max_charge": "3500",
     "pw_batt_reserve": "4000",
-    "defaults": "true",
-    "reset": "false",
-    "debug": "false"
+    "defaults": true,
+    "reset": false,
+    "debug": false
   },
   "schema": {
     "url": "str",
