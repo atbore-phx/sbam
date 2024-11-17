@@ -2,7 +2,7 @@
 
 ### Prerequisites
 
-sbam requires the following prerequisites to function correctly: [link](../../../docs/prereq.md)
+sbam requires the following prerequisites to function correctly: [link](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
 
 ### Home Assistant:
 
@@ -61,7 +61,10 @@ Do not start yet but configure it:
 12. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
 13. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
 
-![chrome_FibpWCPrIW](https://github.com/atbore-phx/sbam/assets/11421185/7d17c36b-9e7c-4499-a0f9-557d0ddbe7bb)
+and save
+
+![chrome_9b0blNNJ0n](https://github.com/user-attachments/assets/6244a7ba-e10c-44c9-8482-f7642ff6f7ee)
+
 
 Finally Start **sbam**!
 
