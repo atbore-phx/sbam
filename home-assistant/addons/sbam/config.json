@@ -18,6 +18,7 @@
     "max_charge": "3500",
     "pw_batt_reserve": "4000",
     "defaults": "true",
+    "reset": "false",
     "debug": "false"
   },
   "schema": {
@@ -31,6 +32,7 @@
     "max_charge": "float",
     "pw_batt_reserve": "float",
     "defaults": "bool",
+    "reset": "bool",
     "debug": "bool"
   }
 }
