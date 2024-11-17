@@ -58,7 +58,8 @@ Do not start yet but configure it:
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
 10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
 11. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
-12. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
+12. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
+13. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
 
 ![chrome_FibpWCPrIW](https://github.com/atbore-phx/sbam/assets/11421185/7d17c36b-9e7c-4499-a0f9-557d0ddbe7bb)
 

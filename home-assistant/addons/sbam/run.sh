@@ -12,4 +12,6 @@ export PW_BATT_RESERVE=$(bashio::config 'pw_batt_reserve')
 export DEFAULTS=$(bashio::config 'defaults')
 export DEBUG=$(bashio::config 'debug')
 
+bashio::config 'RESET' && sbam configure -d
+
 sbam schedule
