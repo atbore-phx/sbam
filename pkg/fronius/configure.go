@@ -37,7 +37,7 @@ func copyMap(src map[uint16]int16) map[uint16]int16 {
 func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
 	for r, v := range modbusStorageCfg {
-		u.Log.Infof("Writing register: %d ; value: %v", r, uint16(v))
+		u.Log.Debugf("Writing register: %d ; value: %v", r, uint16(v))
 		err = modbusClient.WriteRegister(r-1, uint16(v))
 		handleErrorPanic(err, "Error Writing register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
 
@@ -50,7 +50,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 	for r, v := range modbusStorageCfg {
 		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
 		handleErrorPanic(err, "Error Reading register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
-		u.Log.Infof("Reading register: %d ; value: %v; default:", r, value)
+		u.Log.Debugf("Reading register: %d ; value: %v; default:", r, value)
 
 		values = append(values, int16(value))
 	}
@@ -59,7 +59,7 @@ func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, err
 
 func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	value, err := modbusClient.ReadRegister(address-1, modbus.HOLDING_REGISTER)
-	u.Log.Infof("Reading register: %d ; value: %v", address, value)
+	u.Log.Debugf("Reading register: %d ; value: %v", address, value)
 	return int16(value), handleError(err, "Something goes wrong reading the register")
 }
 
