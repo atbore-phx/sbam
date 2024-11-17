@@ -3,11 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	u "sbam/src/utils"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
 
 var fronius_ip string
 
@@ -20,6 +20,7 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
+	u.Log.Debug("Debug Logs activated: true")
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)

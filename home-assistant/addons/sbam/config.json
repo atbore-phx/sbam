@@ -17,7 +17,8 @@
     "pw_consumption": "11000",
     "max_charge": "3500",
     "pw_batt_reserve": "4000",
-    "defaults": "true"
+    "defaults": "true",
+    "debug": "false"
   },
   "schema": {
     "url": "str",
@@ -29,6 +30,7 @@
     "pw_consumption": "float",
     "max_charge": "float",
     "pw_batt_reserve": "float",
-    "defaults": "bool"
+    "defaults": "bool",
+    "debug": "bool"
   }
 }

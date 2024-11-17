@@ -111,4 +111,17 @@ Flags:
   -u, --url string              Set the URL. For multiple URLs, use a comma (,) to separate them
 ```
 
+## Debug Logs
+
+To increase the log level to debug, just set the DEBUG environment variable to true.
+
+```bash
+export DEBUG=true
+❯ bin/sbam --help
+{"level":"debug","ts":"2024-11-17T12:16:28+01:00","msg":"Debug Logs activated: true"}
+...
+```
+
+## Config file and env vars
+
 A configuration file config.yml and/or environment variables are also supported.
