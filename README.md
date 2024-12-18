@@ -18,6 +18,9 @@ Indeed, it is possible to charge at night, but the process is static. Many times
 - the minimum reserve of the battery not to go below
 - the time range when the energy operator offers cheaper electricity to force the charge.
 
+NOTE:
+In Solar.web, the energy balance does not display grid charge information to prevent customers from perceiving a higher consumption than actual. This is done to simplify the Solar.web view. (Source: Official Fronius support)
+
 Here **sbam** is all this and much more :)
 
 ### Prerequisites
