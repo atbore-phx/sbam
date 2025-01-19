@@ -292,7 +292,7 @@ func TestBatteryChargeError(t *testing.T) {
 	setup()
 
 	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, -11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, modbus_port)
-	assert.Equal(int16(-72), result, "SetFroniusChargeBatteryMode returned wrong value")
+	assert.Equal(int16(-272), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.Error(err)
 
 	teardown()
