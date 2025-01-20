@@ -65,7 +65,8 @@ Do not start yet but configure it:
 
 and save
 
-![chrome_9b0blNNJ0n](https://github.com/user-attachments/assets/6244a7ba-e10c-44c9-8482-f7642ff6f7ee)
+![chrome_VPrnrPIxah](https://github.com/user-attachments/assets/74582cc6-6a4d-481a-b3f9-b743c44b0087)
+
 
 Finally Start **sbam**!
 
