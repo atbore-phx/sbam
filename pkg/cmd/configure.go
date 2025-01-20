@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"os"
 	"sbam/pkg/fronius"
 	u "sbam/src/utils"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
 
 var c_defaults bool
 var force_charge bool
@@ -23,22 +21,10 @@ var cfgCmd = &cobra.Command{
 	Short: "Configure Battery Storage Charge",
 	Long:  `connect via modbus to the fronius inverter and set charging`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(fronius_ip) == 0 { fronius_ip = viper.GetString("fronius_ip") }
-		if !c_defaults {
-			if _, exists := os.LookupEnv("DEFAULTS"); exists {
-				c_defaults = viper.GetBool("defaults")
-			}
-		}
-		if !force_charge {
-			if _, exists := os.LookupEnv("FORCE_CHARGE"); exists {
-				force_charge = viper.GetBool("force_charge")
-			}
-		}
-		if power == const_pw {
-			if _, exists := os.LookupEnv("POWER"); exists {
-				power = viper.GetInt("power")
-			}
-		}
+		fronius_ip = viper.GetString("fronius_ip")
+		c_defaults = viper.GetBool("defaults")
+		force_charge = viper.GetBool("force_charge")
+		power = viper.GetInt("power")
 
 		err := checkConfigure(fronius_ip)
 		if err != nil {
@@ -52,10 +38,10 @@ var cfgCmd = &cobra.Command{
 }
 
 func init() {
-	cfgCmd.Flags().StringVarP(&fronius_ip,"fronius_ip", "H", "", "set FRONIUS_IP")
-	cfgCmd.Flags().BoolVarP(&c_defaults,"defaults", "d", false, "set DEFAULTS")
-	cfgCmd.Flags().BoolVarP(&force_charge,"force_charge", "f", false, "set FORCE_CHARGE")
-	cfgCmd.Flags().IntVarP(&power,"power", "p", const_pw, "set percent of nominal POWER")
+	cfgCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
+	cfgCmd.Flags().BoolVarP(&c_defaults, "defaults", "d", false, "set DEFAULTS")
+	cfgCmd.Flags().BoolVarP(&force_charge, "force_charge", "f", false, "set FORCE_CHARGE")
+	cfgCmd.Flags().IntVarP(&power, "power", "p", const_pw, "set percent of nominal POWER")
 	viper.BindPFlag("fronius_ip", cfgCmd.Flags().Lookup("fronius_ip"))
 	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
 	viper.BindPFlag("force_charge", cfgCmd.Flags().Lookup("force_charge"))

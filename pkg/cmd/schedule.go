@@ -37,8 +37,8 @@ const (
 	const_eh    = "00:55"
 	const_mc    = 3500
 	const_pbr   = 0
-	const_br_sh = const_sh
-	const_br_eh = const_eh
+	const_br_sh = ""
+	const_br_eh = ""
 	const_ct    = "0 0 0 0 0"
 )
 
@@ -47,68 +47,26 @@ var scdCmd = &cobra.Command{
 	Short: "Schedule Battery Storage Charge",
 	Long:  `Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(s_url) == 0 {
-			s_url = viper.GetString("url")
+		s_url = viper.GetString("url")
+		s_apiKey = viper.GetString("apikey")
+		fronius_ip = viper.GetString("fronius_ip")
+		pw_consumption = viper.GetFloat64("pw_consumption")
+		start_hr = viper.GetString("start_hr")
+		end_hr = viper.GetString("end_hr")
+		max_charge = viper.GetFloat64("max_charge")
+		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
+		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
+			batt_reserve_start_hr = viper.GetString("start_hr")
+		} else {
+			batt_reserve_start_hr = viper.GetString("batt_reserve_start_hr")
 		}
-		if len(s_apiKey) == 0 {
-			s_apiKey = viper.GetString("apikey")
+		if len(viper.GetString("batt_reserve_end_hr")) == 0 {
+			batt_reserve_end_hr = viper.GetString("end_hr")
+		} else {
+			batt_reserve_end_hr = viper.GetString("batt_reserve_end_hr")
 		}
-		if len(fronius_ip) == 0 {
-			fronius_ip = viper.GetString("fronius_ip")
-		}
-		if pw_consumption == const_pc {
-			if _, exists := os.LookupEnv("PW_CONSUMPTION"); exists {
-				pw_consumption = viper.GetFloat64("pw_consumption")
-			}
-		}
-		if start_hr == const_sh {
-			if _, exists := os.LookupEnv("START_HR"); exists {
-				start_hr = viper.GetString("start_hr")
-			}
-		}
-		if end_hr == const_eh {
-			if _, exists := os.LookupEnv("END_HR"); exists {
-				end_hr = viper.GetString("end_hr")
-			}
-		}
-		if max_charge == const_mc {
-			if _, exists := os.LookupEnv("MAX_CHARGE"); exists {
-				max_charge = viper.GetFloat64("max_charge")
-			}
-		}
-		if pw_batt_reserve == const_pbr {
-			if _, exists := os.LookupEnv("PW_BATT_RESERVE"); exists {
-				pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
-			}
-		}
-		if batt_reserve_start_hr == const_br_sh {
-			if _, exists := os.LookupEnv("BATT_RESERVE_START_HR"); exists {
-				if len(viper.GetString("batt_reserve_start_hr")) == 0 {
-					batt_reserve_start_hr = viper.GetString("start_hr")
-				} else {
-					batt_reserve_start_hr = viper.GetString("batt_reserve_start_hr")
-				}
-			}
-		}
-		if batt_reserve_end_hr == const_br_sh {
-			if _, exists := os.LookupEnv("BATT_RESERVE_END_HR"); exists {
-				if len(viper.GetString("batt_reserve_end_hr")) == 0 {
-					batt_reserve_end_hr = viper.GetString("end_hr")
-				} else {
-					batt_reserve_end_hr = viper.GetString("batt_reserve_end_hr")
-				}
-			}
-		}
-		if crontab == const_ct {
-			if _, exists := os.LookupEnv("CRONTAB"); exists {
-				crontab = viper.GetString("crontab")
-			}
-		}
-		if s_defaults {
-			if _, exists := os.LookupEnv("DEFAULTS"); exists {
-				s_defaults = viper.GetBool("defaults")
-			}
-		}
+		crontab = viper.GetString("crontab")
+		s_defaults = viper.GetBool("defaults")
 
 		err := checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 		if err != nil {
@@ -263,7 +221,7 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 
 func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string) {
 	if !CheckTimeRange(start_hr, end_hr) {
-		u.Log.Info("not in time range: " + start_hr + " <= t <= " + end_hr)
+		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
 	} else {
 		pwr := pw.New()
 		solarPowerProduction, err := pwr.Handler(apiKey, url)

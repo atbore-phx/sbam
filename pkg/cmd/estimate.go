@@ -19,15 +19,9 @@ var estCmd = &cobra.Command{
 	Short: "Estimate Forecast Solar Power",
 	Long:  `Print the solar forecast and the battery storage power`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(e_url) == 0 {
-			e_url = viper.GetString("url")
-		}
-		if len(e_apiKey) == 0 {
-			e_apiKey = viper.GetString("apikey")
-		}
-		if len(fronius_ip) == 0 {
-			fronius_ip = viper.GetString("fronius_ip")
-		}
+		e_url = viper.GetString("url")
+		e_apiKey = viper.GetString("apikey")
+		fronius_ip = viper.GetString("fronius_ip")
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
