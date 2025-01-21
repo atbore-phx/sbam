@@ -57,13 +57,15 @@ Do not start yet but configure it:
 8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
 10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
-11. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
-12. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
-13. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
+11. **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**)
+12. **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**)
+13. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
+14. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
+15. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
 
 and save
 
-![chrome_9b0blNNJ0n](https://github.com/user-attachments/assets/6244a7ba-e10c-44c9-8482-f7642ff6f7ee)
+![chrome_VPrnrPIxah](https://github.com/user-attachments/assets/74582cc6-6a4d-481a-b3f9-b743c44b0087)
 
 
 Finally Start **sbam**!
