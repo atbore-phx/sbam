@@ -66,7 +66,8 @@ Do not start yet but configure it:
 17. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
 18. finally click on **save**
 
-![chrome_VPrnrPIxah](https://github.com/user-attachments/assets/74582cc6-6a4d-481a-b3f9-b743c44b0087)
+![sbam-conf](https://github.com/user-attachments/assets/51df5a4a-d355-4d37-ba62-f86451c6fb08)
+
 
 Finally Start **sbam**!
 
