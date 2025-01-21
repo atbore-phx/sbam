@@ -146,7 +146,7 @@ func TestHandler(t *testing.T) {
 	endHr := "17:00"
 
 	setup()
-	_, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, modbus_port)
+	_, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
 	teardown()
 
 	assert.NoError(err, "Handler returned an error")
@@ -165,7 +165,7 @@ func TestHandlerError(t *testing.T) {
 	startHr := "09:00"
 	endHr := "17:00"
 
-	_, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, modbus_port)
+	_, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
 
 	assert.Error(err, "Handler returned an error")
 }
@@ -203,7 +203,7 @@ func TestSetChargePower(t *testing.T) {
 func TestBatteryChargeMode1(t *testing.T) {
 	assert := assert.New(t)
 	setup()
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 0, 11000, 9000, 3500, 0, "00:00", "05:00", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(1000, 0, 11000, 9000, 3500, 0, "00:00", "05:00", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -214,7 +214,7 @@ func TestBatteryChargeMode2(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(31), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -225,7 +225,7 @@ func TestBatteryChargeMode3(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(10000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(10000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -236,7 +236,7 @@ func TestBatteryChargeMode4(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(10000, 0, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(10000, 0, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -247,7 +247,7 @@ func TestBatteryChargeMode5(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 2500, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, 11000, 9000, 3500, 2500, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(31), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -258,7 +258,7 @@ func TestBatteryChargeMode6(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(8000, 2000, 11000, 8000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(8000, 2000, 11000, 8000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -269,7 +269,7 @@ func TestBatteryChargeMode7(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(10000, 7000, 11000, 0, 3500, 5000, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(10000, 7000, 11000, 0, 3500, 5000, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(9), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -280,7 +280,7 @@ func TestBatteryChargeMode8(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(5000, 7000, 11000, 10000, 3500, 3000, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(5000, 7000, 11000, 10000, 3500, 3000, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(9), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
@@ -291,7 +291,7 @@ func TestBatteryChargeError(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
-	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, -11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, modbus_port)
+	result, err := fronius.SetFroniusChargeBatteryMode(1000, 11000, -11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 	assert.Equal(int16(-272), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.Error(err)
 

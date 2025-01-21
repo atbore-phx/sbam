@@ -240,7 +240,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
 	} else {
 		pwr := pw.New()
-		solarPowerProduction, err := pwr.Handler(apiKey, url)
+		solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -255,7 +255,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 		u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
 
 		scd := fronius.New()
-		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr), pw_lwt, pw_upt)
+		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr), pw_lwt, pw_upt, forecast_retrieved)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)

@@ -61,7 +61,7 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 
 func estimate(apiKey string, url string, fronius_ip string) {
 	pwr := pw.New()
-	_, err := pwr.Handler(apiKey, url)
+	_, _, err := pwr.Handler(apiKey, url)
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)
