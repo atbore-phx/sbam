@@ -25,6 +25,8 @@ var pw_consumption float64
 var start_hr string
 var end_hr string
 var max_charge float64
+var pw_lwt float64
+var pw_upt float64
 var pw_batt_reserve float64
 var batt_reserve_start_hr string
 var batt_reserve_end_hr string
@@ -36,6 +38,8 @@ const (
 	const_sh    = "00:00"
 	const_eh    = "00:55"
 	const_mc    = 3500
+	const_plwt  = 0
+	const_pupt  = 0
 	const_pbr   = 0
 	const_br_sh = ""
 	const_br_eh = ""
@@ -54,6 +58,8 @@ var scdCmd = &cobra.Command{
 		start_hr = viper.GetString("start_hr")
 		end_hr = viper.GetString("end_hr")
 		max_charge = viper.GetFloat64("max_charge")
+		pw_lwt = viper.GetFloat64("pw_lwt")
+		pw_upt = viper.GetFloat64("pw_upt")
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
 			batt_reserve_start_hr = viper.GetString("start_hr")
@@ -75,10 +81,10 @@ var scdCmd = &cobra.Command{
 		}
 
 		if crontab != "0 0 0 0 0" {
-			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr)
+			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
 
 		} else {
-			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr)
+			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
 
 		}
 	},
@@ -93,6 +99,8 @@ func init() {
 	scdCmd.Flags().StringVarP(&crontab, "crontab", "t", const_ct, "CRONTAB")
 	scdCmd.Flags().Float64VarP(&pw_consumption, "pw_consumption", "c", const_pc, "PW_CONSUMPTION")
 	scdCmd.Flags().Float64VarP(&max_charge, "max_charge", "m", const_mc, "MAX_CHARGE")
+	scdCmd.Flags().Float64VarP(&pw_lwt, "pw_lwt", "L", const_plwt, "PW_LWT")
+	scdCmd.Flags().Float64VarP(&pw_upt, "pw_upt", "U", const_pupt, "PW_UPT")
 	scdCmd.Flags().Float64VarP(&pw_batt_reserve, "pw_batt_reserve", "r", const_pbr, "PW_BATT_RESERVE")
 	scdCmd.Flags().StringVarP(&batt_reserve_start_hr, "batt_reserve_start_hr", "S", const_br_sh, "BATT_RESERVE_START_HR (default START_HR)")
 	scdCmd.Flags().StringVarP(&batt_reserve_end_hr, "batt_reserve_end_hr", "E", const_br_eh, "BATT_RESERVE_END_HR (default END_HR)")
@@ -106,6 +114,8 @@ func init() {
 	viper.BindPFlag("end_hr", scdCmd.Flags().Lookup("end_hr"))
 	viper.BindPFlag("crontab", scdCmd.Flags().Lookup("crontab"))
 	viper.BindPFlag("max_charge", scdCmd.Flags().Lookup("max_charge"))
+	viper.BindPFlag("pw_lwt", scdCmd.Flags().Lookup("pw_lwt"))
+	viper.BindPFlag("pw_upt", scdCmd.Flags().Lookup("pw_upt"))
 	viper.BindPFlag("pw_batt_reserve", scdCmd.Flags().Lookup("pw_batt_reserve"))
 	viper.BindPFlag("batt_reserve_start_hr", scdCmd.Flags().Lookup("batt_reserve_start_hr"))
 	viper.BindPFlag("batt_reserve_end_hr", scdCmd.Flags().Lookup("batt_reserve_end_hr"))
@@ -202,6 +212,12 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	} else if max_charge < 0 {
 		err := errors.New("max_charge must to be float > 0")
 		return err
+	} else if pw_lwt < 0 {
+		err := errors.New("pw_lwt must to be float > 0")
+		return err
+	} else if pw_upt < 0 {
+		err := errors.New("pw_upt must to be float > 0")
+		return err
 	} else if pw_batt_reserve < 0 {
 		err := errors.New("pw_batt_reserve must to be float > 0")
 		return err
@@ -219,7 +235,7 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	return nil
 }
 
-func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string) {
+func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64) {
 	if !CheckTimeRange(start_hr, end_hr) {
 		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
 	} else {
@@ -239,7 +255,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 		u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
 
 		scd := fronius.New()
-		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr))
+		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr), pw_lwt, pw_upt)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -247,7 +263,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 	}
 }
 
-func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string) {
+func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64) {
 	layout := "15:04"
 	endTime, _ := time.Parse(layout, end_hr)
 	endTime = endTime.Add(-5 * time.Minute)
@@ -255,7 +271,7 @@ func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumptio
 
 	c := cron.New()
 	_, err := c.AddFunc(crontab, func() {
-		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr)
+		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
 	})
 	if err != nil {
 		u.Log.Error(err)
