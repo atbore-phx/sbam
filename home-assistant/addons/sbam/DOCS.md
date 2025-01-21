@@ -56,17 +56,17 @@ Do not start yet but configure it:
 7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \* so At minute 0 past every hour from 0 through 5.); with **two** URLs: **CET**: 10 00,03,05,06 \* \* \* (At minute 10 past hour 0, 3, 5, and 6), **UTC**: Add 1 additional hour per API call (e.g., 10 00,03,05,06,07 \* \* \*). Frequent calls are scheduled near the end time to improve forecast accuracy and allow time for charging
 8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
 9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
-10. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
-11. **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**)
-12. **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**)
-13. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
-14. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
-15. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
-
-and save
+10. **pw_lwt:** The hysteresis logic lower threshold **offset** in Wh to stop charging (Default: 0)
+11. **pw_upt:** The hysteresis logic upper threshold **offset** in Wh to start charging (Default: 0)
+12. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
+13. **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**)
+14. **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**)
+15. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
+16. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
+17. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
+18. finally click on **save**
 
 ![chrome_VPrnrPIxah](https://github.com/user-attachments/assets/74582cc6-6a4d-481a-b3f9-b743c44b0087)
-
 
 Finally Start **sbam**!
 
