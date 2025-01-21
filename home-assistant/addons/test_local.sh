@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 BUILDCONTAINER_DATA_PATH="/data"
 PATHTOBUILD="$BUILDCONTAINER_DATA_PATH"
@@ -6,8 +7,8 @@ ARCH=amd64
 
 
 PROJECTDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/sbam
-ROOTDIR=$PROJECTDIR/../../../
-cd $PRROOTDIROJECTDIR/../../../
+ROOTDIR=${PROJECTDIR}/../../../
+cd ${PROJECTDIR}/../../../
 make build
 cd -
 
