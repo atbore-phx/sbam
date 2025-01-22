@@ -86,7 +86,7 @@ Flags:
   -k, --apikey string       set APIKEY
   -H, --fronius_ip string   set FRONIUS_IP
   -h, --help                help for estimate
-  -u, --url string          Set the URL. For multiple URLs, use a comma (,) to separate them
+  -u, --url string          Set the forecast URL. For multiple URLs, use a comma (,) to separate them
 ```
 
 ## Schedule
@@ -98,17 +98,19 @@ Usage:
   sbam schedule [flags]
 
 Flags:
-  -k, --apikey string           APIKEY
-  -t, --crontab string          CRONTAB (default "0 0 0 0 0")
-  -d, --defaults                DEFAULTS (default true)
-  -e, --end_hr string           END_HR (default "05:55")
-  -H, --fronius_ip string       FRONIUS_IP
-  -h, --help                    help for schedule
-  -m, --max_charge float        MAX_CHARGE (default 3500)
-  -r, --pw_batt_reserve float   PW_BATT_RESERVE
-  -c, --pw_consumption float    PW_CONSUMPTION
-  -s, --start_hr string         START_HR (default "00:00")
-  -u, --url string              Set the URL. For multiple URLs, use a comma (,) to separate them
+  -k, --apikey string                  APIKEY
+  -E, --batt_reserve_end_hr string     BATT_RESERVE_END_HR (default END_HR)
+  -S, --batt_reserve_start_hr string   BATT_RESERVE_START_HR (default START_HR)
+  -t, --crontab string                 CRONTAB (default "0 0 0 0 0")
+  -d, --defaults                       DEFAULTS (default true)
+  -e, --end_hr string                  END_HR (default "00:55")
+  -H, --fronius_ip string              FRONIUS_IP
+  -h, --help                           help for schedule
+  -m, --max_charge float               MAX_CHARGE (default 3500)
+  -r, --pw_batt_reserve float          PW_BATT_RESERVE
+  -c, --pw_consumption float           PW_CONSUMPTION
+  -s, --start_hr string                START_HR (default "00:00")
+  -u, --url string                     Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
 ```
 
 ## Debug Logs

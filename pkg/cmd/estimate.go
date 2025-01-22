@@ -19,15 +19,9 @@ var estCmd = &cobra.Command{
 	Short: "Estimate Forecast Solar Power",
 	Long:  `Print the solar forecast and the battery storage power`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(e_url) == 0 {
-			e_url = viper.GetString("url")
-		}
-		if len(e_apiKey) == 0 {
-			e_apiKey = viper.GetString("apikey")
-		}
-		if len(fronius_ip) == 0 {
-			fronius_ip = viper.GetString("fronius_ip")
-		}
+		e_url = viper.GetString("url")
+		e_apiKey = viper.GetString("apikey")
+		fronius_ip = viper.GetString("fronius_ip")
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
@@ -40,7 +34,7 @@ var estCmd = &cobra.Command{
 }
 
 func init() {
-	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the URL. For multiple URLs, use a comma (,) to separate them")
+	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the forecast URL. For multiple URLs, use a comma (,) to separate them")
 	estCmd.Flags().StringVarP(&e_apiKey, "apikey", "k", "", "set APIKEY")
 	estCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
 
@@ -67,7 +61,7 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 
 func estimate(apiKey string, url string, fronius_ip string) {
 	pwr := pw.New()
-	_, err := pwr.Handler(apiKey, url)
+	_, _, err := pwr.Handler(apiKey, url)
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)
