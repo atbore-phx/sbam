@@ -1,6 +1,7 @@
 package power
 
 import (
+        "github.com/spf13/viper"
         "os"
         "io/ioutil"
 	"encoding/json"
@@ -10,11 +11,11 @@ import (
 	"time"
 )
 
-func readForecastCache(cacheFilePath string) (Forecasts, error) {
+func readForecastCache(cache_file_name string) (Forecasts, error) {
   var cachedForecasts Forecasts
 
   // Read the cachefile
-  cacheFile, err := os.Open(cacheFilePath)
+  cacheFile, err := os.Open(cache_file_name)
   if err != nil {
     u.Log.Errorf("Error opening file:", err)
     return Forecasts{}, err
@@ -31,51 +32,63 @@ func readForecastCache(cacheFilePath string) (Forecasts, error) {
     u.Log.Errorf("Error unmarshaling JSON:", err)
     return Forecasts{}, err
   }
-  u.Log.Infof("Returning cached forecast")
+  u.Log.Debugf("Cache File Read Successfully - returning cached forecast")
   return cachedForecasts, nil
 }
 
 func GetForecast(apiKey string, url string) (Forecasts, error) {
   // Very simple cachefile - not generic in any way, we simply use a localfile to hold the json we got last time
-  // Try getting the foecast from the local cachefile fist. If the cachefile is less than X hous old, then use it. 
+  // Try getting the forecast from the local cachefile fist. If the cachefile is less than X hous old, then use it. 
   // Else fall through to the oiginal code and download from the website.
   // Content downloaded from the website should then be saved to the local cachefile
   var cachedForecasts Forecasts
   var cacherr error
 
-  // Should be $TMP/somefilename... Should also be configurable
-  cacheFilePath := "/tmp/cached_forecast.json"
-  fileInfo, err := os.Stat(cacheFilePath)
-  if err != nil {
-    if os.IsNotExist(err) {
-      u.Log.Infof("Info: File '%s' does not exist - fallthough to download", cacheFilePath)
-    } else {
-      u.Log.Errorf("Error getting file info: %v", err)
-    }
+  // read the cache control variables
+  cache_forecast := viper.GetBool("cache_forecast")
+  cache_file_name := viper.GetString("cache_file_name")
+  cache_time:=viper.GetInt32("cache_time")
+
+  if(!cache_forecast) {
+    u.Log.Debugf("cache_forecast is disabled")
+    cacherr=errors.New("Forecast Cache Disabled")
   } else {
-    modTime := fileInfo.ModTime()
-    currentTime := time.Now()
-
-    age := currentTime.Sub(modTime)
-
-    u.Log.Infof("File '%s' was last modified at: %s", cacheFilePath, modTime.Format(time.RFC3339))
-    u.Log.Debugf("Age of file '%s': %s", cacheFilePath, age)
-
-    cachedForecasts, cacherr = readForecastCache(cacheFilePath)
-    if(cacherr == nil) {
-      // Check if the file is older than a certain duration
-      threshold := 2 * time.Hour // 2 hours
-      if age > threshold {
-        u.Log.Infof("File '%s' is older than %s - fall though to download", cacheFilePath, threshold)
+    u.Log.Debugf("cache_forecast is enabled")
+    u.Log.Debugf("cache_forecast file %s cache_time %d", cache_file_name, cache_time)
+ 
+    fileInfo, err := os.Stat(cache_file_name)
+    if err != nil {
+      if os.IsNotExist(err) {
+        u.Log.Infof("Info: Cache File '%s' does not exist - fallthough to download", cache_file_name)
       } else {
-        u.Log.Infof("File '%s' is not older than %s - use cached forecast", cacheFilePath, threshold)
-        return cachedForecasts, nil
+        u.Log.Errorf("Error getting file info: %v", err)
       }
+    } else {
+      modTime := fileInfo.ModTime()
+      currentTime := time.Now()
+
+      age := currentTime.Sub(modTime)
+
+      u.Log.Debugf("File '%s' was last modified at: %s", cache_file_name, modTime.Format(time.RFC3339))
+      u.Log.Debugf("Age of file '%s': %s", cache_file_name, age)
+
+      cachedForecasts, cacherr = readForecastCache(cache_file_name)
+      if(cacherr == nil) {
+        // Check if the file is older than a certain duration
+
+        threshold := time.Duration(cache_time) * time.Second 
+        if age > threshold {
+          u.Log.Debugf("File '%s' is older than %s - fall though to download", cache_file_name, threshold)
+        } else {
+          u.Log.Debugf("File '%s' is not older than %s - use cached forecast", cache_file_name, threshold)
+          return cachedForecasts, nil
+        }
+      }
+      u.Log.Debugf("Falling through to URL read for forecast")
     }
-    u.Log.Infof("Falling through to URL read for forecast")
   }
 
-  // Read the foecast from the URL
+  // Read the forecast from the URL
   req, err := http.NewRequest("GET", url, nil)
   if err != nil {
     return Forecasts{}, err
@@ -113,16 +126,18 @@ func GetForecast(apiKey string, url string) (Forecasts, error) {
     u.Log.Errorf("Error decoding result from forecast URL - No cached result to return")
     return Forecasts{}, err
   }
-  // Write the json to the cachefile
-  jsonData, err := json.MarshalIndent(forecasts, "", "  ") // Use "  " for 2-space indentation
-  if err != nil {
-    u.Log.Errorf("Error: Unable to marshall forecast")
-  } else {
-    err = os.WriteFile(cacheFilePath, jsonData, 0644)
+  if(cache_forecast) {
+    // Write the json to the cachefile
+    jsonData, err := json.MarshalIndent(forecasts, "", "  ") // Use "  " for 2-space indentation
     if err != nil {
-      u.Log.Errorf("Error: Unable to write cachefile %s", cacheFilePath)
+      u.Log.Errorf("Error: Unable to marshall forecast")
     } else {
-      u.Log.Infof("Cachefile %s written successfully", cacheFilePath)
+      err = os.WriteFile(cache_file_name, jsonData, 0644)
+      if err != nil {
+        u.Log.Errorf("Error: Unable to write cachefile %s", cache_file_name)
+      } else {
+        u.Log.Infof("Cachefile %s written successfully", cache_file_name)
+      }
     }
   }
 
