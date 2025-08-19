@@ -90,6 +90,9 @@ Flags:
   -H, --fronius_ip string   set FRONIUS_IP
   -h, --help                help for estimate
   -u, --url string          Set the forecast URL. For multiple URLs, use a comma (,) to separate them
+  -n, --cache_forecast bool Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
+  -f, --cache_file_name     When caching is enabled, the forecast will be saved locally to this file. Defaults to cached_forecast.json
+  -l, --cache_time          The length of time to cache the forecast. Defaults to 7200 seconds
 ```
 
 ## Schedule
@@ -114,6 +117,9 @@ Flags:
   -c, --pw_consumption float           PW_CONSUMPTION
   -s, --start_hr string                START_HR (default "00:00")
   -u, --url string                     Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
+  -n, --cache_forecast bool            Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
+  -f, --cache_file_name                When caching is enabled, the forecast will be saved locally to this file. Defaults to cached_forecast.json
+  -l, --cache_time                     The length of time to cache the forecast. Defaults to 7200 seconds
 ```
 
 ## Debug Logs
