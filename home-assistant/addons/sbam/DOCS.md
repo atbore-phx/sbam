@@ -64,7 +64,10 @@ Do not start yet but configure it:
 15. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
 16. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
 17. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
-18. finally click on **save**
+18. **cache_forecast:** Set to true to enable caching of the forecast (Default: false)
+19. **cache_file_name:** Set the name of the cachefile if you'd like it to be different for some reason (Default: cached_forecast.json)
+20. **cache_time:** Set the time in seconds we will cache the forecast to (If enabled) (Default: 7200)
+21. finally click on **save**
 
 ![sbam-conf](https://github.com/user-attachments/assets/51df5a4a-d355-4d37-ba62-f86451c6fb08)
 
