@@ -16,6 +16,9 @@ export BATT_RESERVE_END_HR=$(bashio::config 'batt_reserve_end_hr')
 export DEFAULTS=$(bashio::config 'defaults')
 export RESET=$(bashio::config 'reset')
 export DEBUG=$(bashio::config 'debug')
+export CACHE_FORECAST=$(bashio::config 'cache_forecast')
+export CACHE_FILE_NAME=$(bashio::config 'cache_file_name')
+export CACHE_TIME=$(bashio::config 'cache_time')
 
 [ "$RESET" = "true" ] && sbam configure -d
 
