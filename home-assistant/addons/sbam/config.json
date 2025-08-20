@@ -46,7 +46,7 @@
     "reset": "bool",
     "debug": "bool",
     "cache_forecast": "bool",
-    "cache_time": int,
+    "cache_time": "int",
     "cache_file": "string"
   }
 }
