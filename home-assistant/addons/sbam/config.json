@@ -26,7 +26,7 @@
     "debug": false,
     "cache_forecast": false,
     "cache_time": 7200,
-    "cache_file_name": "forecast_cache.json"
+    "cache_file_prefix": "cached_forecast"
   },
   "schema": {
     "url": "str",
@@ -47,6 +47,6 @@
     "debug": "bool",
     "cache_forecast": "bool",
     "cache_time": "int",
-    "cache_file_name": "string"
+    "cache_file_prefix": "string"
   }
 }

@@ -33,7 +33,7 @@ var batt_reserve_end_hr string
 var crontab string
 var s_defaults bool
 var s_cache_forecast bool
-var s_cache_file_name string
+var s_cache_file_prefix string
 var s_cache_time int32
 
 const (
@@ -64,9 +64,9 @@ var scdCmd = &cobra.Command{
 		pw_lwt = viper.GetFloat64("pw_lwt")
 		pw_upt = viper.GetFloat64("pw_upt")
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
-                s_cache_forecast = viper.GetBool("cache_forecast")
-                s_cache_file_name = viper.GetString("cache_file_name")
-                s_cache_time = viper.GetInt32("cache_time")
+    s_cache_forecast = viper.GetBool("cache_forecast")
+    s_cache_file_prefix = viper.GetString("cache_file_prefix")
+    s_cache_time = viper.GetInt32("cache_time")
 
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
 			batt_reserve_start_hr = viper.GetString("start_hr")
@@ -87,6 +87,7 @@ var scdCmd = &cobra.Command{
 			return
 		}
 
+    u.Log.Debugf("schedule crontab '%s'", crontab)
 		if crontab != "0 0 0 0 0" {
 			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
 
@@ -112,9 +113,9 @@ func init() {
 	scdCmd.Flags().StringVarP(&batt_reserve_start_hr, "batt_reserve_start_hr", "S", const_br_sh, "BATT_RESERVE_START_HR (default START_HR)")
 	scdCmd.Flags().StringVarP(&batt_reserve_end_hr, "batt_reserve_end_hr", "E", const_br_eh, "BATT_RESERVE_END_HR (default END_HR)")
 	scdCmd.Flags().BoolVarP(&s_defaults, "defaults", "d", true, "DEFAULTS")
-        scdCmd.Flags().BoolVarP(&s_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
-        scdCmd.Flags().StringVarP(&s_cache_file_name, "cache_file_name", "f", "cached_forecast.json", "CACHE_FILE_NAME (default 'cached_forecast.json')")
-        scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
+  scdCmd.Flags().BoolVarP(&s_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
+  scdCmd.Flags().StringVarP(&s_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_PREFIX (default 'cached_forecast')")
+  scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
 
 	viper.BindPFlag("url", scdCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", scdCmd.Flags().Lookup("apikey"))
@@ -130,9 +131,9 @@ func init() {
 	viper.BindPFlag("batt_reserve_start_hr", scdCmd.Flags().Lookup("batt_reserve_start_hr"))
 	viper.BindPFlag("batt_reserve_end_hr", scdCmd.Flags().Lookup("batt_reserve_end_hr"))
 	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
-        viper.BindPFlag("cache_forecast", scdCmd.Flags().Lookup("cache_forecast"))
-        viper.BindPFlag("cache_file_name", scdCmd.Flags().Lookup("cache_file_name"))
-        viper.BindPFlag("cache_time", scdCmd.Flags().Lookup("cache_time"))
+  viper.BindPFlag("cache_forecast", scdCmd.Flags().Lookup("cache_forecast"))
+  viper.BindPFlag("cache_file_prefix", scdCmd.Flags().Lookup("cache_file_prefix"))
+  viper.BindPFlag("cache_time", scdCmd.Flags().Lookup("cache_time"))
 
 	rootCmd.AddCommand(scdCmd)
 }

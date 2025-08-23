@@ -17,7 +17,7 @@ export DEFAULTS=$(bashio::config 'defaults')
 export RESET=$(bashio::config 'reset')
 export DEBUG=$(bashio::config 'debug')
 export CACHE_FORECAST=$(bashio::config 'cache_forecast')
-export CACHE_FILE_NAME=$(bashio::config 'cache_file_name')
+export CACHE_FILE_PREFIX=$(bashio::config 'cache_file_prefix')
 export CACHE_TIME=$(bashio::config 'cache_time')
 
 [ "$RESET" = "true" ] && sbam configure -d
