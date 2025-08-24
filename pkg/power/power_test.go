@@ -154,7 +154,7 @@ func TestHandler(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	production, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL)
+	production, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
 	assert.NoError(t, err)
 	assert.Equal(t, 250000.0, production)
 }
@@ -182,7 +182,7 @@ func TestHandlerError(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, test_forecast_retrieved, err := power.Handler("apiKey", ts.URL)
+	_, test_forecast_retrieved, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
 	assert.NoError(t, err)
 	assert.Equal(t, test_forecast_retrieved, false)
 }
@@ -225,7 +225,7 @@ func TestHandlerError2(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, _, err := power.Handler("apiKey", ts.URL)
+	_, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
 	assert.Error(t, err)
 
 }
@@ -268,7 +268,7 @@ func TestHandlerError3(t *testing.T) {
 	power := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL+", ")
+	_, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL+", ", false, "cached_forecast", 7200)
 	assert.Error(t, err)
 }
 
