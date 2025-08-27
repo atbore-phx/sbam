@@ -244,6 +244,9 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	} else if isStartAfterEnd(batt_reserve_end_hr, end_hr) {
 		err := errors.New("batt_reserve_end_hr: " + batt_reserve_end_hr + " is not before or equal end_hr: " + end_hr)
 		return err
+  } else if((s_cache_time<0) || (s_cache_time>86400)) {
+    err := errors.New("The cache_time must be between 0 and 86400 seconds")
+    return err
 	}
 
 	return nil

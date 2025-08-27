@@ -67,7 +67,10 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	}
+	} else if((e_cache_time<0) || (e_cache_time>86400)) {
+    err := errors.New("The cache_time must be between 0 and 86400 seconds")
+    return err
+  }
 	return nil
 }
 
