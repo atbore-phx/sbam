@@ -182,6 +182,49 @@ func TestHandler(t *testing.T) {
 	assert.Equal(t, 250000.0, production)
 }
 
+func TestHandlerCache(t *testing.T) {
+	now := time.Now()
+	tomorrow := now.AddDate(0, 0, 1)
+	pe := now.Format(time.RFC3339)
+	pe30 := now.Add(time.Minute * 30).Format(time.RFC3339)
+	pet := tomorrow.Format(time.RFC3339)
+	pet30 := tomorrow.Add(time.Minute * 30).Format(time.RFC3339)
+
+	// Create a mock HTTP server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"forecasts": [
+				{
+					"period_end": "`+pe+`",
+					"pv_estimate": 100
+				},
+				{
+					"period_end": "`+pe30+`",
+					"pv_estimate": 150
+				},
+				{
+					"period_end": "`+pet+`",
+					"pv_estimate": 100
+				},
+				{
+					"period_end": "`+pet30+`",
+					"pv_estimate": 150
+				}
+			]
+		}`)
+	}))
+	defer ts.Close()
+
+	// Create a new Power object
+	power := power.New()
+
+	// Call the Handler function with the mock HTTP server's URL
+	production, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, true, "gotest_cached_forecast.json", 7200)
+	assert.NoError(t, err)
+	assert.Equal(t, 250000.0, production)
+}
+
 func TestHandlerError(t *testing.T) {
 	// Create a mock HTTP server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
