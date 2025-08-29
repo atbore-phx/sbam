@@ -32,6 +32,9 @@ var batt_reserve_start_hr string
 var batt_reserve_end_hr string
 var crontab string
 var s_defaults bool
+var s_cache_forecast bool
+var s_cache_file_prefix string
+var s_cache_time int32
 
 const (
 	const_pc    = 0.0
@@ -61,6 +64,10 @@ var scdCmd = &cobra.Command{
 		pw_lwt = viper.GetFloat64("pw_lwt")
 		pw_upt = viper.GetFloat64("pw_upt")
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
+		s_cache_forecast = viper.GetBool("cache_forecast")
+		s_cache_file_prefix = viper.GetString("cache_file_prefix")
+		s_cache_time = viper.GetInt32("cache_time")
+
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
 			batt_reserve_start_hr = viper.GetString("start_hr")
 		} else {
@@ -80,11 +87,12 @@ var scdCmd = &cobra.Command{
 			return
 		}
 
+		u.Log.Debugf("schedule crontab '%s'", crontab)
 		if crontab != "0 0 0 0 0" {
-			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
+			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time)
 
 		} else {
-			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
+			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time)
 
 		}
 	},
@@ -105,6 +113,9 @@ func init() {
 	scdCmd.Flags().StringVarP(&batt_reserve_start_hr, "batt_reserve_start_hr", "S", const_br_sh, "BATT_RESERVE_START_HR (default START_HR)")
 	scdCmd.Flags().StringVarP(&batt_reserve_end_hr, "batt_reserve_end_hr", "E", const_br_eh, "BATT_RESERVE_END_HR (default END_HR)")
 	scdCmd.Flags().BoolVarP(&s_defaults, "defaults", "d", true, "DEFAULTS")
+	scdCmd.Flags().BoolVarP(&s_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
+	scdCmd.Flags().StringVarP(&s_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_PREFIX (default 'cached_forecast')")
+	scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
 
 	viper.BindPFlag("url", scdCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", scdCmd.Flags().Lookup("apikey"))
@@ -120,6 +131,9 @@ func init() {
 	viper.BindPFlag("batt_reserve_start_hr", scdCmd.Flags().Lookup("batt_reserve_start_hr"))
 	viper.BindPFlag("batt_reserve_end_hr", scdCmd.Flags().Lookup("batt_reserve_end_hr"))
 	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
+	viper.BindPFlag("cache_forecast", scdCmd.Flags().Lookup("cache_forecast"))
+	viper.BindPFlag("cache_file_prefix", scdCmd.Flags().Lookup("cache_file_prefix"))
+	viper.BindPFlag("cache_time", scdCmd.Flags().Lookup("cache_time"))
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -230,17 +244,20 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	} else if isStartAfterEnd(batt_reserve_end_hr, end_hr) {
 		err := errors.New("batt_reserve_end_hr: " + batt_reserve_end_hr + " is not before or equal end_hr: " + end_hr)
 		return err
+  } else if((s_cache_time<0) || (s_cache_time>86400)) {
+    err := errors.New("The cache_time must be between 0 and 86400 seconds")
+    return err
 	}
 
 	return nil
 }
 
-func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64) {
+func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32) {
 	if !CheckTimeRange(start_hr, end_hr) {
 		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
 	} else {
 		pwr := pw.New()
-		solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url)
+		solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -263,7 +280,7 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 	}
 }
 
-func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64) {
+func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32) {
 	layout := "15:04"
 	endTime, _ := time.Parse(layout, end_hr)
 	endTime = endTime.Add(-5 * time.Minute)
@@ -271,7 +288,7 @@ func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumptio
 
 	c := cron.New()
 	_, err := c.AddFunc(crontab, func() {
-		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt)
+		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time)
 	})
 	if err != nil {
 		u.Log.Error(err)

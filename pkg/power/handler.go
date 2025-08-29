@@ -2,16 +2,20 @@ package power
 
 import (
 	"errors"
+	"fmt"
 	u "sbam/src/utils"
 	"strings"
 	"time"
 )
 
+var forecasts Forecasts
+var err error
+
 func New() *Power {
 	return &Power{}
 }
 
-func (power *Power) Handler(apiKey string, urls string) (float64, bool, error) {
+func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cache_file_prefix string, cache_time int32) (float64, bool, error) {
 	production := 0.0
 	urlList := strings.Split(urls, ",")
 	for i := range urlList {
@@ -25,7 +29,14 @@ func (power *Power) Handler(apiKey string, urls string) (float64, bool, error) {
 
 	day := CheckSun(time.Now())
 	for pvn, url := range urlList {
-		forecasts, err := GetForecast(apiKey, url)
+		u.Log.Infof("Index %d URL %s", pvn, url)
+		if !cache_forecast {
+			u.Log.Debugf("cache_forecast is disabled")
+			forecasts, err = GetForecast(apiKey, url)
+		} else {
+			cache_file_name := fmt.Sprintf("%s.%d", cache_file_prefix, pvn)
+			forecasts, err = GetForecastChache(apiKey, url, cache_file_name, cache_time)
+		}
 		if err != nil {
 			u.Log.Errorln("Error getting forecast for", url, ":", err)
 			u.Log.Errorln("Forecast charging will be disabled")
