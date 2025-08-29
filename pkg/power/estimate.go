@@ -49,29 +49,29 @@ func GetForecastChache(apiKey string, url string, cache_file_name string, cache_
 
 	fileInfo, err := os.Stat(cache_file_name)
 	if err != nil {
+		u.Log.Errorf("Error getting file info: %v", err)
 		if os.IsNotExist(err) {
 			u.Log.Infof("Info: Cache File '%s' does not exist - fallthough to download", cache_file_name)
-		} else {
-			u.Log.Errorf("Error getting file info: %v", err)
 		}
-	}
-	modTime := fileInfo.ModTime()
-	currentTime := time.Now()
+	} else {
+		modTime := fileInfo.ModTime()
+		currentTime := time.Now()
 
-	age := currentTime.Sub(modTime)
+		age := currentTime.Sub(modTime)
 
-	u.Log.Debugf("File '%s' was last modified at: %s", cache_file_name, modTime.Format(time.RFC3339))
-	u.Log.Debugf("Age of file '%s': %s", cache_file_name, age)
+		u.Log.Debugf("File '%s' was last modified at: %s", cache_file_name, modTime.Format(time.RFC3339))
+		u.Log.Debugf("Age of file '%s': %s", cache_file_name, age)
 
-	cachedForecasts, cacheHit, _ = readForecastCache(cache_file_name)
-	if cacheHit {
-		// Check if the file is older than a certain duration
-		threshold := time.Duration(cache_time) * time.Second
-		if age > threshold {
-			u.Log.Debugf("File '%s' is older than %s - fall though to download", cache_file_name, threshold)
-		} else {
-			u.Log.Debugf("File '%s' is not older than %s - use cached forecast", cache_file_name, threshold)
-			return cachedForecasts, nil
+		cachedForecasts, cacheHit, _ = ReadForecastCache(cache_file_name)
+		if cacheHit {
+			// Check if the file is older than a certain duration
+			threshold := time.Duration(cache_time) * time.Second
+			if age > threshold {
+				u.Log.Debugf("File '%s' is older than %s - fall though to download", cache_file_name, threshold)
+			} else {
+				u.Log.Debugf("File '%s' is not older than %s - use cached forecast", cache_file_name, threshold)
+				return cachedForecasts, nil
+			}
 		}
 	}
 	u.Log.Debugf("Falling through to URL read for forecast")
@@ -105,7 +105,7 @@ func GetForecastChache(apiKey string, url string, cache_file_name string, cache_
 	return forecasts, nil
 }
 
-func readForecastCache(cache_file_name string) (Forecasts, bool, error) {
+func ReadForecastCache(cache_file_name string) (Forecasts, bool, error) {
 	var cachedForecasts Forecasts
 
 	// Read the cachefile
