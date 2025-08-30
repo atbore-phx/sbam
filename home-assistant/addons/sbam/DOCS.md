@@ -48,25 +48,30 @@ Once added, it can be installed:
 Do not start yet but configure it:
 
 1. Click on the configuration tab
-2. **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,); Solcast has a limit of 10 API calls per **UTC** day. If there are **two URLs**, the API calls are split evenly, with a maximum of 5 calls per array per **UTC** day
-3. **apikey:** Solcast API key
-4. **fronius_ip:** Fronius inverter LAN IP
-5. **start_hr:** Start time of the advantageous network operator rate (default 00:00)
-6. **end_hr:** End time of the advantageous network operator rate (default 06:00)
-7. **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \* so At minute 0 past every hour from 0 through 5.); with **two** URLs: **CET**: 10 00,03,05,06 \* \* \* (At minute 10 past hour 0, 3, 5, and 6), **UTC**: Add 1 additional hour per API call (e.g., 10 00,03,05,06,07 \* \* \*). Frequent calls are scheduled near the end time to improve forecast accuracy and allow time for charging
-8. **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh)
-9. **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500)
-10. **pw_lwt:** The hysteresis logic lower threshold **offset** in Wh to stop charging (Default: 0)
-11. **pw_upt:** The hysteresis logic upper threshold **offset** in Wh to start charging (Default: 0)
-12. **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh)
-13. **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**)
-14. **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**)
-15. **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
-16. **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
-17. **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
-18. finally click on **save**
+2. Modify Options:  
+- **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,); Solcast has a limit of 10 API calls per **UTC** day. If there are **two URLs**, the API calls are split evenly, with a maximum of 5 calls per array per **UTC** day.
+- **apikey:** Solcast API key.
+- **fronius_ip:** Fronius inverter LAN IP.
+- **start_hr:** Start time of the advantageous network operator rate (default 00:00).
+-**end_hr:** End time of the advantageous network operator rate (default 06:00).
+- **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \* so At minute 0 past every hour from 0 through 5.); with **two** URLs: **CET**: 10 00,03,05,06 \* \* \* (At minute 10 past hour 0, 3, 5, and 6), **UTC**: Add 1 additional hour per API call (e.g., 10 00,03,05,06,07 \* \* \*). Frequent calls are scheduled near the end time to improve forecast accuracy and allow time for charging.
+- **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh).
+- **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500).
+- **pw_lwt:** The hysteresis logic lower threshold **offset** in Wh to stop charging (Default: 0).
+- **pw_upt:** The hysteresis logic upper threshold **offset** in Wh to start charging (Default: 0).
+- **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh).
+- **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**).
+- **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**).
+- **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
+- **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
+- **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
+- **cache_forecast:** Enabling the cache forcast to reduce the number of times we query the forecast URL (Default: false).
+- **cache_file_prefix:** When caching is enabled, the forecast will be saved locally to files with this prefix. (Default: cached_forecast).
+- **cache_time:**  The length of time to cache the forecast (Default: 7200, means 7200 seconds).
+3. Click on **save** to apply the configuration
 
-![sbam-conf](https://github.com/user-attachments/assets/51df5a4a-d355-4d37-ba62-f86451c6fb08)
+![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
+
 
 
 Finally Start **sbam**!

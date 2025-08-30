@@ -13,6 +13,9 @@ import (
 
 var e_url string
 var e_apiKey string
+var e_cache_forecast bool
+var e_cache_file_prefix string
+var e_cache_time int32
 
 var estCmd = &cobra.Command{
 	Use:   "estimate",
@@ -22,13 +25,16 @@ var estCmd = &cobra.Command{
 		e_url = viper.GetString("url")
 		e_apiKey = viper.GetString("apikey")
 		fronius_ip = viper.GetString("fronius_ip")
+		e_cache_forecast = viper.GetBool("cache_forecast")
+		e_cache_file_prefix = viper.GetString("cache_file_prefix")
+		e_cache_time = viper.GetInt32("cache_time")
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
 			return
 		}
-		estimate(e_apiKey, e_url, fronius_ip)
+		estimate(e_apiKey, e_url, fronius_ip, e_cache_forecast, e_cache_file_prefix, e_cache_time)
 
 	},
 }
@@ -37,10 +43,16 @@ func init() {
 	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the forecast URL. For multiple URLs, use a comma (,) to separate them")
 	estCmd.Flags().StringVarP(&e_apiKey, "apikey", "k", "", "set APIKEY")
 	estCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
+	estCmd.Flags().BoolVarP(&e_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
+	estCmd.Flags().StringVarP(&e_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_NAME (default 'cached_forecast')")
+	estCmd.Flags().Int32VarP(&e_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
 
 	viper.BindPFlag("url", estCmd.Flags().Lookup("url"))
 	viper.BindPFlag("apikey", estCmd.Flags().Lookup("apikey"))
 	viper.BindPFlag("fronius_ip", estCmd.Flags().Lookup("fronius_ip"))
+	viper.BindPFlag("cache_forecast", estCmd.Flags().Lookup("cache_forecast"))
+	viper.BindPFlag("cache_file_prefix", estCmd.Flags().Lookup("cache_file_prefix"))
+	viper.BindPFlag("cache_time", estCmd.Flags().Lookup("cache_time"))
 
 	rootCmd.AddCommand(estCmd)
 }
@@ -55,13 +67,16 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	}
+	} else if((e_cache_time<0) || (e_cache_time>86400)) {
+    err := errors.New("The cache_time must be between 0 and 86400 seconds")
+    return err
+  }
 	return nil
 }
 
-func estimate(apiKey string, url string, fronius_ip string) {
+func estimate(apiKey string, url string, fronius_ip string, cache_forecast bool, cache_file_prefix string, cache_time int32) {
 	pwr := pw.New()
-	_, _, err := pwr.Handler(apiKey, url)
+	_, _, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)
