@@ -91,7 +91,7 @@ Flags:
   -h, --help                help for estimate
   -u, --url string          Set the forecast URL. For multiple URLs, use a comma (,) to separate them
   -n, --cache_forecast bool Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
-  -f, --cache_file_prefix   When caching is enabled, the forecast will be saved locally to files with this pefix. Defaults to cached_forecast
+  -f, --cache_file_prefix   When caching is enabled, the forecast will be saved locally to files with this prefix. Defaults to cached_forecast
   -l, --cache_time          The length of time to cache the forecast. Defaults to 7200 seconds
 ```
 
