@@ -47,6 +47,6 @@
     "debug": "bool",
     "cache_forecast": "bool",
     "cache_time": "int",
-    "cache_file_prefix": "string"
+    "cache_file_prefix": "str"
   }
 }
