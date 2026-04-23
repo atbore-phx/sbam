@@ -7,7 +7,7 @@ BRANCH=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 ifeq ($(BRANCH),main)
 VERSION=$(shell git describe --tags --always 2>/dev/null)
 else
-VERSION=$(shell echo $(BRANCH) | sed -E 's|/|-|g; s|[^A-Za-z0-9._-]|-|g; s|-+|-|g; s|^-||; s|-$$||')
+VERSION=$(shell printf '%s\n' "$(BRANCH)" | sed -E 's|/|-|g; s|[^A-Za-z0-9._-]|-|g; s|-+|-|g; s|^-||; s|-$$||')
 endif
 
 DATE=$(shell date)
