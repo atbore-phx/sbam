@@ -44,7 +44,7 @@ For each blueprint step:
 - Edit the smallest set of files necessary.
 - Follow sbam conventions strictly:
   - Constructor pattern `New() *T`.
-  - Error handling via `handleError` / `handleErrorPanic` from [pkg/fronius/error.go](../../pkg/fronius/error.go) where applicable; otherwise return `(value, error)`.
+   - Error handling via `HandleError` / `HandleErrorPanic` from [src/utils/error.go](../../src/utils/error.go) where applicable; otherwise return `(value, error)`.
   - Logging via `utils.Log` from [src/utils/log.go](../../src/utils/log.go).
   - Config via Viper with cobra flag binding and `AutomaticEnv()` (precedence: flag > env > yaml).
   - Modbus access via the helpers in [pkg/fronius/modbus.go](../../pkg/fronius/modbus.go); never open raw connections elsewhere.
