@@ -33,13 +33,22 @@ This prompt is the GitHub-issue counterpart of [generate-plan-local.prompt.md](g
    gh issue view <N> --repo atbore-phx/sbam --json number,title,body,labels,state,url,author,comments
    ```
 
-   If `gh` is unavailable, fall back to:
+   If `gh` is unavailable, fall back to fetching both the issue and its comments via the GitHub REST API:
 
    ```bash
-   curl -fsSL https://api.github.com/repos/atbore-phx/sbam/issues/<N>
-   ```
+   curl -fsSL https://api.github.com/repos/atbore-phx/sbam/issues/<N> -o /tmp/issue-<N>.json
 
-   and parse the JSON.
+   COMMENTS_URL="https://api.github.com/repos/atbore-phx/sbam/issues/<N>/comments?per_page=100"
+   : > /tmp/issue-<N>-comments.json
+   while [ -n "$COMMENTS_URL" ]; do
+     HDRS="$(mktemp)"
+     BODY="$(mktemp)"
+     curl -fsSL -D "$HDRS" "$COMMENTS_URL" -o "$BODY"
+     cat "$BODY" >> /tmp/issue-<N>-comments.json
+     NEXT_URL="$(grep -i '^link:' "$HDRS" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p')"
+     COMMENTS_URL="$NEXT_URL"
+     rm -f "$HDRS" "$BODY"
+   done
 3. From the issue number and title, derive a **feature slug**:
    - Use the issue number `N` (no zero-padding), then the literal word `issue`, followed by a hyphen and a slugified version of the issue title, e.g. `42-issue-fix-forecast-cache`.
    - Slug rules: lowercase ASCII only, replace whitespace and punctuation with `-`, remove characters other than `a-z`, `0-9` and `-`, collapse repeated `-`, and trim leading/trailing `-`.
