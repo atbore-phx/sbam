@@ -177,7 +177,7 @@ Non-trivial features are designed and shipped in three repeatable steps. Each fe
 
 ### Reference example
 
-The `01-init` feature directory is the canonical example of TASK + PLAN structure: see [docs/implementations/01-init/](../docs/implementations/01-init/).
+Use the structure defined above as the canonical example: each feature lives under `docs/implementations/<feature-name>/` and contains exactly `<feature-name>-TASK.md` and `<feature-name>-PLAN.md`.
 
 ### Rules for these prompts
 
