@@ -165,8 +165,8 @@ Create `docs/implementations/<feature-name>/<feature-name>-PLAN.md` using the st
 
 - Print a short summary with workspace-relative links to the TASK and PLAN.
 - Remind the user the next step is `/implement-plan <feature-name>`.
-- **Do not** modify any source files outside `docs/implementations/<feature-name>/` during this prompt.
-- If you added or removed files anywhere in the repo, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md) per its own rule.
+- **Do not** modify any files outside `docs/implementations/<feature-name>/` during this prompt.
+- Files added or removed under `docs/implementations/<feature-name>/` do **not** require updates to the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md). If you notice unrelated non-`docs/implementations/**` file additions/removals that would require a `Project Structure` update, mention that as a follow-up only; do **not** edit `.github/copilot-instructions.md` in this prompt.
 
 ## Operating Rules
 
