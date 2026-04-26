@@ -42,7 +42,15 @@ func init() {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 
-	viper.ReadInConfig()
+	err := viper.ReadInConfig()
+	if err != nil {
+		// If the config file is not present, log at debug level and continue.
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			u.Log.Debug("Config file not found; proceeding without config.yaml")
+		} else {
+			fmt.Printf("Error reading config file: %s\n", err)
+		}
+	}
 }
 
 func SetVersionInfo(version, commit, date string) error {
