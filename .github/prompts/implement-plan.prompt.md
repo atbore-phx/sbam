@@ -93,7 +93,7 @@ If the PLAN defines additional validation gates, run those too. Do not declare s
 
 ### 5. Documentation and surface updates
 
-- If you added/removed/renamed/moved any files, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md).
+- If you added/removed/renamed/moved any files, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md), while respecting the existing structure, formatting, important sections, and conventions.
 - Update [README.md](../../README.md) only if the PLAN says so or if user-visible behavior changed.
 - If the Home Assistant add-on schema or behavior changed, append an entry to [home-assistant/addons/sbam/CHANGELOG.md](../../home-assistant/addons/sbam/CHANGELOG.md) and update [home-assistant/addons/sbam/DOCS.md](../../home-assistant/addons/sbam/DOCS.md).
 - If new config keys, env vars, or flags were added, update [config.yaml](../../config.yaml) (commented example) and [home-assistant/addons/sbam/config.json](../../home-assistant/addons/sbam/config.json) schema.
