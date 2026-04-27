@@ -42,7 +42,7 @@ var estCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerEstCmd() {
 	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the forecast URL. For multiple URLs, use a comma (,) to separate them")
 	estCmd.Flags().StringVarP(&e_apiKey, "apikey", "k", "", "set APIKEY")
 	estCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")

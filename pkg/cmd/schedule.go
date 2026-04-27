@@ -101,7 +101,7 @@ var scdCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerScdCmd() {
 	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "Set the Forecast URL. For multiple URLs, use a comma (,) to separate them")
 	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", "APIKEY")
 	scdCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "FRONIUS_IP")

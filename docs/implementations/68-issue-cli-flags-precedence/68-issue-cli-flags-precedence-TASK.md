@@ -104,3 +104,9 @@ As an operator running sbam from the CLI, I want `bin/sbam estimate --url http:/
 > - Backward compatibility: keep all current config keys, env names, and flag names unchanged.
 > - Tests: add both `pkg/cmd/` unit tests AND end-to-end coverage in `main_test.go`.
 > - Target release: `v1.6.0` (informational; no version files edited by this work).
+
+> Added 2026-04-27 (after re-reading new issue comment https://github.com/atbore-phx/sbam/issues/68#issuecomment-4325885091):
+> - Maintainer preference: consolidate the per-file `init()` functions in `pkg/cmd/{configure,estimate,schedule}.go` into a single `init()` in `pkg/cmd/root.go`.
+> - Agreed scope: each subcommand file exposes a `register<Name>Cmd()` setup function (flag definitions + `rootCmd.AddCommand`); `root.go`'s sole `init()` calls them in a deterministic order.
+> - Acceptance criterion added: only one `init()` function exists in the `pkg/cmd` package after the refactor.
+> - Behavior must remain unchanged; tests added in the previous iteration must still pass.

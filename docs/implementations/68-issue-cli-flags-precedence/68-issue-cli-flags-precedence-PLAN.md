@@ -307,3 +307,36 @@ To raise to 10:
 ## Revision history
 
 - 2026-04-27: Initial PLAN authored from issue #68 and clarification interview.
+- 2026-04-27 (rev 2): Reconciled with new maintainer comment (https://github.com/atbore-phx/sbam/issues/68#issuecomment-4325885091) requesting a single `init()` in `root.go`. Added Step 7 below.
+
+---
+
+## Step 7 — Consolidate `init()` into a single function in `root.go` (rev 2)
+
+Maintainer preference: "I'd prefer to have just one init in root.go, if possible." Per-file `init()` blocks run in alphabetical file order, which is fragile. The fix from Steps 1–6 already removes runtime correctness dependence on that order, but the static-analysis surface still has three `init()` functions. This step removes that surface.
+
+### 7.1 Refactor each subcommand file to expose a register function
+
+- File: [pkg/cmd/estimate.go](../../../pkg/cmd/estimate.go)
+  - Rename the existing `init()` to `registerEstCmd()` (unexported).
+  - Body unchanged: defines flags on `estCmd` and calls `rootCmd.AddCommand(estCmd)`.
+- File: [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go)
+  - Same: rename `init()` → `registerScdCmd()`.
+- File: [pkg/cmd/configure.go](../../../pkg/cmd/configure.go)
+  - Same: rename `init()` → `registerCfgCmd()`.
+
+### 7.2 Centralize wiring in `root.go`
+
+- File: [pkg/cmd/root.go](../../../pkg/cmd/root.go)
+  - Extend the existing `init()` to call the three register functions in a deterministic order (`registerCfgCmd()`, `registerEstCmd()`, `registerScdCmd()` — alphabetical by command name; order does not matter functionally now, but pick one and document it).
+  - `init()` continues to call `viper.AutomaticEnv()`, `viper.SetConfigName(...)`, `viper.AddConfigPath(...)`, `viper.ReadInConfig()` exactly as today.
+
+### 7.3 Verification
+
+- After the refactor, `grep -n '^func init' pkg/cmd/*.go` MUST return exactly one match (in `root.go`).
+- `bindFlags(cmd)` and the `PersistentPreRunE` hooks remain untouched — they are what makes the precedence correct at runtime.
+- All existing tests in `pkg/cmd/precedence_test.go` and `main_test.go` must continue to pass without modification.
+
+### 7.4 Risk
+
+- Low. The refactor is mechanical (renaming three functions and adding three calls). No behavior change.

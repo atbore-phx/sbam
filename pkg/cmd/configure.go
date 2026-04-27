@@ -40,7 +40,7 @@ var cfgCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerCfgCmd() {
 	cfgCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
 	cfgCmd.Flags().BoolVarP(&c_defaults, "defaults", "d", false, "set DEFAULTS")
 	cfgCmd.Flags().BoolVarP(&force_charge, "force_charge", "f", false, "set FORCE_CHARGE")

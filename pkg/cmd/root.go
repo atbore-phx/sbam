@@ -52,6 +52,13 @@ func init() {
 			fmt.Printf("Error reading config file: %s\n", err)
 		}
 	}
+
+	// Register all subcommands. Per-file init() blocks were consolidated
+	// here on purpose so the package has exactly one init() function and
+	// the registration order is explicit (see issue #68).
+	registerCfgCmd()
+	registerEstCmd()
+	registerScdCmd()
 }
 
 func SetVersionInfo(version, commit, date string) error {
