@@ -21,6 +21,9 @@ var estCmd = &cobra.Command{
 	Use:   "estimate",
 	Short: "Estimate Forecast Solar Power",
 	Long:  `Print the solar forecast and the battery storage power`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return bindFlags(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		e_url = viper.GetString("url")
 		e_apiKey = viper.GetString("apikey")
@@ -39,20 +42,13 @@ var estCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerEstCmd() {
 	estCmd.Flags().StringVarP(&e_url, "url", "u", "", "Set the forecast URL. For multiple URLs, use a comma (,) to separate them")
 	estCmd.Flags().StringVarP(&e_apiKey, "apikey", "k", "", "set APIKEY")
 	estCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
 	estCmd.Flags().BoolVarP(&e_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
 	estCmd.Flags().StringVarP(&e_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_NAME (default 'cached_forecast')")
 	estCmd.Flags().Int32VarP(&e_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
-
-	viper.BindPFlag("url", estCmd.Flags().Lookup("url"))
-	viper.BindPFlag("apikey", estCmd.Flags().Lookup("apikey"))
-	viper.BindPFlag("fronius_ip", estCmd.Flags().Lookup("fronius_ip"))
-	viper.BindPFlag("cache_forecast", estCmd.Flags().Lookup("cache_forecast"))
-	viper.BindPFlag("cache_file_prefix", estCmd.Flags().Lookup("cache_file_prefix"))
-	viper.BindPFlag("cache_time", estCmd.Flags().Lookup("cache_time"))
 
 	rootCmd.AddCommand(estCmd)
 }
@@ -67,10 +63,10 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if((e_cache_time<0) || (e_cache_time>86400)) {
-    err := errors.New("The cache_time must be between 0 and 86400 seconds")
-    return err
-  }
+	} else if (e_cache_time < 0) || (e_cache_time > 86400) {
+		err := errors.New("The cache_time must be between 0 and 86400 seconds")
+		return err
+	}
 	return nil
 }
 

@@ -62,6 +62,7 @@ pkg/
     configure.go              - `configure` command: battery defaults & force charge
     estimate.go               - `estimate` command: display forecast & battery state
     schedule.go               - `schedule` command: main intelligent charging workflow
+    precedence_test.go        - Unit tests for flag > env > yaml viper precedence
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher

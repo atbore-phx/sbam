@@ -53,6 +53,9 @@ var scdCmd = &cobra.Command{
 	Use:   "schedule",
 	Short: "Schedule Battery Storage Charge",
 	Long:  `Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return bindFlags(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		s_url = viper.GetString("url")
 		s_apiKey = viper.GetString("apikey")
@@ -98,7 +101,7 @@ var scdCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerScdCmd() {
 	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "Set the Forecast URL. For multiple URLs, use a comma (,) to separate them")
 	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", "APIKEY")
 	scdCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "FRONIUS_IP")
@@ -116,24 +119,6 @@ func init() {
 	scdCmd.Flags().BoolVarP(&s_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
 	scdCmd.Flags().StringVarP(&s_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_PREFIX (default 'cached_forecast')")
 	scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
-
-	viper.BindPFlag("url", scdCmd.Flags().Lookup("url"))
-	viper.BindPFlag("apikey", scdCmd.Flags().Lookup("apikey"))
-	viper.BindPFlag("fronius_ip", scdCmd.Flags().Lookup("fronius_ip"))
-	viper.BindPFlag("pw_consumption", scdCmd.Flags().Lookup("pw_consumption"))
-	viper.BindPFlag("start_hr", scdCmd.Flags().Lookup("start_hr"))
-	viper.BindPFlag("end_hr", scdCmd.Flags().Lookup("end_hr"))
-	viper.BindPFlag("crontab", scdCmd.Flags().Lookup("crontab"))
-	viper.BindPFlag("max_charge", scdCmd.Flags().Lookup("max_charge"))
-	viper.BindPFlag("pw_lwt", scdCmd.Flags().Lookup("pw_lwt"))
-	viper.BindPFlag("pw_upt", scdCmd.Flags().Lookup("pw_upt"))
-	viper.BindPFlag("pw_batt_reserve", scdCmd.Flags().Lookup("pw_batt_reserve"))
-	viper.BindPFlag("batt_reserve_start_hr", scdCmd.Flags().Lookup("batt_reserve_start_hr"))
-	viper.BindPFlag("batt_reserve_end_hr", scdCmd.Flags().Lookup("batt_reserve_end_hr"))
-	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
-	viper.BindPFlag("cache_forecast", scdCmd.Flags().Lookup("cache_forecast"))
-	viper.BindPFlag("cache_file_prefix", scdCmd.Flags().Lookup("cache_file_prefix"))
-	viper.BindPFlag("cache_time", scdCmd.Flags().Lookup("cache_time"))
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -244,9 +229,9 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	} else if isStartAfterEnd(batt_reserve_end_hr, end_hr) {
 		err := errors.New("batt_reserve_end_hr: " + batt_reserve_end_hr + " is not before or equal end_hr: " + end_hr)
 		return err
-  } else if((s_cache_time<0) || (s_cache_time>86400)) {
-    err := errors.New("The cache_time must be between 0 and 86400 seconds")
-    return err
+	} else if (s_cache_time < 0) || (s_cache_time > 86400) {
+		err := errors.New("The cache_time must be between 0 and 86400 seconds")
+		return err
 	}
 
 	return nil
