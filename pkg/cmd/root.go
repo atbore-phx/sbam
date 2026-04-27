@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	u "sbam/src/utils"
@@ -46,10 +47,10 @@ func init() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		// If the config file is not present, log at debug level and continue.
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		if errors.As(err, &viper.ConfigFileNotFoundError{}) {
 			u.Log.Debug("Config file not found; proceeding without config.yaml")
 		} else {
-			fmt.Printf("Error reading config file: %s\n", err)
+			u.HandleErrorPanic(err, "Error reading config file")
 		}
 	}
 
