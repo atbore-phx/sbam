@@ -135,7 +135,7 @@ export DEBUG=true
 
 ## Config file and env vars
 
-A configuration file config.yml and/or environment variables are also supported.
+A configuration file config.yaml and/or environment variables are also supported.
 
 Configuration values are resolved with the following precedence (highest first):
 
