@@ -35,7 +35,7 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 
-		configure(fronius_ip, power, cmd)
+		configure(fronius_ip, power)
 
 	},
 }
@@ -56,7 +56,7 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(fronius_ip string, power int, cmd *cobra.Command) {
+func configure(fronius_ip string, power int) {
 	if c_defaults {
 		err := fronius.Setdefaults(fronius_ip)
 		if err != nil {
