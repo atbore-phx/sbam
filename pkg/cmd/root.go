@@ -6,6 +6,7 @@ import (
 	u "sbam/src/utils"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -56,4 +57,22 @@ func init() {
 func SetVersionInfo(version, commit, date string) error {
 	rootCmd.Version = fmt.Sprintf("%s (Built on %s from Git SHA %s)", version, date, commit)
 	return nil
+}
+
+// bindFlags binds every defined flag of cmd to viper using the flag's name as
+// the viper key. It is intended to be called from each subcommand's
+// PersistentPreRunE so the currently executing subcommand owns the binding.
+// This restores Viper's documented precedence (flag > env > config > default)
+// for keys shared across multiple subcommands.
+func bindFlags(cmd *cobra.Command) error {
+	var firstErr error
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if firstErr != nil {
+			return
+		}
+		if err := viper.BindPFlag(f.Name, f); err != nil {
+			firstErr = err
+		}
+	})
+	return firstErr
 }

@@ -136,3 +136,10 @@ export DEBUG=true
 ## Config file and env vars
 
 A configuration file config.yml and/or environment variables are also supported.
+
+Configuration values are resolved with the following precedence (highest first):
+
+1. CLI flag (e.g. `--url http://example/`)
+2. Environment variable (e.g. `URL=http://example/`)
+3. `config.yaml` in the working directory
+4. Built-in default
