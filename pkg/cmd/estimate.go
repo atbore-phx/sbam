@@ -32,6 +32,8 @@ var estCmd = &cobra.Command{
 		e_cache_file_prefix = viper.GetString("cache_file_prefix")
 		e_cache_time = viper.GetInt32("cache_time")
 
+		u.LogStartupParams(cmd)
+
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)

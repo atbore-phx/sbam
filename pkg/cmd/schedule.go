@@ -84,6 +84,8 @@ var scdCmd = &cobra.Command{
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
 
+		u.LogStartupParams(cmd)
+
 		err := checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 		if err != nil {
 			u.Log.Error(err)
