@@ -304,10 +304,9 @@ No `docker build` is required because the Dockerfile is unchanged.
 
 - Defaults: feature is opt-in via the existing `DEBUG=true` env var. Default
   production behavior is unchanged.
-- Migration: none. No flag, env, yaml, or HA schema changes.
- - Defaults: feature is opt-in via the existing `DEBUG=true` env var. Default
-   production behavior is unchanged.
- - Migration: Home Assistant add-on now exposes `log_type` (default `console`). The add-on's `run.sh` exports `LOG_TYPE` into the container; operators may need to reconfigure the add-on option if they expect JSON logs.
+- Migration: Home Assistant add-on now exposes `log_type` (default `console`).
+  The add-on's `run.sh` exports `LOG_TYPE` into the container; operators may
+  need to reconfigure the add-on option if they expect JSON logs.
 - Documentation:
   - Add a one-line note to [README.md](../../../README.md) under the
     debugging / troubleshooting section explaining that `DEBUG=true` now also
