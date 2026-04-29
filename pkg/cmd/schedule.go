@@ -195,7 +195,7 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 		err := errors.New("the --fronius_ip flag must be set")
 		return err
 	} else if len(strings.TrimSpace(apiKey)) == 0 {
-		err := errors.New("the --apiKey flag must be set")
+		err := errors.New("the --apikey flag must be set")
 		return err
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
