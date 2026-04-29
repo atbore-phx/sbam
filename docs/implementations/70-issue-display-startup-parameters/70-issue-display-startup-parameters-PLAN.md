@@ -294,11 +294,9 @@ The implementer MUST run and pass, in order:
 4. `make build` — `bin/sbam` builds with `CGO_ENABLED=0`.
 5. Manual smoke (optional but recommended):
    - `DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm the dump appears once and `apikey=***`.
-   - Without `DEBUG=true`, confirm no dump appears.
-  - `DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm the dump appears once and `apikey=***`.
-  - `LOG_TYPE=json DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm logs are JSON encoded and keys + sources appear in structured fields; `apikey` must be redacted.
-  - `LOG_TYPE=console DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm console-encoded (human friendly) output with level coloring when terminal supports it.
-  - Without `DEBUG=true`, confirm no startup parameter dump appears.
+   - Without `DEBUG=true`, confirm no startup parameter dump appears.
+   - `LOG_TYPE=json DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm logs are JSON encoded and the startup dump appears in the JSON message field as a single escaped multi-line string; `apikey` must be redacted.
+   - `LOG_TYPE=console DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm console-encoded (human friendly) output with level coloring when terminal supports it.
 
 No `docker build` is required because the Dockerfile is unchanged.
 
