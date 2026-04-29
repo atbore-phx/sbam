@@ -13,6 +13,12 @@ var Log *zap.SugaredLogger
 func init() {
 	config := zap.NewProductionConfig()
 	config.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+	if os.Getenv("LOG_TYPE") == "json" {
+		config.Encoding = "json"
+	} else {
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		config.Encoding = "console"
+	}
 	config.DisableCaller = true
 	if os.Getenv("DEBUG") == "true" {
 		config.Level.SetLevel(zapcore.DebugLevel)

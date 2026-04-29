@@ -84,6 +84,8 @@ var scdCmd = &cobra.Command{
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
 
+		u.LogStartupParams(cmd)
+
 		err := checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 		if err != nil {
 			u.Log.Error(err)
@@ -193,7 +195,7 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 		err := errors.New("the --fronius_ip flag must be set")
 		return err
 	} else if len(strings.TrimSpace(apiKey)) == 0 {
-		err := errors.New("the --apiKey flag must be set")
+		err := errors.New("the --apikey flag must be set")
 		return err
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")

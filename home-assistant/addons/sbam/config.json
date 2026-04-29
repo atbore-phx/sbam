@@ -24,6 +24,7 @@
     "defaults": true,
     "reset": false,
     "debug": false,
+    "log_type": "console",
     "cache_forecast": false,
     "cache_time": 7200,
     "cache_file_prefix": "cached_forecast"
@@ -45,6 +46,7 @@
     "defaults": "bool",
     "reset": "bool",
     "debug": "bool",
+    "log_type": "list(console, json)",
     "cache_forecast": "bool",
     "cache_time": "int",
     "cache_file_prefix": "str"

@@ -86,6 +86,9 @@ pkg/
 src/
   utils/
     log.go                    - Centralized zap logger initialization
+    error.go                  - Error handling helpers (HandleError, HandleErrorPanic)
+    startup.go                - Startup parameters dump (DumpStartupParams, SecretKeys)
+    startup_test.go           - Unit tests for the startup dump helper
 
 config.yaml                  - Configuration file
 Makefile                     - Build targets (test, build, test-build)

@@ -129,9 +129,27 @@ To increase the log level to debug, just set the DEBUG environment variable to t
 ```bash
 export DEBUG=true
 ❯ bin/sbam --help
-{"level":"debug","ts":"2024-11-17T12:16:28+01:00","msg":"Debug Logs activated: true"}
+2026-04-29T11:15:19+02:00       DEBUG   Debug Logs activated: true
 ...
 ```
+
+## Log Format
+
+sbam supports two log output formats: `console` (human-friendly) and `json` (machine-readable). The default is `console`.
+
+When `LOG_TYPE=json` the logger emits JSON structured logs suitable for collectors.
+
+Set the `LOG_TYPE` environment variable to choose the format:
+
+```bash
+export LOG_TYPE=json
+export DEBUG=true
+bin/sbam --help
+{"level":"debug","ts":"2026-04-29T11:16:24+02:00","msg":"Debug Logs activated: true"}
+...
+```
+The Home Assistant add-on exposes the same option as `log_type` in the add-on
+Options (default: `console`).
 
 ## Config file and env vars
 
