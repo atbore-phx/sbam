@@ -132,9 +132,12 @@ will not import `pkg/cmd`.
 
 ## 5. Configuration Changes
 
-None. No new flags, env vars, `config.yaml` keys, Home Assistant schema
-entries, or `run.sh` exports. The dump is gated by the existing `DEBUG=true`
-mechanism in [src/utils/log.go](../../../src/utils/log.go).
+Configuration changes introduced by this implementation:
+
+- **New env var:** `LOG_TYPE` — controls log encoding. Allowed values: `console` (default) or `json`.
+- **Home Assistant add-on:** `home-assistant/addons/sbam/config.json` adds the `log_type` option (default `console`) and the add-on `run.sh` exports it as `LOG_TYPE` so the container respects the selected encoding.
+
+No new `config.yaml` keys or CLI flags are required for this change (the logger is controlled via env / HA add-on option today).
 
 ## 6. Implementation Blueprint
 
@@ -292,6 +295,10 @@ The implementer MUST run and pass, in order:
 5. Manual smoke (optional but recommended):
    - `DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm the dump appears once and `apikey=***`.
    - Without `DEBUG=true`, confirm no dump appears.
+  - `DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm the dump appears once and `apikey=***`.
+  - `LOG_TYPE=json DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm logs are JSON encoded and keys + sources appear in structured fields; `apikey` must be redacted.
+  - `LOG_TYPE=console DEBUG=true ./bin/sbam schedule --fronius_ip=1.2.3.4 --apikey=foo --url=http://x` → confirm console-encoded (human friendly) output with level coloring when terminal supports it.
+  - Without `DEBUG=true`, confirm no startup parameter dump appears.
 
 No `docker build` is required because the Dockerfile is unchanged.
 
@@ -300,6 +307,9 @@ No `docker build` is required because the Dockerfile is unchanged.
 - Defaults: feature is opt-in via the existing `DEBUG=true` env var. Default
   production behavior is unchanged.
 - Migration: none. No flag, env, yaml, or HA schema changes.
+ - Defaults: feature is opt-in via the existing `DEBUG=true` env var. Default
+   production behavior is unchanged.
+ - Migration: Home Assistant add-on now exposes `log_type` (default `console`). The add-on's `run.sh` exports `LOG_TYPE` into the container; operators may need to reconfigure the add-on option if they expect JSON logs.
 - Documentation:
   - Add a one-line note to [README.md](../../../README.md) under the
     debugging / troubleshooting section explaining that `DEBUG=true` now also

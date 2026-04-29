@@ -65,6 +65,10 @@ subcommands"*.
 - FR6: Pre-existing log lines, exit codes and validation behavior MUST NOT
   change.
 
+- FR8: The logger MUST support two output encodings controlled by `LOG_TYPE`:
+  `console` (default) and `json`. When `console` is selected the encoder
+  MUST use `zapcore.CapitalColorLevelEncoder` for level rendering.
+
 ## Non-functional Requirements
 - Backward compatibility: no change to flags, env vars, config keys, or
   default behavior. No new dependencies.
@@ -77,12 +81,11 @@ subcommands"*.
   same package. No new global state beyond that registry.
 
 ## Configuration Impact
-- New CLI flags: none.
-- New config keys (`config.yaml`): none.
-- New env vars: none (the existing `DEBUG=true` switch already gates the
-  output).
-- Home Assistant add-on schema changes
-  (`home-assistant/addons/sbam/config.json`): none.
+ - New CLI flags: none (the logger format may optionally be exposed later
+   as a persistent flag).
+ - New config keys (`config.yaml`): none.
+ - New env vars: `LOG_TYPE` — selects log output format. Allowed values: `console` (default) or `json`.
+ - Home Assistant add-on schema changes (`home-assistant/addons/sbam/config.json`): added `log_type` option (default `console`) and the add-on `run.sh` exports it as `LOG_TYPE`.
 
 ## External Integrations Touched
 - Solcast: none.
