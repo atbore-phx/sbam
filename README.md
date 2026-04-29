@@ -23,6 +23,20 @@ In Solar.web, the energy balance does not display grid charge information to pre
 
 Here **sbam** is all this and much more :)
 
+### Contributions
+
+sbam is an open-source, community-driven project so contributions are welcome
+from everyone. You can file issues to report bugs or request features,
+improve documentation, add tests, or submit pull requests with proposed
+changes. For larger features please open an issue first to discuss scope;
+small fixes and documentation updates can be submitted directly as PRs.
+When submitting code, include tests where applicable and keep changes focused
+so reviews are easy.
+
+#### Vibe Coding
+
+Optional Vibe Coding is accepted in this repo, prompt-driven workflow for contributors that can help generate `TASK` and `PLAN` documents and assist implementation. A set of prompts lives under [.github/prompts/](.github/prompts/) and guidance/examples are in [doc/vibe](docs/vibe). Feel free to improve the prompts and docs, but always validate generated code, run tests, and require human review before merging.
+
 ### Prerequisites
 
 sbam requires the following prerequisites to function correctly: [link](docs/prereq.md)
@@ -161,3 +175,4 @@ Configuration values are resolved with the following precedence (highest first):
 2. Environment variable (e.g. `URL=http://example/`)
 3. `config.yaml` in the working directory
 4. Built-in default
+
