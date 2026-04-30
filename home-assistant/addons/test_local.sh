@@ -1,25 +1,30 @@
 #!/bin/bash
-set -euo pipefail
+set -euox pipefail
 
-BUILDCONTAINER_DATA_PATH="/data"
-PATHTOBUILD="$BUILDCONTAINER_DATA_PATH"
-ARCH=amd64
-
+ARC=${ARC:-amd64}
+HA_ARC=${HA_ARC:-amd64}
+BUILD_FROM=${BUILD_FROM:-ghcr.io/home-assistant/${HA_ARC}-base:latest}
+IMAGE_TAG=${IMAGE_TAG:-local/${HA_ARC}-sbam:test}
 
 PROJECTDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/sbam
 ROOTDIR=${PROJECTDIR}/../../../
-cd ${PROJECTDIR}/../../../
+
+cd "${ROOTDIR}"
 make build
 cd -
 
+rm -rf "${PROJECTDIR}/bin"
+mkdir -p "${PROJECTDIR}/bin"
+cp "${ROOTDIR}/bin/sbam" "${PROJECTDIR}/bin/"
 
-rm -rf $PROJECTDIR/bin
-mkdir -p $PROJECTDIR/bin
-cp $ROOTDIR/bin/sbam $PROJECTDIR/bin/
+echo "project directory : ${PROJECTDIR}"
+echo "HA_arc            : ${HA_ARC}"
+echo "OS arc            : ${ARC}"
+echo "base image        : ${BUILD_FROM}"
+echo "output image      : ${IMAGE_TAG}"
 
-echo "project directory is $PROJECTDIR"
-echo "build container data path is $BUILDCONTAINER_DATA_PATH"
-echo "build container target build path is $PATHTOBUILD"
-CMD="docker run --rm -ti --name hassio-builder --privileged -v $PROJECTDIR:$BUILDCONTAINER_DATA_PATH -v /var/run/docker.sock:/var/run/docker.sock:ro homeassistant/amd64-builder --target $PATHTOBUILD --$ARCH --test --docker-hub local"
-echo "$CMD"
-$CMD
+docker buildx build \
+  --load \
+  --build-arg "BUILD_FROM=${BUILD_FROM}" --build-arg "PLATFORM=${ARC}" \
+  -t "${IMAGE_TAG}" \
+  "${PROJECTDIR}"

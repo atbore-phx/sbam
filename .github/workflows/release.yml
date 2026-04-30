@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -56,7 +56,7 @@ jobs:
           go-version: '1.26'
 
       - name: GoReleaser Install
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           install-only: true
 
@@ -70,27 +70,27 @@ jobs:
           GOARM: 7
           CGO_ENABLED: 0
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Build add-on image ${{ matrix.haarch }}
+        uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish build - Home Assistant builder ${{matrix.goos }}, $${{matrix.haarch}}
-        uses: home-assistant/builder@2024.08.2
-        with:
-          args: |
-            --${{matrix.haarch}} \
-            --target /data/home-assistant/addons/sbam \
-            --addon \
-            --version ${{ env.VERSION }}
+          arch: ${{ matrix.haarch }}
+          image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
+          image-tags: |
+            ${{ env.VERSION }}
+            latest
+          version: ${{ env.VERSION }}
+          context: home-assistant/addons/sbam
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          push: "true"
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/${{ matrix.haarch }}-base
+            PLATFORM=${{ matrix.goarch }}
 
   release-os:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -100,7 +100,7 @@ jobs:
           go-version: '1.26'
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --clean
