@@ -46,7 +46,7 @@
     "defaults": "bool",
     "reset": "bool",
     "debug": "bool",
-    "log_type": "list(console, json)",
+    "log_type": "list(console|json)",
     "cache_forecast": "bool",
     "cache_time": "int",
     "cache_file_prefix": "str"
