@@ -20,11 +20,16 @@ var cfgCmd = &cobra.Command{
 	Use:   "configure",
 	Short: "Configure Battery Storage Charge",
 	Long:  `connect via modbus to the fronius inverter and set charging`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return bindFlags(cmd)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		fronius_ip = viper.GetString("fronius_ip")
 		c_defaults = viper.GetBool("defaults")
 		force_charge = viper.GetBool("force_charge")
 		power = viper.GetInt("power")
+
+		u.LogStartupParams(cmd)
 
 		err := checkConfigure(fronius_ip)
 		if err != nil {
@@ -32,20 +37,16 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 
-		configure(fronius_ip, power, cmd)
+		configure(fronius_ip, power)
 
 	},
 }
 
-func init() {
+func registerCfgCmd() {
 	cfgCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "set FRONIUS_IP")
 	cfgCmd.Flags().BoolVarP(&c_defaults, "defaults", "d", false, "set DEFAULTS")
 	cfgCmd.Flags().BoolVarP(&force_charge, "force_charge", "f", false, "set FORCE_CHARGE")
 	cfgCmd.Flags().IntVarP(&power, "power", "p", const_pw, "set percent of nominal POWER")
-	viper.BindPFlag("fronius_ip", cfgCmd.Flags().Lookup("fronius_ip"))
-	viper.BindPFlag("defaults", scdCmd.Flags().Lookup("defaults"))
-	viper.BindPFlag("force_charge", cfgCmd.Flags().Lookup("force_charge"))
-	viper.BindPFlag("power", cfgCmd.Flags().Lookup("power"))
 	rootCmd.AddCommand(cfgCmd)
 }
 
@@ -57,7 +58,7 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(fronius_ip string, power int, cmd *cobra.Command) {
+func configure(fronius_ip string, power int) {
 	if c_defaults {
 		err := fronius.Setdefaults(fronius_ip)
 		if err != nil {

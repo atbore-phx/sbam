@@ -23,12 +23,29 @@ In Solar.web, the energy balance does not display grid charge information to pre
 
 Here **sbam** is all this and much more :)
 
-### Prerequisites
+### Contributions
+----
+sbam is an open-source, community-driven project so contributions are welcome
+from everyone. You can file issues to report bugs or request features,
+improve documentation, add tests, or submit pull requests with proposed
+changes. For larger features please open an issue first to discuss scope;
+small fixes and documentation updates can be submitted directly as PRs.
+When submitting code, include tests where applicable and keep changes focused so reviews are easy.
 
+#### Donations 💖
+
+If you don't code but want to support the project, you can also leave a donation here [💖 Revolut](https://revolut.me/atbore)
+
+#### Vibe Coding
+
+Optional Vibe Coding is accepted in this repo, prompt-driven workflow for contributors that can help generate `TASK` and `PLAN` documents and assist implementation. A set of prompts lives under [.github/prompts/](.github/prompts/) and guidance/examples are in [doc/vibe](docs/vibe). Feel free to improve the prompts and docs, but always validate generated code, run tests, and require human review before merging.
+
+### Prerequisites
+----
 sbam requires the following prerequisites to function correctly: [link](docs/prereq.md)
 
 ### Home Assistant:
-
+----
 Sbam is available as an add-on for HAOS (Home Assistant OS).
 
 **N.B. HAOS must be able to reach the Fronius inverter on its LAN IP.**
@@ -36,7 +53,7 @@ Sbam is available as an add-on for HAOS (Home Assistant OS).
 follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
 
 ### Stand Alone:
-
+----
 **sbam** can be run via cli with the following parameters:
 
 ```bash
@@ -61,7 +78,7 @@ Flags:
 Use "sbam [command] --help" for more information about a command.
 ```
 
-## Configure
+#### Configure
 
 Connect to the fronius inverter via modbus and set charging
 
@@ -77,7 +94,7 @@ Flags:
   -p, --power int16         Power (percent of nominal power)
 ```
 
-## Estimate
+#### Estimate
 
 Print the solar forecast and the battery storage power
 
@@ -95,7 +112,7 @@ Flags:
   -l, --cache_time          The length of time to cache the forecast. Defaults to 7200 seconds
 ```
 
-## Schedule
+#### Schedule
 
 Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range.
 
@@ -122,17 +139,43 @@ Flags:
   -l, --cache_time                     The length of time to cache the forecast. Defaults to 7200 seconds
 ```
 
-## Debug Logs
+#### Debug Logs
 
 To increase the log level to debug, just set the DEBUG environment variable to true.
 
 ```bash
 export DEBUG=true
 ❯ bin/sbam --help
-{"level":"debug","ts":"2024-11-17T12:16:28+01:00","msg":"Debug Logs activated: true"}
+2026-04-29T11:15:19+02:00       DEBUG   Debug Logs activated: true
 ...
 ```
 
-## Config file and env vars
+#### Log Format
 
-A configuration file config.yml and/or environment variables are also supported.
+sbam supports two log output formats: `console` (human-friendly) and `json` (machine-readable). The default is `console`.
+
+When `LOG_TYPE=json` the logger emits JSON structured logs suitable for collectors.
+
+Set the `LOG_TYPE` environment variable to choose the format:
+
+```bash
+export LOG_TYPE=json
+export DEBUG=true
+bin/sbam --help
+{"level":"debug","ts":"2026-04-29T11:16:24+02:00","msg":"Debug Logs activated: true"}
+...
+```
+The Home Assistant add-on exposes the same option as `log_type` in the add-on
+Options (default: `console`).
+
+#### Config file and env vars
+
+A configuration file config.yaml and/or environment variables are also supported.
+
+Configuration values are resolved with the following precedence (highest first):
+
+1. CLI flag (e.g. `--url http://example/`)
+2. Environment variable (e.g. `URL=http://example/`)
+3. `config.yaml` in the working directory
+4. Built-in default
+
