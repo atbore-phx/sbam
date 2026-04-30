@@ -27,28 +27,37 @@ This prompt is the GitHub-issue counterpart of [generate-plan-local.prompt.md](g
 ### Phase 1 — Fetch and parse the issue
 
 1. Resolve `<issue-ref>` to an issue number `N` against `atbore-phx/sbam`.
-2. Fetch the issue using the `gh` CLI (the repo is public, no auth needed for read):
+2. Fetch the issue and related resources using the agent's native web-fetch capability (preferred). The agent should:
 
-   ```bash
-   gh issue view <N> --repo atbore-phx/sbam --json number,title,body,labels,state,url,author,comments
-   ```
+    - GET `https://api.github.com/repos/atbore-phx/sbam/issues/<N>`
+    - GET `https://api.github.com/repos/atbore-phx/sbam/issues/<N>/comments?per_page=100` and follow `Link` headers to handle pagination
+    - Optionally fetch other related endpoints if needed (events, timeline, labels) using the same approach
 
-   If `gh` is unavailable, fall back to fetching both the issue and its comments via the GitHub REST API:
+    If the agent's native web-fetch capability is unavailable or fails, fall back in this order:
 
-   ```bash
-   curl -fsSL https://api.github.com/repos/atbore-phx/sbam/issues/<N> -o /tmp/issue-<N>.json
+    1. `gh` CLI (preferred fallback):
 
-   COMMENTS_URL="https://api.github.com/repos/atbore-phx/sbam/issues/<N>/comments?per_page=100"
-   : > /tmp/issue-<N>-comments.json
-   while [ -n "$COMMENTS_URL" ]; do
-     HDRS="$(mktemp)"
-     BODY="$(mktemp)"
-     curl -fsSL -D "$HDRS" "$COMMENTS_URL" -o "$BODY"
-     cat "$BODY" >> /tmp/issue-<N>-comments.json
-     NEXT_URL="$(grep -i '^link:' "$HDRS" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p')"
-     COMMENTS_URL="$NEXT_URL"
-     rm -f "$HDRS" "$BODY"
-   done
+         ```bash
+         gh issue view <N> --repo atbore-phx/sbam --json number,title,body,labels,state,url,author,comments
+         ```
+
+    2. `curl` (final fallback) — fetch the issue and then iterate comments with pagination:
+
+         ```bash
+         curl -fsSL https://api.github.com/repos/atbore-phx/sbam/issues/<N> -o /tmp/issue-<N>.json
+
+         COMMENTS_URL="https://api.github.com/repos/atbore-phx/sbam/issues/<N>/comments?per_page=100"
+         : > /tmp/issue-<N>-comments.json
+         while [ -n "$COMMENTS_URL" ]; do
+            HDRS="$(mktemp)"
+            BODY="$(mktemp)"
+            curl -fsSL -D "$HDRS" "$COMMENTS_URL" -o "$BODY"
+            cat "$BODY" >> /tmp/issue-<N>-comments.json
+            NEXT_URL="$(grep -i '^link:' "$HDRS" | sed -n 's/.*<\([^>]*\)>; rel=\"next\".*/\1/p')"
+            COMMENTS_URL="$NEXT_URL"
+            rm -f "$HDRS" "$BODY"
+         done
+         ```
 3. From the issue number and title, derive a **feature slug**:
    - Use the issue number `N` (no zero-padding), then the literal word `issue`, followed by a hyphen and a slugified version of the issue title, e.g. `42-issue-fix-forecast-cache`.
    - Slug rules: lowercase ASCII only, replace whitespace and punctuation with `-`, remove characters other than `a-z`, `0-9` and `-`, collapse repeated `-`, and trim leading/trailing `-`.
