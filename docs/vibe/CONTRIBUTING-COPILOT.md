@@ -32,8 +32,8 @@ Guardrails (required before opening PR)
   over one large change.
 
 Editing prompts
-- Prompts live under `.github/prompts/`.
-- When modifying prompts, add examples in `docs/vibe/` demonstrating expected
+- Prompts live under [.github/prompts/](../../.github/prompts/).
+- When adding or modifying prompts, document or update prompts in [PROMPTS.md](PROMPTS.md) add examples in [EXAMPLE.md](EXAMPLES.md) demonstrating expected
   outputs and guardrails.
 - Document any changes to prompt behavior in the corresponding TASK/PLAN.
 

@@ -37,6 +37,6 @@ make build
 ```
 
 Notes
-- Prompts live in `.github/prompts/`. Editing prompts changes agent behavior;
+- Prompts live in [.github/prompts/](../../.github/prompts/). Editing prompts changes agent behavior;
   add examples when you update a prompt.
 - Generated code is a starting point; tests and manual review are required.

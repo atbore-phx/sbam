@@ -14,7 +14,7 @@ Known prompts
   changes (manual review required before merging).
 
 Editing and versioning
-- When changing prompts, add an example output to `docs/vibe/EXAMPLES.md` and
+- When changing prompts, add an example output to [EXAMPLES.md](EXAMPLES.md) and
   describe the change in the corresponding TASK/PLAN.
 - Keep prompts small and explicit about safety checks (tests, draft PRs,
   manual review).
