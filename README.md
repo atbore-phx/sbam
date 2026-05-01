@@ -32,9 +32,11 @@ changes. For larger features please open an issue first to discuss scope;
 small fixes and documentation updates can be submitted directly as PRs.
 When submitting code, include tests where applicable and keep changes focused so reviews are easy.
 
-#### Donations 💖
+#### Support 💖
 
-If you don't code but want to support the project, you can also leave a donation here [💖 Revolut](https://revolut.me/atbore)
+If you don't code but want to support the project, you can sponsor the project on GitHub Sponsors:
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-6f42c1?style=for-the-badge&logo=github)](https://github.com/sponsors/atbore-phx)
 
 #### Vibe Coding
 
