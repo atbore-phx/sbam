@@ -1,0 +1,85 @@
+package fronius_test
+
+import (
+	"sbam/pkg/fronius"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestClassifyDecision(t *testing.T) {
+	cases := []struct {
+		name                     string
+		pwBatt2charge            float64
+		pwForecast               float64
+		pwConsumption            float64
+		pwBattMax                float64
+		pwBattReserve            float64
+		pwLwt                    float64
+		forecastChargeEnabled    bool
+		battReserveChargeEnabled bool
+		expected                 string
+	}{
+		{
+			name:                     "battery full short-circuits regardless of other inputs",
+			pwBatt2charge:            0,
+			pwForecast:               1000,
+			pwConsumption:            500,
+			pwBattMax:                5000,
+			pwBattReserve:            1000,
+			pwLwt:                    100,
+			forecastChargeEnabled:    true,
+			battReserveChargeEnabled: true,
+			expected:                 "battery_full",
+		},
+		{
+			name:                     "forecast charge fires when net power is below -lwt and forecast enabled",
+			pwBatt2charge:            2000,
+			pwForecast:               100,
+			pwConsumption:            5000,
+			pwBattMax:                5000,
+			pwBattReserve:            500,
+			pwLwt:                    100,
+			forecastChargeEnabled:    true,
+			battReserveChargeEnabled: false,
+			expected:                 "forecast_charge",
+		},
+		{
+			name:                     "reserve charge fires when battery is below reserve and reserve charge enabled",
+			pwBatt2charge:            4000,
+			pwForecast:               5000,
+			pwConsumption:            100,
+			pwBattMax:                5000,
+			pwBattReserve:            3000,
+			pwLwt:                    100,
+			forecastChargeEnabled:    false,
+			battReserveChargeEnabled: true,
+			expected:                 "reserve_charge",
+		},
+		{
+			name:                     "idle when net power is fine and reserve is satisfied",
+			pwBatt2charge:            500,
+			pwForecast:               5000,
+			pwConsumption:            100,
+			pwBattMax:                5000,
+			pwBattReserve:            1000,
+			pwLwt:                    100,
+			forecastChargeEnabled:    true,
+			battReserveChargeEnabled: true,
+			expected:                 "idle",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := fronius.ClassifyDecision(
+				tc.pwBatt2charge, tc.pwForecast, tc.pwConsumption, tc.pwBattMax,
+				tc.pwBattReserve, tc.pwLwt,
+				tc.forecastChargeEnabled, tc.battReserveChargeEnabled,
+			)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
