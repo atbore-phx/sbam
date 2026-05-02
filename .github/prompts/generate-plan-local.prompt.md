@@ -37,6 +37,7 @@ Follow these phases **in order**. Use the todo list tool to track progress and k
    - Summarize back to the user what the TASK currently says (3–6 bullets).
    - Identify gaps, ambiguities, missing acceptance criteria, missing non-goals, missing config/env impacts, missing test strategy.
    - Ask **only the necessary clarifying questions** (use the questions tool; batch them; prefer fixed-choice options when possible). Do not ask questions whose answers are already in the TASK or in `copilot-instructions.md`.
+   - Always include a final open question for the user to add any additional information or context that they think is relevant to the feature being implemented.
    - Apply the answers by editing the TASK file in place. Preserve any human-written sections; add a "Clarifications" section at the bottom if useful.
 3. **If it does not exist:**
    - Create the directory `docs/implementations/<feature-name>/`.
