@@ -52,16 +52,16 @@ No prior `mqtt`, `paho`, or HA-Discovery code exists; this is greenfield.
 
 ```mermaid
 flowchart LR
-    Cron[cron.Cron tick] -->|Intent{Tick}| Inbox
-    MQTTSub[paho subscriber<br/>sbam/cmd/*] --> Parser
-    Parser -->|Intent{Pause/Resume/Force/Defaults/Reserve/TriggerNow}| Inbox
-    Inbox[(Intent chan, buffered=16)] --> Runner
-    Runner -- decision --> Classify[fronius.ClassifyDecision]
-    Runner -- write --> Modbus[fronius.ForceCharge / Setdefaults]
-    Runner -- snapshot --> Pub[mqtt.Client.Publish<br/>sbam/state, sbam/cmd/*/ack]
-    Pub --> Broker[(MQTT broker)]
-    HA[homeassistant/status=online] --> Runner
-    Runner -- discovery --> Broker
+  Cron[cron.Cron tick] -->|Intent: Tick| Inbox
+  MQTTSub[paho subscriber<br/>sbam/cmd/*] --> Parser
+  Parser -->|Intent: Pause/Resume/Force/Defaults/Reserve/TriggerNow| Inbox
+  Inbox[(Intent chan, buffered=16)] --> Runner
+  Runner -- decision --> Classify[fronius.ClassifyDecision]
+  Runner -- write --> Modbus[fronius.ForceCharge / Setdefaults]
+  Runner -- snapshot --> Pub[mqtt.Client.Publish<br/>sbam/state, sbam/cmd/*/ack]
+  Pub --> Broker[(MQTT broker)]
+  HA[homeassistant/status=online] --> Runner
+  Runner -- discovery --> Broker
 ```
 
 New / modified packages:
