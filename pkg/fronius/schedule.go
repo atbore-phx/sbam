@@ -1,30 +1,6 @@
 package fronius
 
-import (
-	u "sbam/src/utils"
-)
-
-func ClassifyDecision(
-	pwBatt2charge, pwForecast, pwConsumption, pwBattMax,
-	pwBattReserve, pwLwt float64,
-	forecastChargeEnabled, battReserveChargeEnabled bool,
-) string {
-	pwPvNet := pwForecast - pwConsumption
-	pwBatt := pwBattMax - pwBatt2charge
-	pwNet := pwBatt + pwPvNet
-	pwBattReserveNet := pwBatt - pwBattReserve
-
-	switch {
-	case pwBatt2charge == 0:
-		return "battery_full"
-	case pwNet < -1*pwLwt && forecastChargeEnabled:
-		return "forecast_charge"
-	case pwBattReserveNet < -1*pwLwt && battReserveChargeEnabled:
-		return "reserve_charge"
-	default:
-		return "idle"
-	}
-}
+import u "sbam/src/utils"
 
 func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, error) {
 	p := "502"
@@ -36,22 +12,22 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	pw_batt := pw_batt_max - pw_batt2charge   // actual battery power
 	pw_net := pw_batt + pw_pv_net             // net power available (actual battery power + Net solar power)
 
-	decision := ClassifyDecision(
+	decision, reason := ClassifyDecision(
 		pw_batt2charge, pw_forecast, pw_consumption, pw_batt_max,
 		pw_batt_reserve, pw_lwt,
 		forecast_charge_enabled, batt_reserve_charge_enabled,
 	)
 	switch decision {
-	case "battery_full":
-		u.Log.Info("Battery is full charged")
-	case "forecast_charge":
-		u.Log.Infof("Net Power (actual battery power + Net solar power) is not enough: %f Wh", pw_net)
+	case DecisionBatteryFull:
+		u.Log.Info(reason)
+	case DecisionForecastCharge:
+		u.Log.Info(reason)
 		ch_pc = SetChargePower(pw_batt_max, -1*pw_net+pw_upt, max_charge)
-	case "reserve_charge":
-		u.Log.Infof("battery %f Wh < reserve %f Wh", pw_batt+pw_upt, pw_batt_reserve)
+	case DecisionReserveCharge:
+		u.Log.Info(reason)
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw_batt, max_charge)
 	default:
-		u.Log.Infof("Net Power (actual battery power + Net solar power) is enough: %f Wh", pw_net)
+		u.Log.Info(reason)
 	}
 
 	err = ForceCharge(fronius_ip, ch_pc, p)
