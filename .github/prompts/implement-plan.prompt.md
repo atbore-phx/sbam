@@ -26,6 +26,7 @@ Where `<feature-name>` matches the directory under `docs/implementations/` (e.g.
 
 Before changing any code:
 
+- ask the user an open question to add any additional information or context that they think is relevant to the feature being implemented. Do not proceed until the user confirms they have provided all relevant information.
 - Read the PLAN end-to-end. Read the TASK. Re-read [.github/copilot-instructions.md](../copilot-instructions.md).
 - Build a todo list mirroring the PLAN's "Implementation Blueprint" — one todo per blueprint step. Mark exactly one as `in-progress` at a time.
 - Confirm the working tree is clean enough to proceed (warn the user if there are unrelated modified files; do not stash without permission).
