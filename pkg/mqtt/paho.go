@@ -19,6 +19,13 @@ import (
 	"sbam/src/utils"
 )
 
+var (
+	hostnameFunc        = os.Hostname
+	systemCertPoolFunc  = x509.SystemCertPool
+	readFileFunc        = os.ReadFile
+	loadX509KeyPairFunc = tls.LoadX509KeyPair
+)
+
 const (
 	defaultOperationTimeout = 5 * time.Second
 	reconnectBaseDelay      = 1 * time.Second
@@ -275,12 +282,12 @@ func buildTLSConfig(cfg Config) (*tls.Config, error) {
 	}
 
 	if strings.TrimSpace(cfg.TLSCAFile) != "" {
-		roots, err := x509.SystemCertPool()
+		roots, err := systemCertPoolFunc()
 		if err != nil || roots == nil {
 			roots = x509.NewCertPool()
 		}
 
-		pemBytes, err := os.ReadFile(cfg.TLSCAFile)
+		pemBytes, err := readFileFunc(cfg.TLSCAFile)
 		if err != nil {
 			return nil, fmt.Errorf("read mqtt CA file: %w", err)
 		}
@@ -296,7 +303,7 @@ func buildTLSConfig(cfg Config) (*tls.Config, error) {
 		return nil, errors.New("mqtt TLS client certificate and key must both be set")
 	}
 	if hasClientCert {
-		certificate, err := tls.LoadX509KeyPair(cfg.TLSClientCert, cfg.TLSClientCertKey)
+		certificate, err := loadX509KeyPairFunc(cfg.TLSClientCert, cfg.TLSClientCertKey)
 		if err != nil {
 			return nil, fmt.Errorf("load mqtt client certificate: %w", err)
 		}
@@ -307,7 +314,7 @@ func buildTLSConfig(cfg Config) (*tls.Config, error) {
 }
 
 func defaultClientID() string {
-	hostname, err := os.Hostname()
+	hostname, err := hostnameFunc()
 	if err != nil {
 		return defaultTopicPrefix
 	}
