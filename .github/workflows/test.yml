@@ -17,6 +17,15 @@ jobs:
       - name: Git checkout
         uses: actions/checkout@v6
 
+      - name: go fmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+              echo "The following files are not formatted:"
+              gofmt -d .
+              exit 1
+          fi
+
       - name: go testing
         run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 

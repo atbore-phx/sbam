@@ -23,6 +23,9 @@ DATE=$(shell date)
 
 .PHONY: build test test-build
 
+make fmt:
+	go fmt ./...
+
 test:
 	go test -cover ./...
 
@@ -32,3 +35,5 @@ build:
 	CGO_ENABLED=0 go build -ldflags="-X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.date=$(DATE)'" -o bin/sbam
 
 test-build: test build
+
+all: fmt test-build

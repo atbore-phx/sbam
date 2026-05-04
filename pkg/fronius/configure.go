@@ -38,8 +38,8 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
 	for r, v := range modbusStorageCfg {
 		u.Log.Debugf("Writing register: %d ; value: %v", r, uint16(v))
-			err = modbusClient.WriteRegister(r-1, uint16(v))
-			u.HandleErrorPanic(err, "Error Writing register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
+		err = modbusClient.WriteRegister(r-1, uint16(v))
+		u.HandleErrorPanic(err, "Error Writing register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
 
 	}
 	return nil
