@@ -41,6 +41,7 @@ type Paho struct {
 	cfg       Config
 	client    paho.Client
 	closeOnce sync.Once
+	closeCh   chan struct{}
 	closed    atomic.Bool
 	reconnect atomic.Bool
 	randMu    sync.Mutex
@@ -66,8 +67,9 @@ func NewPaho(cfg Config) (*Paho, error) {
 	}
 
 	p := &Paho{
-		cfg:  cfg,
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+		cfg:     cfg,
+		closeCh: make(chan struct{}),
+		rand:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	opts := paho.NewClientOptions()
@@ -134,6 +136,9 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 		called = true
 		p.closed.Store(true)
 		p.reconnect.Store(false)
+		if p.closeCh != nil {
+			close(p.closeCh)
+		}
 		go func() {
 			if p.client != nil {
 				p.client.Disconnect(disconnectQuiesceMS)
@@ -199,8 +204,10 @@ func (p *Paho) startReconnectLoop() {
 			}
 
 			waitFor := p.jitterDelay(delay)
-			timer := time.NewTimer(waitFor)
-			<-timer.C
+			if !p.waitReconnectDelay(waitFor) {
+				p.reconnect.Store(false)
+				return
+			}
 
 			if p.closed.Load() {
 				p.reconnect.Store(false)
@@ -219,6 +226,23 @@ func (p *Paho) startReconnectLoop() {
 			delay = nextReconnectDelay(delay)
 		}
 	}()
+}
+
+func (p *Paho) waitReconnectDelay(waitFor time.Duration) bool {
+	timer := time.NewTimer(waitFor)
+	defer timer.Stop()
+
+	if p.closeCh == nil {
+		<-timer.C
+		return true
+	}
+
+	select {
+	case <-timer.C:
+		return true
+	case <-p.closeCh:
+		return false
+	}
 }
 
 func (p *Paho) jitterDelay(base time.Duration) time.Duration {
@@ -245,15 +269,16 @@ func waitToken(ctx context.Context, token paho.Token) error {
 
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			if err := token.Error(); err != nil {
-				return err
-			}
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			return fmt.Errorf("mqtt operation timed out after %s", timeout)
+			return paho.TimedOut
 		}
 
 		waitFor := remaining
@@ -261,8 +286,12 @@ func waitToken(ctx context.Context, token paho.Token) error {
 			waitFor = reconnectProbeInterval
 		}
 
-		if token.WaitTimeout(waitFor) {
-			return token.Error()
+		err := paho.WaitTokenTimeout(token, waitFor)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, paho.TimedOut) {
+			return err
 		}
 
 		if err := ctx.Err(); err != nil {

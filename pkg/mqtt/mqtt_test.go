@@ -25,6 +25,10 @@ import (
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+
+	"sbam/src/utils"
 )
 
 const testTimeout = 5 * time.Second
@@ -40,6 +44,8 @@ type receivedMessage struct {
 }
 
 func TestNewReturnsNoopWhenDisabled(t *testing.T) {
+	observed := withObservedLogger(t)
+
 	client, err := New(Config{})
 	require.NoError(t, err)
 
@@ -54,6 +60,7 @@ func TestNewReturnsNoopWhenDisabled(t *testing.T) {
 	assert.NoError(t, noop.Subscribe(ctx, stateTopic(""), qosAtLeastOnce, func(topic string, payload []byte) {}))
 	assert.NoError(t, noop.Disconnect(ctx))
 	assert.False(t, noop.IsConnected())
+	assert.Zero(t, observed.Len())
 }
 
 func TestNormalizePrefix(t *testing.T) {
@@ -401,12 +408,34 @@ func TestReconnectHelpers(t *testing.T) {
 		}, 4*time.Second, 50*time.Millisecond)
 	})
 
+	t.Run("wait reconnect delay interrupted by close channel", func(t *testing.T) {
+		closeCh := make(chan struct{})
+		close(closeCh)
+
+		wrapper := &Paho{closeCh: closeCh}
+		assert.False(t, wrapper.waitReconnectDelay(25*time.Millisecond))
+	})
+
+	t.Run("start reconnect loop exits when close channel interrupts wait", func(t *testing.T) {
+		fakeClient := newFakePahoClient()
+		wrapper := &Paho{client: fakeClient, rand: randSourceForTest(), cfg: Config{Broker: "tcp://broker"}, closeCh: make(chan struct{})}
+
+		wrapper.startReconnectLoop()
+		time.Sleep(25 * time.Millisecond)
+		close(wrapper.closeCh)
+
+		assert.Eventually(t, func() bool {
+			return !wrapper.reconnect.Load()
+		}, 2*time.Second, 25*time.Millisecond)
+		assert.Zero(t, fakeClient.connectCallsCount())
+	})
+
 	t.Run("closed after timer fires", func(t *testing.T) {
 		fakeClient := newFakePahoClient()
 		wrapper := &Paho{client: fakeClient, rand: randSourceForTest(), cfg: Config{Broker: "tcp://broker"}}
 
 		wrapper.startReconnectLoop()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		wrapper.closed.Store(true)
 
 		assert.Eventually(t, func() bool {
@@ -427,12 +456,12 @@ func TestWaitTokenBranches(t *testing.T) {
 		assert.ErrorIs(t, waitToken(ctx, newPendingToken(nil)), context.DeadlineExceeded)
 	})
 
-	t.Run("timeout returns token error", func(t *testing.T) {
-		tokenErr := errors.New("token timeout")
+	t.Run("timeout returns paho timed out sentinel", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 		defer cancel()
-		err := waitToken(ctx, newPendingToken(tokenErr))
-		assert.Equal(t, tokenErr, err)
+		err := waitToken(ctx, newPendingToken(errors.New("token timeout")))
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, context.DeadlineExceeded) || errors.Is(err, paho.TimedOut))
 	})
 
 	t.Run("timeout returns context error", func(t *testing.T) {
@@ -442,12 +471,16 @@ func TestWaitTokenBranches(t *testing.T) {
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 
-	t.Run("timeout returns default message", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-		defer cancel()
+	t.Run("timeout with no context error returns paho timed out", func(t *testing.T) {
+		ctx := &steadyDeadlineContext{deadline: time.Now().Add(2 * time.Millisecond)}
 		err := waitToken(ctx, newPendingToken(nil))
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "mqtt operation timed out")
+		assert.ErrorIs(t, err, paho.TimedOut)
+	})
+
+	t.Run("expired deadline timeout branch returns context error", func(t *testing.T) {
+		ctx := &errAfterTimeoutContext{deadline: time.Now().Add(1 * time.Millisecond)}
+		err := waitToken(ctx, newPendingToken(nil))
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
 	t.Run("timeout returns deadline exceeded after wait", func(t *testing.T) {
@@ -606,6 +639,30 @@ func TestPublisherErrorBranches(t *testing.T) {
 		publishJSON(context.Background(), client, "topic", 1, false, map[string]string{"ok": "yes"})
 		require.Len(t, client.publishes, 1)
 	})
+}
+
+func TestPublisherSwallowsErrorsAndLogsWarn(t *testing.T) {
+	observed := withObservedLogger(t)
+	client := &fakeMQTTClient{publishErr: errors.New("publish failed")}
+
+	assert.NotPanics(t, func() {
+		PublishState(context.Background(), client, "", StatePayload{})
+	})
+	assert.NotPanics(t, func() {
+		PublishError(context.Background(), client, "", ErrorPayload{Error: "failed"})
+	})
+	assert.NotPanics(t, func() {
+		PublishAvailability(context.Background(), client, "", false)
+	})
+
+	warnCount := 0
+	for _, entry := range observed.AllUntimed() {
+		if entry.Level == zap.WarnLevel {
+			warnCount++
+		}
+	}
+	assert.Equal(t, 3, warnCount)
+	assert.Equal(t, 3, observed.FilterMessage("mqtt publish failed").Len())
 }
 
 func newTestBroker(t *testing.T, address string, ledger *brokerauth.Ledger) *testBroker {
@@ -911,6 +968,21 @@ func (c *fakeMQTTClient) Subscribe(ctx context.Context, topic string, qos byte, 
 
 func (c *fakeMQTTClient) IsConnected() bool { return true }
 
+func withObservedLogger(t *testing.T) *observer.ObservedLogs {
+	t.Helper()
+
+	previous := utils.Log
+	core, observed := observer.New(zap.DebugLevel)
+	utils.Log = zap.New(core).Sugar()
+
+	t.Cleanup(func() {
+		_ = utils.Log.Sync()
+		utils.Log = previous
+	})
+
+	return observed
+}
+
 func withHostnameStub(t *testing.T, stub func() (string, error)) {
 	t.Helper()
 	previous := hostnameFunc
@@ -1022,5 +1094,55 @@ func (c *toggleErrContext) Err() error {
 }
 
 func (c *toggleErrContext) Value(key any) any {
+	return nil
+}
+
+type steadyDeadlineContext struct {
+	deadline time.Time
+}
+
+func (c *steadyDeadlineContext) Deadline() (time.Time, bool) {
+	return c.deadline, true
+}
+
+func (c *steadyDeadlineContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (c *steadyDeadlineContext) Err() error {
+	return nil
+}
+
+func (c *steadyDeadlineContext) Value(key any) any {
+	return nil
+}
+
+type errAfterTimeoutContext struct {
+	deadline time.Time
+	mu       sync.Mutex
+	calls    int
+}
+
+func (c *errAfterTimeoutContext) Deadline() (time.Time, bool) {
+	return c.deadline, true
+}
+
+func (c *errAfterTimeoutContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (c *errAfterTimeoutContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls++
+	if c.calls == 1 {
+		time.Sleep(2 * time.Millisecond)
+		return nil
+	}
+	return context.DeadlineExceeded
+}
+
+func (c *errAfterTimeoutContext) Value(key any) any {
 	return nil
 }
