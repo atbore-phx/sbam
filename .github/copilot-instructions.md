@@ -81,6 +81,13 @@ pkg/
     error.go                  - Error handling utilities
     fronius_test.go           - Unit tests with mock Modbus server
     error_test.go             - Error handling tests
+  mqtt/
+    types.go                  - MQTT config and payload carrier types
+    client.go                 - MQTT client interface, factory, and topic helpers
+    noop.go                   - Disabled MQTT client implementation
+    paho.go                   - Paho-backed MQTT client with reconnect and TLS
+    publisher.go              - Typed state, error, and availability publishers
+    mqtt_test.go              - In-process MQTT broker tests
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
