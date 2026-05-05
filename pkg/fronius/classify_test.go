@@ -79,22 +79,37 @@ func TestClassifyDecision(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			gotDecision, gotReason, _ := fronius.ClassifyDecision(
+			gotDecision, gotReason, _, err := fronius.ClassifyDecision(
 				tc.pwBatt2charge, tc.pwForecast, tc.pwConsumption, tc.pwBattMax,
 				tc.pwBattReserve, tc.pwLwt,
 				tc.forecastChargeEnabled, tc.battReserveChargeEnabled,
 			)
+			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedDecision, gotDecision)
 			assert.Equal(t, tc.expectedReason, gotReason)
 		})
 	}
 
+	t.Run("returns skip and error for unexpected power state", func(t *testing.T) {
+		decision, reason, _, err := fronius.ClassifyDecision(
+			2000, 100, 5000, 5000,
+			1000, 100,
+			false, false,
+		)
+
+		assert.Error(t, err)
+		assert.Equal(t, fronius.DecisionSkip, decision)
+		assert.Contains(t, reason, "unexpected power state")
+	})
+
 	t.Run("returns power state snapshot", func(t *testing.T) {
-		_, _, gotPowerState := fronius.ClassifyDecision(
+		// updated signature adds an error return; ensure it's nil
+		_, _, gotPowerState, err := fronius.ClassifyDecision(
 			500, 5000, 100, 5000,
 			1000, 100,
 			true, true,
 		)
+		assert.NoError(t, err)
 
 		assert.Equal(t, fronius.PowerState{
 			PvNet:          4900,
