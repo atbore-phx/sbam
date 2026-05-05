@@ -79,7 +79,7 @@ func TestClassifyDecision(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			gotDecision, gotReason := fronius.ClassifyDecision(
+			gotDecision, gotReason, _ := fronius.ClassifyDecision(
 				tc.pwBatt2charge, tc.pwForecast, tc.pwConsumption, tc.pwBattMax,
 				tc.pwBattReserve, tc.pwLwt,
 				tc.forecastChargeEnabled, tc.battReserveChargeEnabled,
@@ -88,4 +88,19 @@ func TestClassifyDecision(t *testing.T) {
 			assert.Equal(t, tc.expectedReason, gotReason)
 		})
 	}
+
+	t.Run("returns power state snapshot", func(t *testing.T) {
+		_, _, gotPowerState := fronius.ClassifyDecision(
+			500, 5000, 100, 5000,
+			1000, 100,
+			true, true,
+		)
+
+		assert.Equal(t, fronius.PowerState{
+			PvNet:          4900,
+			Batt:           4500,
+			Net:            9400,
+			BattReserveNet: 3500,
+		}, gotPowerState)
+	})
 }

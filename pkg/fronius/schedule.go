@@ -8,26 +8,19 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		p = fronius_port[0]
 	}
 	var ch_pc int16 = 0
-	pw_pv_net := pw_forecast - pw_consumption // Net solar power
-	pw_batt := pw_batt_max - pw_batt2charge   // actual battery power
-	pw_net := pw_batt + pw_pv_net             // net power available (actual battery power + Net solar power)
 
-	decision, reason := ClassifyDecision(
+	decision, reason, pw := ClassifyDecision(
 		pw_batt2charge, pw_forecast, pw_consumption, pw_batt_max,
 		pw_batt_reserve, pw_lwt,
 		forecast_charge_enabled, batt_reserve_charge_enabled,
 	)
+	u.Log.Infof("Decision: %s - %s", decision.String(), reason)
+
 	switch decision {
-	case DecisionBatteryFull:
-		u.Log.Info(reason)
 	case DecisionForecastCharge:
-		u.Log.Info(reason)
-		ch_pc = SetChargePower(pw_batt_max, -1*pw_net+pw_upt, max_charge)
+		ch_pc = SetChargePower(pw_batt_max, -1*pw.Net+pw_upt, max_charge)
 	case DecisionReserveCharge:
-		u.Log.Info(reason)
-		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw_batt, max_charge)
-	default:
-		u.Log.Info(reason)
+		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
 	}
 
 	err = ForceCharge(fronius_ip, ch_pc, p)
