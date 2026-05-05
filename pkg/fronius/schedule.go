@@ -9,12 +9,22 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	}
 	var ch_pc int16 = 0
 
-	decision, reason, pw := ClassifyDecision(
+	decision, reason, pw, cerr := ClassifyDecision(
 		pw_batt2charge, pw_forecast, pw_consumption, pw_batt_max,
 		pw_batt_reserve, pw_lwt,
 		forecast_charge_enabled, batt_reserve_charge_enabled,
 	)
 	u.Log.Infof("Decision: %s - %s", decision.String(), reason)
+
+	if cerr != nil {
+		u.Log.Errorf("Classifier error: %s - resetting Fronius to defaults (stop forced charge)", cerr)
+		err = ForceCharge(fronius_ip, 0, p)
+		if err != nil {
+			u.Log.Errorf("Error setting defaults after classifier error: %s", err)
+			return 0, err
+		}
+		return 0, nil
+	}
 
 	switch decision {
 	case DecisionForecastCharge:
