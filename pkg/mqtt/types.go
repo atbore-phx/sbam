@@ -4,18 +4,26 @@ import (
 	"time"
 )
 
+type ReconnectStrategy string
+
+const (
+	ReconnectStrategyCustom ReconnectStrategy = "custom"
+	ReconnectStrategyPaho   ReconnectStrategy = "paho"
+)
+
 type Config struct {
-	Enabled          bool
-	Broker           string
-	ClientID         string
-	Username         string
-	Password         string
-	TLSCAFile        string
-	TLSClientCert    string
-	TLSClientCertKey string
-	TLSInsecureSkip  bool
-	TopicPrefix      string
-	HADiscovery      bool
+	Enabled           bool
+	Broker            string
+	ClientID          string
+	Username          string
+	Password          string
+	TLSCAFile         string
+	TLSClientCert     string
+	TLSClientCertKey  string
+	TLSInsecureSkip   bool
+	TopicPrefix       string
+	HADiscovery       bool
+	ReconnectStrategy ReconnectStrategy
 }
 
 type StatePayload struct {

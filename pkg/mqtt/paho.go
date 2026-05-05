@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/url"
 	"os"
 	"strings"
@@ -38,14 +37,11 @@ const (
 )
 
 type Paho struct {
-	cfg       Config
-	client    paho.Client
-	closeOnce sync.Once
-	closeCh   chan struct{}
-	closed    atomic.Bool
-	reconnect atomic.Bool
-	randMu    sync.Mutex
-	rand      *rand.Rand
+	cfg         Config
+	client      paho.Client
+	closeOnce   sync.Once
+	closed      atomic.Bool
+	reconnecter reconnectManager
 }
 
 func NewPaho(cfg Config) (*Paho, error) {
@@ -66,10 +62,14 @@ func NewPaho(cfg Config) (*Paho, error) {
 		cfg.ClientID = defaultClientID()
 	}
 
+	strategy, err := normalizeReconnectStrategy(cfg.ReconnectStrategy)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ReconnectStrategy = strategy
+
 	p := &Paho{
-		cfg:     cfg,
-		closeCh: make(chan struct{}),
-		rand:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		cfg: cfg,
 	}
 
 	opts := paho.NewClientOptions()
@@ -80,7 +80,6 @@ func NewPaho(cfg Config) (*Paho, error) {
 	opts.SetWriteTimeout(defaultOperationTimeout)
 	opts.SetKeepAlive(keepAliveInterval)
 	opts.SetPingTimeout(pingTimeout)
-	opts.SetAutoReconnect(false)
 	opts.SetWill(availabilityTopic(cfg.TopicPrefix), "offline", qosAtLeastOnce, true)
 
 	if strings.TrimSpace(cfg.Username) != "" {
@@ -99,19 +98,14 @@ func NewPaho(cfg Config) (*Paho, error) {
 	}
 
 	opts.SetOnConnectHandler(func(client paho.Client) {
-		p.reconnect.Store(false)
 		if err := waitToken(context.Background(), client.Publish(availabilityTopic(p.cfg.TopicPrefix), qosAtLeastOnce, true, []byte("online"))); err != nil {
 			utils.Log.Warnw("mqtt availability publish failed", "topic", availabilityTopic(p.cfg.TopicPrefix), "retained", true, "qos", qosAtLeastOnce, "error", err)
 		}
 	})
 
-	opts.SetConnectionLostHandler(func(client paho.Client, err error) {
-		if p.closed.Load() {
-			return
-		}
-		utils.Log.Warnw("mqtt connection lost", "broker", sanitizeBroker(p.cfg.Broker), "error", err)
-		p.startReconnectLoop()
-	})
+	manager := newReconnectManager(cfg.ReconnectStrategy)
+	manager.configure(opts, p)
+	p.reconnecter = manager
 
 	p.client = paho.NewClient(opts)
 
@@ -135,9 +129,8 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 	p.closeOnce.Do(func() {
 		called = true
 		p.closed.Store(true)
-		p.reconnect.Store(false)
-		if p.closeCh != nil {
-			close(p.closeCh)
+		if p.reconnecter != nil {
+			p.reconnecter.stop()
 		}
 		go func() {
 			if p.client != nil {
@@ -188,69 +181,6 @@ func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler Me
 
 func (p *Paho) IsConnected() bool {
 	return p.client != nil && p.client.IsConnected()
-}
-
-func (p *Paho) startReconnectLoop() {
-	if !p.reconnect.CompareAndSwap(false, true) {
-		return
-	}
-
-	go func() {
-		delay := reconnectBaseDelay
-		for {
-			if p.closed.Load() {
-				p.reconnect.Store(false)
-				return
-			}
-
-			waitFor := p.jitterDelay(delay)
-			if !p.waitReconnectDelay(waitFor) {
-				p.reconnect.Store(false)
-				return
-			}
-
-			if p.closed.Load() {
-				p.reconnect.Store(false)
-				return
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
-			err := waitToken(ctx, p.client.Connect())
-			cancel()
-			if err == nil {
-				p.reconnect.Store(false)
-				return
-			}
-
-			utils.Log.Warnw("mqtt reconnect failed", "broker", sanitizeBroker(p.cfg.Broker), "backoff", waitFor, "error", err)
-			delay = nextReconnectDelay(delay)
-		}
-	}()
-}
-
-func (p *Paho) waitReconnectDelay(waitFor time.Duration) bool {
-	timer := time.NewTimer(waitFor)
-	defer timer.Stop()
-
-	if p.closeCh == nil {
-		<-timer.C
-		return true
-	}
-
-	select {
-	case <-timer.C:
-		return true
-	case <-p.closeCh:
-		return false
-	}
-}
-
-func (p *Paho) jitterDelay(base time.Duration) time.Duration {
-	p.randMu.Lock()
-	defer p.randMu.Unlock()
-
-	multiplier := 1 - reconnectJitterFactor + (p.rand.Float64() * (2 * reconnectJitterFactor))
-	return time.Duration(float64(base) * multiplier)
 }
 
 func waitToken(ctx context.Context, token paho.Token) error {

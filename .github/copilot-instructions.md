@@ -77,6 +77,9 @@ pkg/
     client.go                 - MQTT client interface, factory, and topic helpers
     noop.go                   - Disabled MQTT client implementation
     paho.go                   - Paho-backed MQTT client with reconnect and TLS
+    reconnect.go              - Reconnect strategy normalization and manager selection
+    reconnect_custom.go       - Custom jittered reconnect manager
+    reconnect_paho.go         - Paho auto-reconnect manager
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
   power/

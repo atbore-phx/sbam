@@ -1,7 +1,7 @@
 # Feature: pkg/mqtt scaffold
 
 > Source issue: [#84](https://github.com/atbore-phx/sbam/issues/84)
-> Fetched: 2026-05-03
+> Fetched: 2026-05-05
 >
 > Slug: `84-issue-mqtt-scaffold` · Created: 2026-05-03
 
@@ -28,6 +28,9 @@ As an sbam operator preparing the v2.0.0 MQTT feed, I need a standalone MQTT pac
 - When MQTT is enabled, the client connects to the configured broker using `github.com/eclipse/paho.mqtt.golang`.
 - When MQTT is enabled, the client configures a retained QoS 1 last-will message of `<base>/availability=offline`.
 - The client supports auto-reconnect with backoff from 1 second to 60 seconds and jitter.
+- The client must support selecting between the existing custom jittered reconnect loop and Paho's built-in auto-reconnect behavior through a package-level configuration value, without CLI/config.yaml/Home Assistant wiring in this issue.
+- The custom jittered reconnect strategy remains the default unless explicitly overridden, preserving the original issue 84 acceptance criteria.
+- The Paho auto-reconnect strategy must be opt-in and isolated enough that either strategy can be removed later with a small, obvious code change.
 - The client supports TLS with optional `mqtt_tls_ca_file`.
 - `Config` must include the parent MQTT feed keys needed by later integration: enabled, broker, client ID, username, password, TLS CA file, TLS client cert, TLS client key, TLS insecure skip, topic prefix, and Home Assistant discovery toggle.
 - Default topic prefix is `sbam`; normalized publish topics are `<prefix>/state`, `<prefix>/error`, and `<prefix>/availability`.
@@ -41,6 +44,7 @@ As an sbam operator preparing the v2.0.0 MQTT feed, I need a standalone MQTT pac
 - Safety / defaults: MQTT failures must not interrupt battery scheduling or Modbus/Fronius behavior.
 - Performance: MQTT publish operations should use bounded waits/timeouts so broker issues do not hang callers indefinitely.
 - Maintainability: Keep `pkg/mqtt` independent and testable, with typed payloads and a small public interface.
+- Maintainability: Keep reconnect strategy selection separated from MQTT publish/subscribe behavior so the custom strategy or Paho strategy can be removed later without rewriting the client surface.
 
 ## Configuration Impact
 - New CLI flags: None. Issue 84 is package scaffold only; cobra/viper wiring is deferred to later MQTT integration work.
@@ -57,6 +61,7 @@ As an sbam operator preparing the v2.0.0 MQTT feed, I need a standalone MQTT pac
 ## Acceptance Criteria
 - [ ] `mqtt_enabled=false` -> `New(cfg)` returns a noop client; zero broker connections, zero new log lines.
 - [ ] `mqtt_enabled=true` -> connects with LWT (`<base>/availability=offline`, retained, QoS 1), auto-reconnect (1s -> 60s, jittered), TLS support with optional `mqtt_tls_ca_file`.
+- [ ] Reconnect strategy selection supports the default custom jittered strategy and an opt-in Paho auto-reconnect strategy, with tests proving both paths.
 - [ ] In-process broker test exercises publish round-trip on `state`, retained availability, reconnect after broker stop/start, and bad credentials.
 - [ ] No imports of `pkg/cmd`, `pkg/fronius`, `pkg/power`, or `pkg/storage` from `pkg/mqtt`.
 - [ ] `make test` and `make build` (`CGO_ENABLED=0`) are green.
@@ -64,19 +69,21 @@ As an sbam operator preparing the v2.0.0 MQTT feed, I need a standalone MQTT pac
 ## Test Strategy
 - Unit tests: Exercise noop client construction and publish helper behavior without broker side effects.
 - Integration tests: Use `github.com/mochi-mqtt/server/v2` for in-process MQTT broker round-trip tests, retained availability checks, reconnect tests, and bad credentials.
-- Edge cases: MQTT disabled, empty/normalized base topic, TLS CA file omitted, broker restart during reconnect.
+- Edge cases: MQTT disabled, empty/normalized base topic, TLS CA file omitted, broker restart during reconnect, default reconnect strategy omitted.
 - Failure cases: Bad broker credentials, connection failure, publish timeout, invalid TLS CA file.
 
 ## Risks / Open Questions
 - `Config` fields should mirror the parent #64 MQTT key set, but defaults are applied by future CLI/config wiring rather than this package scaffold.
 - Topic layout for command/ack/discovery remains deferred to #85/#86/#87; this issue only needs state/error/availability publish helpers.
 - Paho reconnect/backoff behavior may need wrapping if built-in options do not provide jitter directly.
+- Comparing custom reconnect and Paho auto-reconnect may reveal different timing, pending-token, or subscription behavior; keep both paths explicit until a later decision removes one.
 - Mochi MQTT v2 test setup may require a small test helper to start/stop listeners cleanly for reconnect tests.
 
 ## Clarifications
 - 2026-05-03: User confirmed issue 84 should stay limited to the `pkg/mqtt` package scaffold. Do not include config.yaml, cobra/viper, startup redaction, Home Assistant add-on, or run.sh wiring in this plan.
 - 2026-05-03: User confirmed `StatePayload` should use the parent #64 state fields now, even though schedule integration is deferred.
 - 2026-05-03: No additional constraints were provided.
+- 2026-05-05: User asked to refresh the already implemented issue 84 plan by adding Paho's built-in auto-reconnect as an opt-in strategy alongside the existing custom jittered reconnect loop. The plan should check parent issue #64, test both strategies, and keep the separation simple so the less desirable strategy can be removed later.
 
 ## References
 - https://github.com/atbore-phx/sbam/issues/84
