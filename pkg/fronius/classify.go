@@ -9,6 +9,7 @@ const (
 	DecisionForecastCharge Decision = "forecast_charge"
 	DecisionReserveCharge  Decision = "reserve_charge"
 	DecisionIdle           Decision = "idle"
+	DecisionSkip           Decision = "skip"
 )
 
 func (d Decision) String() string {
@@ -26,7 +27,7 @@ func ClassifyDecision(
 	pwBatt2charge, pwForecast, pwConsumption, pwBattMax,
 	pwBattReserve, pwLwt float64,
 	forecastChargeEnabled, battReserveChargeEnabled bool,
-) (Decision, string, PowerState) {
+) (Decision, string, PowerState, error) {
 	pw := PowerState{
 		PvNet: pwForecast - pwConsumption,
 		Batt:  pwBattMax - pwBatt2charge,
@@ -36,12 +37,15 @@ func ClassifyDecision(
 
 	switch {
 	case pwBatt2charge == 0:
-		return DecisionBatteryFull, "Battery is full charged", pw
+		return DecisionBatteryFull, "Battery is full charged", pw, nil
 	case pw.Net < -1*pwLwt && forecastChargeEnabled:
-		return DecisionForecastCharge, fmt.Sprintf("Net Power (actual battery power + Net solar power) is not enough: %f Wh", pw.Net), pw
+		return DecisionForecastCharge, fmt.Sprintf("Net Power (actual battery power + Net solar power) is not enough: %f Wh", pw.Net), pw, nil
 	case pw.BattReserveNet < -1*pwLwt && battReserveChargeEnabled:
-		return DecisionReserveCharge, fmt.Sprintf("battery %f Wh < reserve %f Wh", pw.Batt, pwBattReserve), pw
+		return DecisionReserveCharge, fmt.Sprintf("battery %f Wh < reserve %f Wh", pw.Batt, pwBattReserve), pw, nil
+	case pw.Net >= -1*pwLwt:
+		return DecisionIdle, fmt.Sprintf("Net Power (actual battery power + Net solar power) is enough: %f Wh", pw.Net), pw, nil
 	default:
-		return DecisionIdle, fmt.Sprintf("Net Power (actual battery power + Net solar power) is enough: %f Wh", pw.Net), pw
+		reason := fmt.Sprintf("unexpected power state: %+v", pw)
+		return DecisionSkip, reason, pw, fmt.Errorf("%s", reason)
 	}
 }
