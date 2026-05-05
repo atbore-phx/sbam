@@ -140,85 +140,106 @@ func TestPublishAvailabilityRetained(t *testing.T) {
 }
 
 func TestReconnectAfterBrokerRestart(t *testing.T) {
-	address := reserveTCPAddress(t)
-	broker := newTestBroker(t, address, nil)
-	defer broker.Close()
+	strategies := []ReconnectStrategy{ReconnectStrategyCustom, ReconnectStrategyPaho}
 
-	client := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "reconnect-client"})
-	defer disconnectClient(t, client)
+	for _, strategy := range strategies {
+		strategy := strategy
+		t.Run(string(strategy), func(t *testing.T) {
+			// Keep both reconnect paths under restart coverage so removing either one later is a low-risk diff.
+			address := reserveTCPAddress(t)
+			broker := newTestBroker(t, address, nil)
+			defer broker.Close()
 
-	broker.Crash()
+			client := mustConnectClient(t, Config{
+				Enabled:           true,
+				Broker:            "tcp://" + address,
+				ClientID:          "reconnect-client-" + string(strategy),
+				ReconnectStrategy: strategy,
+			})
+			defer disconnectClient(t, client)
 
-	assert.Eventually(t, func() bool {
-		if !client.IsConnected() {
-			return true
-		}
+			broker.Crash()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-		defer cancel()
-		_ = client.Publish(ctx, stateTopic(""), qosAtLeastOnce, false, []byte("probe"))
-		return !client.IsConnected()
-	}, testTimeout, 100*time.Millisecond)
+			if strategy == ReconnectStrategyCustom {
+				assert.Eventually(t, func() bool {
+					return !client.IsConnected()
+				}, testTimeout, 100*time.Millisecond)
+			}
 
-	broker = newTestBroker(t, address, nil)
+			broker = newTestBroker(t, address, nil)
 
-	assert.Eventually(t, func() bool {
-		return client.IsConnected()
-	}, 10*time.Second, 100*time.Millisecond)
+			reconnectDeadline := 10 * time.Second
+			if strategy == ReconnectStrategyPaho {
+				reconnectDeadline = 25 * time.Second
+			}
 
-	subscriber := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "reconnect-subscriber"})
-	defer disconnectClient(t, subscriber)
+			assert.Eventually(t, func() bool {
+				return client.IsConnected()
+			}, reconnectDeadline, 100*time.Millisecond)
 
-	messages := make(chan receivedMessage, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-	require.NoError(t, subscriber.Subscribe(ctx, stateTopic(""), qosAtLeastOnce, func(topic string, payload []byte) {
-		messages <- receivedMessage{topic: topic, payload: payload}
-	}))
+			subscriber := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "reconnect-subscriber-" + string(strategy)})
+			defer disconnectClient(t, subscriber)
 
-	PublishState(context.Background(), client, "", StatePayload{
-		BatterySOCPct:     55,
-		BatteryCapacityWh: 8000,
-		ForecastTodayWh:   3200,
-		LastDecision:      "idle",
-	})
+			messages := make(chan receivedMessage, 1)
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+			require.NoError(t, subscriber.Subscribe(ctx, stateTopic(""), qosAtLeastOnce, func(topic string, payload []byte) {
+				messages <- receivedMessage{topic: topic, payload: payload}
+			}))
 
-	message := waitForMessage(t, messages)
-	assert.Equal(t, stateTopic(""), message.topic)
+			PublishState(context.Background(), client, "", StatePayload{
+				BatterySOCPct:     55,
+				BatteryCapacityWh: 8000,
+				ForecastTodayWh:   3200,
+				LastDecision:      "idle",
+			})
+
+			message := waitForMessage(t, messages)
+			assert.Equal(t, stateTopic(""), message.topic)
+		})
+	}
 }
 
 func TestConnectFailsWithBadCredentials(t *testing.T) {
-	address := reserveTCPAddress(t)
-	ledger := &brokerauth.Ledger{
-		Users: brokerauth.Users{
-			"good": {
-				Username: "good",
-				Password: "secret",
-				ACL: brokerauth.Filters{
-					"#": brokerauth.ReadWrite,
+	strategies := []ReconnectStrategy{ReconnectStrategyCustom, ReconnectStrategyPaho}
+
+	for _, strategy := range strategies {
+		strategy := strategy
+		t.Run(string(strategy), func(t *testing.T) {
+			address := reserveTCPAddress(t)
+			ledger := &brokerauth.Ledger{
+				Users: brokerauth.Users{
+					"good": {
+						Username: "good",
+						Password: "secret",
+						ACL: brokerauth.Filters{
+							"#": brokerauth.ReadWrite,
+						},
+					},
 				},
-			},
-		},
+			}
+
+			broker := newTestBroker(t, address, ledger)
+			defer broker.Close()
+
+			client, err := New(Config{
+				Enabled:           true,
+				Broker:            "tcp://" + address,
+				ClientID:          "bad-credentials-" + string(strategy),
+				Username:          "good",
+				Password:          "wrong",
+				ReconnectStrategy: strategy,
+			})
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			err = client.Connect(ctx)
+			assert.Error(t, err)
+			assert.False(t, client.IsConnected())
+		})
 	}
-
-	broker := newTestBroker(t, address, ledger)
-	defer broker.Close()
-
-	client, err := New(Config{
-		Enabled:  true,
-		Broker:   "tcp://" + address,
-		ClientID: "bad-credentials",
-		Username: "good",
-		Password: "wrong",
-	})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-
-	err = client.Connect(ctx)
-	assert.Error(t, err)
-	assert.False(t, client.IsConnected())
 }
 
 func TestNewPahoFailsWithInvalidTLSCAFile(t *testing.T) {
@@ -229,6 +250,74 @@ func TestNewPahoFailsWithInvalidTLSCAFile(t *testing.T) {
 	})
 	assert.Nil(t, client)
 	assert.Error(t, err)
+}
+
+func TestNormalizeReconnectStrategy(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       ReconnectStrategy
+		expected ReconnectStrategy
+		err      string
+	}{
+		{name: "empty defaults to custom", in: "", expected: ReconnectStrategyCustom},
+		{name: "custom exact", in: ReconnectStrategyCustom, expected: ReconnectStrategyCustom},
+		{name: "custom normalized", in: "  CUSTOM ", expected: ReconnectStrategyCustom},
+		{name: "paho exact", in: ReconnectStrategyPaho, expected: ReconnectStrategyPaho},
+		{name: "paho normalized", in: " pAhO ", expected: ReconnectStrategyPaho},
+		{name: "invalid", in: "legacy", err: "unsupported mqtt reconnect strategy \"legacy\""},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeReconnectStrategy(tc.in)
+			if tc.err != "" {
+				assert.EqualError(t, err, tc.err)
+				assert.Equal(t, ReconnectStrategy(""), got)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestNewPahoReconnectStrategyConfiguration(t *testing.T) {
+	t.Run("defaults to custom reconnect", func(t *testing.T) {
+		client, err := NewPaho(Config{Broker: "tcp://example.com:1883"})
+		require.NoError(t, err)
+		require.NotNil(t, client)
+
+		assert.Equal(t, ReconnectStrategyCustom, client.cfg.ReconnectStrategy)
+		require.NotNil(t, client.reconnecter)
+		assert.Equal(t, ReconnectStrategyCustom, client.reconnecter.strategy())
+
+		opts := client.client.OptionsReader()
+		assert.False(t, opts.AutoReconnect())
+		assert.False(t, opts.ConnectRetry())
+	})
+
+	t.Run("configures paho auto reconnect when selected", func(t *testing.T) {
+		client, err := NewPaho(Config{Broker: "tcp://example.com:1883", ReconnectStrategy: ReconnectStrategyPaho})
+		require.NoError(t, err)
+		require.NotNil(t, client)
+
+		assert.Equal(t, ReconnectStrategyPaho, client.cfg.ReconnectStrategy)
+		require.NotNil(t, client.reconnecter)
+		assert.Equal(t, ReconnectStrategyPaho, client.reconnecter.strategy())
+
+		opts := client.client.OptionsReader()
+		assert.True(t, opts.AutoReconnect())
+		assert.False(t, opts.ConnectRetry())
+		assert.Equal(t, reconnectMaxDelay, opts.MaxReconnectInterval())
+	})
+
+	t.Run("invalid reconnect strategy", func(t *testing.T) {
+		client, err := NewPaho(Config{Broker: "tcp://example.com:1883", ReconnectStrategy: "legacy"})
+		assert.Nil(t, client)
+		assert.EqualError(t, err, "unsupported mqtt reconnect strategy \"legacy\"")
+	})
 }
 
 func TestNewPahoValidationAndDefaults(t *testing.T) {
@@ -376,70 +465,77 @@ func TestReconnectHelpers(t *testing.T) {
 	assert.Equal(t, "%%%", sanitizeBroker("%%%"))
 
 	t.Run("start reconnect loop no-op when already running", func(t *testing.T) {
+		manager := newCustomReconnectManager()
 		wrapper := &Paho{client: newFakePahoClient()}
-		wrapper.reconnect.Store(true)
-		wrapper.startReconnectLoop()
-		assert.True(t, wrapper.reconnect.Load())
+		manager.reconnect.Store(true)
+		manager.startReconnectLoop(wrapper)
+		assert.True(t, manager.reconnect.Load())
 	})
 
 	t.Run("start reconnect loop exits when closed", func(t *testing.T) {
-		wrapper := &Paho{client: newFakePahoClient(), rand: randSourceForTest()}
+		manager := newCustomReconnectManager()
+		manager.rand = randSourceForTest()
+		wrapper := &Paho{client: newFakePahoClient()}
 		wrapper.closed.Store(true)
-		wrapper.startReconnectLoop()
+		manager.startReconnectLoop(wrapper)
 		assert.Eventually(t, func() bool {
-			return !wrapper.reconnect.Load()
+			return !manager.reconnect.Load()
 		}, time.Second, 10*time.Millisecond)
 	})
 
 	t.Run("failed reconnect retries then stops when closed", func(t *testing.T) {
 		fakeClient := newFakePahoClient()
 		fakeClient.connectToken = newCompleteToken(errors.New("connect failed"))
-		wrapper := &Paho{client: fakeClient, rand: randSourceForTest(), cfg: Config{Broker: "tcp://broker"}}
+		manager := newCustomReconnectManager()
+		manager.rand = randSourceForTest()
+		wrapper := &Paho{client: fakeClient, cfg: Config{Broker: "tcp://broker"}}
 
-		wrapper.startReconnectLoop()
+		manager.startReconnectLoop(wrapper)
 
 		assert.Eventually(t, func() bool {
 			return fakeClient.connectCallsCount() > 0
 		}, 2*time.Second, 50*time.Millisecond)
 
 		wrapper.closed.Store(true)
+		manager.stop()
 		assert.Eventually(t, func() bool {
-			return !wrapper.reconnect.Load()
+			return !manager.reconnect.Load()
 		}, 4*time.Second, 50*time.Millisecond)
 	})
 
 	t.Run("wait reconnect delay interrupted by close channel", func(t *testing.T) {
-		closeCh := make(chan struct{})
-		close(closeCh)
-
-		wrapper := &Paho{closeCh: closeCh}
-		assert.False(t, wrapper.waitReconnectDelay(25*time.Millisecond))
+		manager := newCustomReconnectManager()
+		manager.stop()
+		assert.False(t, manager.waitReconnectDelay(25*time.Millisecond))
 	})
 
 	t.Run("start reconnect loop exits when close channel interrupts wait", func(t *testing.T) {
 		fakeClient := newFakePahoClient()
-		wrapper := &Paho{client: fakeClient, rand: randSourceForTest(), cfg: Config{Broker: "tcp://broker"}, closeCh: make(chan struct{})}
+		manager := newCustomReconnectManager()
+		manager.rand = randSourceForTest()
+		wrapper := &Paho{client: fakeClient, cfg: Config{Broker: "tcp://broker"}}
 
-		wrapper.startReconnectLoop()
-		time.Sleep(25 * time.Millisecond)
-		close(wrapper.closeCh)
+		manager.startReconnectLoop(wrapper)
+		manager.stop()
 
 		assert.Eventually(t, func() bool {
-			return !wrapper.reconnect.Load()
+			return !manager.reconnect.Load()
 		}, 2*time.Second, 25*time.Millisecond)
 		assert.Zero(t, fakeClient.connectCallsCount())
 	})
 
 	t.Run("closed after timer fires", func(t *testing.T) {
 		fakeClient := newFakePahoClient()
-		wrapper := &Paho{client: fakeClient, rand: randSourceForTest(), cfg: Config{Broker: "tcp://broker"}}
+		manager := newCustomReconnectManager()
+		manager.rand = randSourceForTest()
+		wrapper := &Paho{client: fakeClient, cfg: Config{Broker: "tcp://broker"}}
 
-		wrapper.startReconnectLoop()
-		time.Sleep(500 * time.Millisecond)
+		manager.startReconnectLoop(wrapper)
 		wrapper.closed.Store(true)
+		manager.stop()
 
 		assert.Eventually(t, func() bool {
-			return !wrapper.reconnect.Load()
+			return !manager.reconnect.Load()
 		}, 2*time.Second, 50*time.Millisecond)
 		assert.Zero(t, fakeClient.connectCallsCount())
 	})
@@ -530,7 +626,10 @@ func TestConnectionLostHandlerWhenClosed(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return !client.IsConnected()
 	}, testTimeout, 50*time.Millisecond)
-	assert.False(t, client.reconnect.Load())
+
+	manager, ok := client.reconnecter.(*customReconnectManager)
+	require.True(t, ok)
+	assert.False(t, manager.reconnect.Load())
 }
 
 func TestBuildTLSConfigBranches(t *testing.T) {
