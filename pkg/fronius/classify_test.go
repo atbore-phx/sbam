@@ -90,6 +90,18 @@ func TestClassifyDecision(t *testing.T) {
 		})
 	}
 
+	t.Run("returns skip and error for unexpected power state", func(t *testing.T) {
+		decision, reason, _, err := fronius.ClassifyDecision(
+			2000, 100, 5000, 5000,
+			1000, 100,
+			false, false,
+		)
+
+		assert.Error(t, err)
+		assert.Equal(t, fronius.DecisionSkip, decision)
+		assert.Contains(t, reason, "unexpected power state")
+	})
+
 	t.Run("returns power state snapshot", func(t *testing.T) {
 		// updated signature adds an error return; ensure it's nil
 		_, _, gotPowerState, err := fronius.ClassifyDecision(
