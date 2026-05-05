@@ -1,113 +1,130 @@
-# PLAN: pkg/mqtt scaffold
+# PLAN: pkg/mqtt selectable reconnect strategy
 
 > Feature slug: `84-issue-mqtt-scaffold`
 > TASK: [84-issue-mqtt-scaffold-TASK.md](84-issue-mqtt-scaffold-TASK.md)
 > Issue: https://github.com/atbore-phx/sbam/issues/84
 > Parent issue: https://github.com/atbore-phx/sbam/issues/64
-> Created: 2026-05-03
+> Updated: 2026-05-05
 
 ---
 
 ## 1. Task Analysis
 
-Goal: create the initial `pkg/mqtt` package for the v2.0.0 MQTT feed. The package must expose typed payloads, a small `Client` interface, a noop implementation for disabled MQTT, a Paho-backed implementation for enabled MQTT, and typed publish helpers for state, error, and availability messages.
+Issue 84 originally created the `pkg/mqtt` scaffold for the v2.0.0 MQTT feed: typed payloads, a small `Client` interface, noop behavior when MQTT is disabled, a Paho-backed client when enabled, typed publish helpers, TLS support, retained availability, and in-process broker tests.
 
-Non-goals for this issue:
+That scaffold has already been implemented in this workspace. The remaining work for this refreshed plan is to evolve the implemented `pkg/mqtt` client so reconnect behavior is selectable:
 
-- Do not wire MQTT into `pkg/cmd`, `config.yaml`, environment variables, or the Home Assistant add-on.
-- Do not implement Home Assistant discovery payload generation beyond defining `DiscoveryEntity`.
+- Keep the existing custom jittered reconnect loop as the default strategy.
+- Add Paho's built-in `SetAutoReconnect(true)` behavior as an opt-in strategy.
+- Exercise both strategies in tests so the project can compare behavior and later remove the weaker option with a small, obvious code change.
+
+Non-goals remain unchanged from issue 84:
+
+- Do not wire MQTT into `pkg/cmd`, `config.yaml`, environment variables, startup dumps, Docker, or the Home Assistant add-on.
+- Do not implement Home Assistant discovery payload generation beyond the existing carrier type.
 - Do not implement the MQTT command parser or schedule runner refactor.
 - Do not comment on, close, or otherwise mutate the GitHub issue.
 
-Acceptance criteria from the TASK:
+Acceptance criteria for this refresh:
 
-- `mqtt_enabled=false` -> `New(cfg)` returns a noop client, creates zero broker connections, and emits zero new log lines.
-- `mqtt_enabled=true` -> connects with LWT (`<base>/availability=offline`, retained, QoS 1), auto-reconnect from 1s to 60s with jitter, and TLS support with optional `mqtt_tls_ca_file`.
-- In-process broker tests exercise state publish round-trip, retained availability, reconnect after broker stop/start, and bad credentials.
-- `pkg/mqtt` imports none of `pkg/cmd`, `pkg/fronius`, `pkg/power`, or `pkg/storage`.
-- `make test` and `make build` pass with `CGO_ENABLED=0` build behavior intact.
+- `Config{Enabled:false}` still returns a noop client with zero broker connections and zero disabled-mode logs.
+- Default reconnect behavior remains custom jittered reconnect from 1 second to 60 seconds.
+- Opt-in Paho reconnect sets Paho `AutoReconnect=true` and `MaxReconnectInterval=60s` without starting the custom reconnect loop.
+- Tests prove both reconnect strategy selection paths and at least one broker restart path per strategy, or explicitly document any CI timing limitation in the test name and plan notes.
+- `pkg/mqtt` still imports none of `pkg/cmd`, `pkg/fronius`, `pkg/power`, or `pkg/storage`.
+- `make test` and `make build` stay green.
 
 ---
 
 ## 2. Current State
 
-There is currently no `pkg/mqtt` package in the workspace.
+`pkg/mqtt` exists and is already wired as a leaf package.
 
-Relevant existing patterns to mirror:
-
-| Concern | File | Pattern to follow |
+| Concern | File | Current behavior |
 | --- | --- | --- |
-| Module and dependencies | [go.mod](../../../go.mod) | Go 1.26 module `sbam`; existing deps are direct in grouped `require` blocks. Add Paho and Mochi through `go get` and commit `go.mod`/`go.sum`. |
-| Build gates | [Makefile](../../../Makefile) | `make test` runs `go test -cover ./...`; `make build` uses `CGO_ENABLED=0` and outputs `bin/sbam`. |
-| Logger | [src/utils/log.go](../../../src/utils/log.go) | Shared zap sugared logger is `utils.Log`; use warn logs for swallowed publish errors, but do not log from noop construction/operations. |
-| Config precedence | [pkg/cmd/root.go](../../../pkg/cmd/root.go) | Cobra/viper binding exists, but this issue must not touch it. Later wiring keeps flag > env > yaml. |
-| Startup redaction | [src/utils/startup.go](../../../src/utils/startup.go) | Secret registry exists, but no new config keys are registered in this issue. Later integration adds MQTT secrets. |
-| Test style | [pkg/power/power_test.go](../../../pkg/power/power_test.go) | Tests use `testify/assert`, local mock servers, and `defer` cleanup. |
-| Parent MQTT blueprint | [64-issue-mqtt-feed-PLAN.md](../64-issue-mqtt-feed/64-issue-mqtt-feed-PLAN.md) | Defines the broader MQTT topic schema and config key set. Issue 84 implements only the package scaffold subset. |
+| Public interface and topic helpers | [pkg/mqtt/client.go](../../../pkg/mqtt/client.go) | Defines `Client`, `New(cfg)`, noop selection, and state/error/availability topic helpers. |
+| MQTT config and payload types | [pkg/mqtt/types.go](../../../pkg/mqtt/types.go) | Defines `Config`, state/error/ack payloads, intent carrier types, and `DiscoveryEntity`. No reconnect strategy field exists yet. |
+| Paho implementation | [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go) | Always calls `opts.SetAutoReconnect(false)` and starts a package-owned custom reconnect loop from `ConnectionLostHandler`. |
+| Noop implementation | [pkg/mqtt/noop.go](../../../pkg/mqtt/noop.go) | All operations are inert and log-free. |
+| Publish helpers | [pkg/mqtt/publisher.go](../../../pkg/mqtt/publisher.go) | Publish state/error/availability and swallow/log publish errors at warn. |
+| MQTT tests | [pkg/mqtt/mqtt_test.go](../../../pkg/mqtt/mqtt_test.go) | Tests noop, topic normalization, round-trip publish, retained availability, custom reconnect after broker restart, bad credentials, TLS branches, token waits, and publisher warnings. |
+| Dependencies | [go.mod](../../../go.mod) | Already includes `github.com/eclipse/paho.mqtt.golang v1.5.1` and `github.com/mochi-mqtt/server/v2 v2.7.9`. |
+| Parent MQTT blueprint | [64-issue-mqtt-feed-PLAN.md](../64-issue-mqtt-feed/64-issue-mqtt-feed-PLAN.md) | Broader MQTT feed plan expects opt-in MQTT, Paho, HA discovery, commands, and later runtime wiring. This issue stays package-only. |
+
+Important observation: the previous issue-84 PLAN said `pkg/mqtt` did not exist. That is now stale. This plan is intentionally incremental and should not recreate the scaffold from scratch.
 
 ---
 
 ## 3. Target Architecture
 
-`pkg/mqtt` is a leaf package. It may import standard library packages, `sbam/src/utils`, Paho, and test-only Mochi packages. It must not import the CLI or business packages.
+Keep `pkg/mqtt` as a leaf package, but separate reconnect policy from the rest of the Paho client setup.
 
 ```mermaid
 flowchart LR
-  Caller[future schedule runner or tests] --> Helpers[PublishState / PublishError / PublishAvailability]
-  Caller --> Client[Client interface]
-  Helpers --> Client
-  Client --> Noop[noop client when Config.Enabled=false]
-  Client --> Paho[Paho client when Config.Enabled=true]
-  Paho --> Broker[(MQTT broker)]
+  Config[mqtt.Config] --> Strategy[ReconnectStrategy]
+  Strategy --> Custom[custom reconnect manager]
+  Strategy --> PahoBuiltIn[Paho auto reconnect manager]
+  Custom --> PahoClient[Paho client wrapper]
+  PahoBuiltIn --> PahoClient
+  PahoClient --> Broker[(MQTT broker)]
 ```
 
-Public surface after this issue:
+Public surface additions:
 
-- `type Config struct` models the parent #64 MQTT keys.
-- `type Client interface` abstracts connect, disconnect, publish, subscribe, and connection state.
-- `func New(cfg Config) (Client, error)` returns noop or Paho implementation.
-- `func NewNoop() Client` returns the disabled/test implementation.
-- `func NewPaho(cfg Config) (*Paho, error)` validates enabled MQTT config and builds the Paho wrapper.
-- `func PublishState(ctx context.Context, client Client, prefix string, payload StatePayload)` logs and swallows errors.
-- `func PublishError(ctx context.Context, client Client, prefix string, payload ErrorPayload)` logs and swallows errors.
-- `func PublishAvailability(ctx context.Context, client Client, prefix string, online bool)` logs and swallows errors.
+```go
+type ReconnectStrategy string
 
-Topic rules:
+const (
+    ReconnectStrategyCustom ReconnectStrategy = "custom"
+    ReconnectStrategyPaho   ReconnectStrategy = "paho"
+)
 
-- Empty or whitespace prefix defaults to `sbam`.
-- Leading/trailing `/` characters are trimmed from the prefix.
-- Publish topics are `<prefix>/state`, `<prefix>/error`, and `<prefix>/availability`.
-- State and availability are retained QoS 1.
-- Error is not retained QoS 1.
+type Config struct {
+    // existing fields...
+    ReconnectStrategy ReconnectStrategy
+}
+```
+
+Rules:
+
+- Empty `Config.ReconnectStrategy` means `ReconnectStrategyCustom`.
+- `ReconnectStrategyCustom` preserves the existing package-owned loop with jittered exponential backoff.
+- `ReconnectStrategyPaho` delegates post-connect reconnect behavior to Paho via `SetAutoReconnect(true)` and `SetMaxReconnectInterval(reconnectMaxDelay)`.
+- Invalid strategy values return an error from `NewPaho` before building the Paho client.
+- Initial `Connect(ctx)` remains bounded by the caller's context. Do not enable Paho `SetConnectRetry(true)` in this issue because that changes initial connection semantics and can keep the connect token pending until the broker appears.
+
+Internal separation goal:
+
+- Keep custom-loop state in a custom reconnect component rather than on the root `Paho` struct where practical.
+- Keep Paho-auto behavior in its own small component or helper.
+- Keep common client setup, TLS, auth, LWT, `OnConnectHandler`, publish, subscribe, and token waiting strategy-agnostic.
 
 ---
 
 ## 4. Dependency Choices
 
-Add these modules:
+No new dependencies are required.
 
-| Module | Version | Scope | URL | Rationale |
+Existing dependencies remain sufficient:
+
+| Module | Version | Scope | URL | Use |
 | --- | --- | --- | --- | --- |
-| `github.com/eclipse/paho.mqtt.golang` | `v1.5.1` | production | https://pkg.go.dev/github.com/eclipse/paho.mqtt.golang | Stable MQTT v3.1.1 client with `ClientOptions`, TLS config, will support, publish/subscribe tokens, and `WaitTimeout`. |
-| `github.com/mochi-mqtt/server/v2` | `v2.7.9` | tests | https://pkg.go.dev/github.com/mochi-mqtt/server/v2 | Embedded MQTT broker with TCP/net listeners, retained messages, auth hooks, and v3.1.1 compatibility for Paho integration tests. |
+| `github.com/eclipse/paho.mqtt.golang` | `v1.5.1` | production | https://pkg.go.dev/github.com/eclipse/paho.mqtt.golang | MQTT client, `ClientOptions.SetAutoReconnect`, `SetMaxReconnectInterval`, `SetReconnectingHandler`, `WaitTokenTimeout`. |
+| `github.com/mochi-mqtt/server/v2` | `v2.7.9` | tests | https://pkg.go.dev/github.com/mochi-mqtt/server/v2 | In-process broker tests for round-trip, retained messages, restart, and credentials. |
 
-Implementation command:
+Relevant Paho API notes from the docs:
 
-```bash
-go get github.com/eclipse/paho.mqtt.golang@v1.5.1 github.com/mochi-mqtt/server/v2@v2.7.9
-go mod tidy
-```
-
-Notes:
-
-- Go does not have test-only dependencies in `go.mod`; Mochi may appear as a direct or indirect module after `go mod tidy` depending on imports.
-- Keep dependency additions limited to these two modules and their transitive dependencies.
+- `SetAutoReconnect` controls automatic reconnection after connection loss; the `ConnectionLostHandler` is still called.
+- `SetMaxReconnectInterval` caps the wait between reconnect attempts.
+- `SetOnConnectHandler` runs on the initial connection and automatic reconnects.
+- `SetConnectRetry` affects the initial `Connect` call and should remain disabled for this package until a separate requirement asks for it.
+- `WaitTokenTimeout` avoids the subtle `Token.WaitTimeout` nil-error case already guarded in this codebase.
 
 ---
 
 ## 5. Configuration Changes
 
-No repository configuration files change in issue 84.
+No repository runtime configuration surfaces change in this issue.
 
 Do not edit:
 
@@ -118,21 +135,11 @@ Do not edit:
 - [home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json)
 - [home-assistant/addons/sbam/run.sh](../../../home-assistant/addons/sbam/run.sh)
 
-The new package `Config` should still model the eventual config key set from #64 so later wiring can pass values through without reshaping the package API:
+Package-only config addition:
 
-| Future key | `Config` field | Type | Package default behavior |
-| --- | --- | --- | --- |
-| `mqtt_enabled` | `Enabled` | `bool` | `false` returns noop. |
-| `mqtt_broker` | `Broker` | `string` | Required only when `Enabled=true`. |
-| `mqtt_client_id` | `ClientID` | `string` | Empty defaults to `sbam-<hostname>`. |
-| `mqtt_username` | `Username` | `string` | Optional. |
-| `mqtt_password` | `Password` | `string` | Optional; never log. |
-| `mqtt_tls_ca_file` | `TLSCAFile` | `string` | Optional PEM CA bundle for TLS schemes. |
-| `mqtt_tls_client_cert` | `TLSClientCert` | `string` | Optional mTLS cert path. |
-| `mqtt_tls_client_cert_key` | `TLSClientCertKey` | `string` | Optional mTLS key path; never log. |
-| `mqtt_tls_insecure_skip` | `TLSInsecureSkip` | `bool` | Optional dev-only TLS behavior; warn when used. |
-| `mqtt_topic_prefix` | `TopicPrefix` | `string` | Empty defaults to `sbam`. |
-| `mqtt_ha_discovery` | `HADiscovery` | `bool` | Stored for later, unused by this issue except type compatibility. |
+| Future key | `Config` field | Type | Default | Notes |
+| --- | --- | --- | --- | --- |
+| Deferred, likely `mqtt_reconnect_strategy` | `ReconnectStrategy` | `ReconnectStrategy` | `custom` | Package field only in issue 84. Later CLI/config wiring can expose `custom` or `paho` if needed. |
 
 Precedence remains a later `pkg/cmd` concern: flag > env > yaml > default.
 
@@ -140,385 +147,230 @@ Precedence remains a later `pkg/cmd` concern: flag > env > yaml > default.
 
 ## 6. Implementation Blueprint
 
-### Step 1: add dependencies
+### Step 1: add reconnect strategy types
+
+Target file: [pkg/mqtt/types.go](../../../pkg/mqtt/types.go)
+
+Add:
+
+```go
+type ReconnectStrategy string
+
+const (
+    ReconnectStrategyCustom ReconnectStrategy = "custom"
+    ReconnectStrategyPaho   ReconnectStrategy = "paho"
+)
+```
+
+Extend `Config`:
+
+```go
+ReconnectStrategy ReconnectStrategy
+```
+
+Rationale: this keeps selection package-local and gives tests and future integration code a stable, typed selector. The zero value remains meaningful because an empty strategy maps to the custom default.
+
+### Step 2: centralize strategy normalization
+
+Target file: `pkg/mqtt/reconnect.go` (new) or [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go) if the change stays small.
+
+Preferred helper:
+
+```go
+func normalizeReconnectStrategy(strategy ReconnectStrategy) (ReconnectStrategy, error) {
+    switch ReconnectStrategy(strings.ToLower(strings.TrimSpace(string(strategy)))) {
+    case "", ReconnectStrategyCustom:
+        return ReconnectStrategyCustom, nil
+    case ReconnectStrategyPaho:
+        return ReconnectStrategyPaho, nil
+    default:
+        return "", fmt.Errorf("unsupported mqtt reconnect strategy %q", strategy)
+    }
+}
+```
+
+Rationale: invalid strategy values should fail fast in `NewPaho`, before network I/O. Keep the error message deterministic for tests.
+
+If adding `reconnect.go`, the implementation prompt must update `.github/copilot-instructions.md` Project Structure because source files outside `docs/implementations/**` will be added.
+
+### Step 3: separate reconnect manager behavior
 
 Target files:
 
-- [go.mod](../../../go.mod)
-- `go.sum`
+- [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go)
+- `pkg/mqtt/reconnect_custom.go` (new, preferred)
+- `pkg/mqtt/reconnect_paho.go` (new, preferred)
 
-Actions:
-
-1. Run `go get github.com/eclipse/paho.mqtt.golang@v1.5.1 github.com/mochi-mqtt/server/v2@v2.7.9`.
-2. Run `go mod tidy`.
-3. Confirm no unrelated dependency churn beyond required transitive modules.
-
-Rationale: Paho is needed by production code; Mochi is needed by package tests.
-
-### Step 2: create `pkg/mqtt/types.go`
-
-Target file: `pkg/mqtt/types.go`
-
-Define the core typed data structures:
+Preferred internal interface:
 
 ```go
-package mqtt
-
-import "time"
-
-type Config struct {
-    Enabled          bool
-    Broker           string
-    ClientID         string
-    Username         string
-    Password         string
-    TLSCAFile        string
-    TLSClientCert    string
-    TLSClientCertKey string
-    TLSInsecureSkip  bool
-    TopicPrefix      string
-    HADiscovery      bool
-}
-
-type StatePayload struct {
-    BatterySOCPct       float64   `json:"battery_soc_pct"`
-    BatteryCapacityWh   float64   `json:"battery_capacity_wh"`
-    ForecastTodayWh     float64   `json:"forecast_today_wh"`
-    LastDecision        string    `json:"last_decision"`
-    LastDecisionReason  string    `json:"last_decision_reason,omitempty"`
-    Paused              bool      `json:"paused"`
-    NextRun             *time.Time `json:"next_run,omitempty"`
-    Timestamp           time.Time `json:"ts"`
-}
-
-type ErrorPayload struct {
-    Error     string    `json:"error"`
-    Source    string    `json:"source,omitempty"`
-    Timestamp time.Time `json:"ts"`
-}
-
-type AckPayload struct {
-    Status    string    `json:"status"`
-    Error     string    `json:"error,omitempty"`
-    Timestamp time.Time `json:"ts"`
-}
-
-type IntentKind string
-
-const (
-    IntentPause       IntentKind = "pause"
-    IntentResume      IntentKind = "resume"
-    IntentForceCharge IntentKind = "force_charge"
-    IntentSetDefaults IntentKind = "set_defaults"
-    IntentSetReserve  IntentKind = "set_reserve"
-    IntentTriggerNow  IntentKind = "trigger_now"
-)
-
-type Intent struct {
-    Kind          IntentKind `json:"kind"`
-    TargetPct     int        `json:"target_pct,omitempty"`
-    DurationS     int        `json:"duration_s,omitempty"`
-    PwBattReserve float64    `json:"pw_batt_reserve,omitempty"`
-}
-
-type DiscoveryEntity struct {
-    Component string `json:"component"`
-    ObjectID  string `json:"object_id"`
-    Topic     string `json:"topic"`
-    Payload   []byte `json:"payload"`
+type reconnectManager interface {
+    configure(opts *paho.ClientOptions, client *Paho)
+    stop()
+    strategy() ReconnectStrategy
 }
 ```
 
-Implementation notes:
-
-- `Intent` and `DiscoveryEntity` are only skeletal carrier types here. Do not implement command parsing or discovery builders in this issue.
-- Keep field names aligned with #64 so later runner/discovery work does not need payload renames.
-- Use `time.Time` for required timestamps and `*time.Time` for optional timestamps so JSON marshals non-nil values as RFC3339 and omits absent optional values.
-
-### Step 3: create `pkg/mqtt/client.go`
-
-Target file: `pkg/mqtt/client.go`
-
-Define the interface, factory, shared constants, and topic helper signatures:
+Update `Paho`:
 
 ```go
-package mqtt
-
-import "context"
-
-type MessageHandler func(topic string, payload []byte)
-
-type Client interface {
-    Connect(ctx context.Context) error
-    Disconnect(ctx context.Context) error
-    Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
-    Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error
-    IsConnected() bool
-}
-
-const (
-    defaultTopicPrefix = "sbam"
-    qosAtLeastOnce     = byte(1)
-)
-
-func New(cfg Config) (Client, error) {
-    if !cfg.Enabled {
-        return NewNoop(), nil
-    }
-    return NewPaho(cfg)
-}
-
-func normalizePrefix(prefix string) string
-func stateTopic(prefix string) string
-func errorTopic(prefix string) string
-func availabilityTopic(prefix string) string
-```
-
-Behavior:
-
-- `New(Config{Enabled:false})` must return a noop and no error.
-- `New` must not log when returning noop.
-- Topic helpers trim whitespace and `/`; empty result becomes `sbam`.
-
-Rationale: callers get one stable constructor and topic construction stays centralized.
-
-### Step 4: create `pkg/mqtt/noop.go`
-
-Target file: `pkg/mqtt/noop.go`
-
-Define the disabled/test client:
-
-```go
-type Noop struct{}
-
-func NewNoop() *Noop
-func (n *Noop) Connect(ctx context.Context) error
-func (n *Noop) Disconnect(ctx context.Context) error
-func (n *Noop) Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
-func (n *Noop) Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error
-func (n *Noop) IsConnected() bool
-```
-
-Behavior:
-
-- Every method returns `nil` except `IsConnected`, which returns `false`.
-- Methods must not log.
-- Methods must not inspect or mutate network state.
-
-Rationale: default behavior stays inert and future integration can depend on a real `Client` without special casing disabled MQTT.
-
-### Step 5: create `pkg/mqtt/paho.go`
-
-Target file: `pkg/mqtt/paho.go`
-
-Define the production client around Paho:
-
-```go
-import paho "github.com/eclipse/paho.mqtt.golang"
-
 type Paho struct {
-    cfg       Config
-    client    paho.Client
-    closeOnce sync.Once
-    closed    atomic.Bool
-    reconnect atomic.Bool
+    cfg         Config
+    client      paho.Client
+    closeOnce   sync.Once
+    closed      atomic.Bool
+    reconnecter reconnectManager
 }
-
-func NewPaho(cfg Config) (*Paho, error)
-func (p *Paho) Connect(ctx context.Context) error
-func (p *Paho) Disconnect(ctx context.Context) error
-func (p *Paho) Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
-func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error
-func (p *Paho) IsConnected() bool
 ```
 
-Validation and options:
+Move custom-specific fields out of `Paho` and into the custom manager where practical:
 
-- `NewPaho` returns an error when `cfg.Broker` is empty.
-- Accept broker schemes `tcp`, `tls`, `ssl`, `ws`, and `wss`; reject everything else before creating the client.
-- Default `cfg.TopicPrefix` through the topic helpers rather than mutating caller input.
-- Default empty `cfg.ClientID` to `sbam-<hostname>` using `os.Hostname`; if hostname fails, use `sbam`.
-- Build options with `paho.NewClientOptions().AddBroker(cfg.Broker)`.
-- Set username/password only when non-empty.
-- Set `SetWill(availabilityTopic(cfg.TopicPrefix), "offline", 1, true)`.
-- Set `SetOrderMatters(false)` so callbacks do not risk blocking the Paho router.
-- Set bounded connect/write behavior: `SetConnectTimeout(5*time.Second)`, `SetWriteTimeout(5*time.Second)`, `SetKeepAlive(30*time.Second)`, `SetPingTimeout(10*time.Second)`.
-- Do not rely on Paho's built-in auto-reconnect for jitter. Set `SetAutoReconnect(false)` and implement the package reconnect loop described below.
-- Set `SetConnectionLostHandler` to start the package reconnect loop unless `Disconnect` has been called.
-- Set `SetOnConnectHandler` to publish retained `online` availability through the raw Paho client.
+- `closeCh`
+- `reconnect atomic.Bool`
+- `randMu`
+- `rand`
 
-TLS behavior:
+Rationale: the root `Paho` wrapper should own MQTT operations. Reconnect-specific state should live beside the strategy that uses it. This is the easiest shape to remove later.
 
-- Build `*tls.Config` for `tls`, `ssl`, and `wss` schemes.
-- If `TLSCAFile` is set, read it, append PEM certs to `x509.SystemCertPool()` (or a new pool if system pool fails), and return an error if no certs append.
-- If either `TLSClientCert` or `TLSClientCertKey` is set, require both and load them with `tls.LoadX509KeyPair`.
-- If `TLSInsecureSkip` is true, set `InsecureSkipVerify` and log one warn when building the client. Do not log certificate/key contents.
+### Step 4: preserve custom reconnect as default
 
-Context/token handling:
+Target file: `pkg/mqtt/reconnect_custom.go` or [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go)
 
-- Implement a small helper `waitToken(ctx context.Context, token paho.Token) error`.
-- If the context has a deadline, wait only until that deadline.
-- Otherwise use a package default operation timeout of 5 seconds.
-- Prefer `paho.WaitTokenTimeout(token, timeout)` where possible because Paho documents a subtle `WaitTimeout` nil-error case.
-- Return context errors when `ctx.Done()` wins.
+The custom manager should preserve current behavior:
 
-Reconnect loop:
+- `opts.SetAutoReconnect(false)`.
+- `opts.SetConnectionLostHandler` logs sanitized broker and starts exactly one custom reconnect loop unless `Paho.closed` is true.
+- Loop starts at `reconnectBaseDelay`, doubles up to `reconnectMaxDelay`, and applies `reconnectJitterFactor`.
+- Loop uses `waitToken(context.WithTimeout(...), p.client.Connect())` for each attempt.
+- `stop()` closes the manager's `closeCh` once and clears the active reconnect guard.
+- Existing helper behavior for `nextReconnectDelay`, `jitterDelay`, `waitReconnectDelay`, and sanitized broker logging is preserved.
 
-- Because Paho v1.5.1 backoff doubles but does not add jitter, implement a package-owned reconnect loop to satisfy the issue acceptance criteria.
-- On connection loss, start at 1 second, double up to 60 seconds, and apply +/-20 percent jitter before each reconnect attempt.
-- Only one reconnect loop may run at a time; guard with `atomic.Bool` or a mutex.
-- Stop reconnecting after `Disconnect` sets `closed=true`.
-- Each reconnect attempt calls `p.client.Connect()` and uses `waitToken` with a short timeout.
-- Log reconnect failures at warn level without secrets.
-- Successful reconnect clears the reconnect guard; the `OnConnectHandler` publishes `online` availability.
+Rationale: this path satisfies the original issue 84 requirement for jittered reconnect. It should remain the default until real-world evidence says otherwise.
 
-Rationale: this satisfies the explicit jittered reconnect criterion while still using Paho for protocol implementation.
+### Step 5: add Paho auto-reconnect strategy
 
-### Step 6: create `pkg/mqtt/publisher.go`
+Target file: `pkg/mqtt/reconnect_paho.go` or [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go)
 
-Target file: `pkg/mqtt/publisher.go`
-
-Define typed publish helpers:
+The Paho manager should configure only Paho-native reconnect behavior:
 
 ```go
-func PublishState(ctx context.Context, client Client, prefix string, payload StatePayload)
-func PublishError(ctx context.Context, client Client, prefix string, payload ErrorPayload)
-func PublishAvailability(ctx context.Context, client Client, prefix string, online bool)
-```
-
-Behavior:
-
-- Marshal payloads with `encoding/json`.
-- If `Timestamp` is zero on `StatePayload`, `ErrorPayload`, or `AckPayload`, fill it with `time.Now()` before marshaling.
-- `PublishState` publishes to `stateTopic(prefix)` with QoS 1 and retained true.
-- `PublishError` publishes to `errorTopic(prefix)` with QoS 1 and retained false.
-- `PublishAvailability(true)` publishes `online` to `availabilityTopic(prefix)` with QoS 1 and retained true.
-- `PublishAvailability(false)` publishes `offline` to `availabilityTopic(prefix)` with QoS 1 and retained true.
-- These helpers never return errors. On marshal or publish failure, log `utils.Log.Warnw` with topic, retained, qos, and error, but no raw secrets or full payloads.
-- These helpers are allowed to import `sbam/src/utils`.
-
-Rationale: future schedule code can call MQTT publishing without letting MQTT errors affect charging decisions.
-
-### Step 7: create tests in `pkg/mqtt/mqtt_test.go`
-
-Target file: `pkg/mqtt/mqtt_test.go`
-
-Use one package-level test file unless the implementation becomes clearer split into `noop_test.go`, `paho_test.go`, and `publisher_test.go`. If split, keep all files under `pkg/mqtt`.
-
-Recommended allow-all broker helper:
-
-```go
-func startAllowAllBroker(t *testing.T, addr string) (*mqttserver.Server, string) {
-    t.Helper()
-    if addr == "" {
-        addr = "127.0.0.1:0"
+opts.SetAutoReconnect(true)
+opts.SetConnectRetry(false)
+opts.SetMaxReconnectInterval(reconnectMaxDelay)
+opts.SetConnectionLostHandler(func(client paho.Client, err error) {
+    if p.closed.Load() {
+        return
     }
-
-    ln, err := net.Listen("tcp", addr)
-    require.NoError(t, err)
-
-    server := mqttserver.New(nil)
-    require.NoError(t, server.AddHook(new(auth.AllowHook), nil))
-
-    listener := listeners.NewNet("tcp", ln)
-    require.NoError(t, server.AddListener(listener))
-    go func() { _ = server.Serve() }()
-    t.Cleanup(func() { assert.NoError(t, server.Close()) })
-    return server, listener.Address()
-}
+    utils.Log.Warnw("mqtt connection lost", "broker", sanitizeBroker(p.cfg.Broker), "strategy", ReconnectStrategyPaho, "error", err)
+})
+opts.SetReconnectingHandler(func(client paho.Client, opts *paho.ClientOptions) {
+    utils.Log.Warnw("mqtt reconnecting", "broker", sanitizeBroker(p.cfg.Broker), "strategy", ReconnectStrategyPaho)
+})
 ```
 
-Use imports aliased like `mqttserver "github.com/mochi-mqtt/server/v2"`, `github.com/mochi-mqtt/server/v2/hooks/auth`, and `github.com/mochi-mqtt/server/v2/listeners`. For bad-credential tests, create a second helper that installs `auth.Hook` with an explicit ledger instead of `auth.AllowHook`.
+Do not start the custom reconnect loop from this strategy.
 
-Required tests:
+Keep the existing common `SetOnConnectHandler` in [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go), because Paho calls it on initial connect and automatic reconnect. It should continue publishing retained `online` availability for both strategies.
 
-1. `TestNewDisabledReturnsNoop`
-   - Arrange `Config{Enabled:false}`.
-   - Use `zaptest/observer` by temporarily replacing `utils.Log` to verify no log entries are emitted.
-   - Assert returned client is `*Noop`, `IsConnected()==false`, and all methods return nil.
-   - Assert no broker helper was started.
+Rationale: this gives a clean comparison of Paho's native behavior without mixing it with the custom loop.
 
-2. `TestPahoPublishStateRoundTrip`
-   - Start Mochi with allow-all auth and `defer`/`t.Cleanup` close.
-   - Create `Config{Enabled:true, Broker:"tcp://" + addr, TopicPrefix:"sbam", ClientID:"test-publisher"}`.
-   - Connect client with a 2-5 second context.
-   - Subscribe a second Paho test subscriber or the same client to `sbam/state`.
-   - Call `PublishState` with a representative payload.
-   - Assert received JSON contains `battery_soc_pct`, `battery_capacity_wh`, `forecast_today_wh`, `last_decision`, `paused`, and `ts`.
+### Step 6: update `NewPaho` wiring
 
-3. `TestPahoRetainedAvailability`
-   - Connect the package client and publish `PublishAvailability(ctx, client, "sbam", true)`.
-   - Connect a fresh subscriber after publication.
-   - Subscribe to `sbam/availability` and assert retained payload `online` arrives.
-   - Disconnect unexpectedly in a focused LWT test if practical; otherwise assert Paho options include will topic/payload through `client.OptionsReader()` in a package-internal test.
+Target file: [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go)
 
-4. `TestPahoReconnectAfterBrokerRestart`
-   - Start broker on a reusable loopback address.
-   - Connect package client.
-   - Close broker to trigger connection lost.
-   - Restart broker on the same address.
-   - Wait up to a bounded deadline for `client.IsConnected()` to become true again.
-   - Publish/subscribe a small message after reconnect to prove the client works.
-   - Keep delays short by making reconnect constants overrideable in tests, e.g. unexported package vars `initialReconnectDelay` and `maxReconnectDelay` set/reset by the test.
+In `NewPaho`:
 
-5. `TestPahoBadCredentials`
-   - Start Mochi with an auth ledger requiring a known username/password.
-   - Connect with wrong credentials.
-   - Assert `Connect` returns an error within the context deadline and `IsConnected()==false`.
+1. Validate broker and scheme as today.
+2. Normalize `cfg.ReconnectStrategy`.
+3. Store the normalized strategy back into `cfg.ReconnectStrategy` so tests can inspect `client.cfg.ReconnectStrategy`.
+4. Build the common Paho options exactly as today: broker, client ID, order, timeouts, keepalive, ping timeout, LWT, auth, TLS, and `OnConnectHandler`.
+5. Instantiate the selected reconnect manager and call `manager.configure(opts, p)` before `paho.NewClient(opts)`.
+6. Assign `p.reconnecter = manager`.
 
-6. `TestInvalidTLSCAFile`
-   - Use `Config{Enabled:true, Broker:"tls://127.0.0.1:8883", TLSCAFile:"/missing/file"}`.
-   - Assert `NewPaho` returns an error before any network connection.
+In `Disconnect`:
 
-7. `TestTopicNormalization`
-   - Inputs: `""`, `"sbam"`, `"/sbam/"`, `" site/sbam "`.
-   - Assert expected state/error/availability topics.
+- Set `closed=true` first, as today.
+- Call `p.reconnecter.stop()` before `p.client.Disconnect(...)`.
+- Keep idempotent `closeOnce` behavior and context-bounded waiting.
 
-8. `TestPublisherSwallowsErrors`
-   - Use a fake `Client` whose `Publish` returns an error.
-   - Replace `utils.Log` with a zap observer.
-   - Call `PublishState`, `PublishError`, and `PublishAvailability`.
-   - Assert no panic/no returned error and warn logs are emitted for failures.
+Rationale: common MQTT setup remains single-source, while reconnect behavior is selected in one obvious place.
 
-Import-boundary test:
+### Step 7: keep publish/subscribe behavior unchanged
 
-- Add a test or validation command that greps package imports, or use `go list -deps ./pkg/mqtt` in validation, to ensure `pkg/cmd`, `pkg/fronius`, `pkg/power`, and `pkg/storage` are absent.
+Target files:
+
+- [pkg/mqtt/client.go](../../../pkg/mqtt/client.go)
+- [pkg/mqtt/noop.go](../../../pkg/mqtt/noop.go)
+- [pkg/mqtt/publisher.go](../../../pkg/mqtt/publisher.go)
+
+No behavior changes expected.
+
+Only touch these files if type additions require formatting or tests expose a compile issue. `New(cfg)` should keep returning noop when disabled and `NewPaho(cfg)` when enabled.
+
+### Step 8: document removal paths in code tests or plan comments
+
+Do not add broad comments in production code. A short test comment is acceptable if it clarifies why both strategies exist temporarily.
+
+Removal path if Paho wins later:
+
+- Change empty strategy default to `ReconnectStrategyPaho` if desired.
+- Delete `reconnect_custom.go` and custom-only tests.
+- Remove `ReconnectStrategyCustom` if no runtime compatibility promise exists yet.
+
+Removal path if custom wins later:
+
+- Delete `reconnect_paho.go` and Paho-strategy tests.
+- Remove `ReconnectStrategyPaho` if no runtime compatibility promise exists yet.
+- Keep `opts.SetAutoReconnect(false)` in the custom path.
+
+Because this issue does not expose the field through CLI/config, removing either strategy later should not require user-facing migration work.
 
 ---
 
 ## 7. Test Plan
 
+Use `testify/assert` and `testify/require`. Keep the existing `testBroker.Crash()` pattern that stops active broker-side clients before closing the Mochi server, because closing Mochi with active clients can block.
+
 Expected cases:
 
-- Disabled config returns noop and produces no logs.
-- Enabled config connects to an in-process broker.
-- State payload publishes to `<prefix>/state` as retained QoS 1 JSON.
-- Availability publishes to `<prefix>/availability` as retained QoS 1 `online` or `offline`.
+- `TestNewPahoReconnectStrategyDefaultsToCustom`: `Config{Broker:"tcp://example.com:1883"}` normalizes to `ReconnectStrategyCustom` and Paho options have `AutoReconnect=false`.
+- `TestNewPahoConfiguresPahoAutoReconnect`: `Config{Broker:"tcp://example.com:1883", ReconnectStrategy: ReconnectStrategyPaho}` produces Paho options with `AutoReconnect=true` and `MaxReconnectInterval==reconnectMaxDelay`.
+- `TestReconnectAfterBrokerRestart` becomes table-driven with `ReconnectStrategyCustom` and `ReconnectStrategyPaho`, using the existing Mochi restart helper and proving `client.IsConnected()` eventually returns true and a post-reconnect publish succeeds.
 
 Edge cases:
 
-- Empty prefix defaults to `sbam`.
-- Prefix with whitespace or slashes normalizes predictably.
-- Empty client ID defaults from hostname.
-- `TLSCAFile` omitted for plaintext `tcp://` broker succeeds.
-- Reconnect loop sees a broker disappear and reappear on the same address.
+- Empty reconnect strategy defaults to custom.
+- Case and whitespace around a strategy string normalize predictably if the helper accepts them.
+- `Disconnect` while a custom reconnect delay is pending exits the loop and does not attempt another connect.
+- `Disconnect` with Paho strategy remains idempotent and does not panic if Paho is in reconnect mode.
 
 Failure cases:
 
-- Enabled config with empty broker fails in `NewPaho`.
-- Unsupported broker scheme fails in `NewPaho`.
-- Invalid TLS CA file fails before network I/O.
-- Bad credentials fail to connect and do not mark the client connected.
-- Publish errors are swallowed by typed helpers and logged at warn.
-- Context timeout on connect/publish/subscribe returns promptly from `Paho` methods.
+- Invalid reconnect strategy returns a deterministic `NewPaho` error before network I/O.
+- Bad credentials still fail connect and leave `IsConnected()==false` for both strategy values where practical.
+- Broker restart test has bounded deadlines and fails clearly instead of hanging.
 
-Mocks and test servers:
+Focused test additions or updates:
 
-- Use `github.com/mochi-mqtt/server/v2` as the in-process broker.
-- Use `github.com/mochi-mqtt/server/v2/hooks/auth` for allow-all and bad-credential tests.
-- Use `github.com/mochi-mqtt/server/v2/listeners` with TCP or net listeners.
-- Always `defer broker.Close()` or `t.Cleanup` broker close.
-- Use `testify/assert` and `testify/require`.
+1. [pkg/mqtt/mqtt_test.go](../../../pkg/mqtt/mqtt_test.go)
+   - Add a table for strategy normalization.
+   - Add options-reader assertions for custom vs Paho auto reconnect.
+   - Convert broker restart test to table-driven by strategy.
+   - Keep existing TLS, token, publisher, noop, and topic tests green.
+
+2. New `pkg/mqtt/reconnect_test.go` is acceptable if the existing test file becomes too dense.
+   - If added, update `.github/copilot-instructions.md` Project Structure during implementation.
+
+CI timing guidance:
+
+- Paho auto-reconnect timing is less directly controlled than the custom loop. Use bounded `assert.Eventually` windows and do not add sleeps.
+- If the Paho integration restart test flakes locally, keep the option-configuration unit test required and mark the integration test with a focused helper that explains the timing dependency. Prefer making the test robust over skipping it.
+
+Import-boundary validation:
+
+```bash
+go list -deps ./pkg/mqtt | grep -E 'sbam/pkg/(cmd|fronius|power|storage)' && exit 1 || true
+```
 
 ---
 
@@ -527,66 +379,63 @@ Mocks and test servers:
 Run and pass these commands in order:
 
 ```bash
-go mod tidy
 go test ./pkg/mqtt -count=1
 go test -race ./pkg/mqtt -count=1
 go test ./pkg/... -count=1
 make test
 make build
-```
-
-Also run an import-boundary check:
-
-```bash
 go list -deps ./pkg/mqtt | grep -E 'sbam/pkg/(cmd|fronius|power|storage)' && exit 1 || true
 ```
 
-Docker builds are not required for issue 84 because no Dockerfile or Home Assistant add-on files change.
+Docker builds are not required for this issue because no Dockerfile or Home Assistant add-on files change.
 
 ---
 
 ## 9. Rollout / Backward Compatibility
 
-- The new package is not wired into any command in this issue, so existing runtime behavior is unchanged.
-- `New(Config{Enabled:false})` is inert by design, preserving the future default `mqtt_enabled=false` behavior.
-- The package models future config fields but does not register flags, read Viper, export environment variables, or alter HA schema.
-- Later integration issues must update README, Home Assistant docs, startup redaction, and project structure when they wire this package into runtime paths.
-- Implementing issue 84 will add `pkg/mqtt` source files; the implementer should update `.github/copilot-instructions.md` Project Structure during the implementation prompt because source files outside `docs/implementations/**` will be added.
+- Runtime behavior outside `pkg/mqtt` is unchanged because this issue does not wire MQTT into commands or config files.
+- Default package behavior remains the current custom jittered reconnect loop.
+- Existing tests and callers that do not set `ReconnectStrategy` should continue to behave as they do today.
+- The new `Config.ReconnectStrategy` field is additive and zero-value compatible.
+- Later runtime wiring can decide whether to expose `mqtt_reconnect_strategy=custom|paho`; this issue should not make that user-facing commitment.
+
+Documentation required during implementation:
+
+- Update `.github/copilot-instructions.md` Project Structure if new source files such as `pkg/mqtt/reconnect.go`, `pkg/mqtt/reconnect_custom.go`, `pkg/mqtt/reconnect_paho.go`, or `pkg/mqtt/reconnect_test.go` are added.
+- No README, HA docs, or config docs are required because there is no user-facing config key yet.
 
 ---
 
 ## 10. Security Considerations
 
-- Treat broker configuration as sensitive. Never log `Password` or `TLSClientCertKey` values.
-- TLS CA and client certificate files must be read from explicit paths only; do not expand shell syntax or execute anything from config values.
-- `TLSInsecureSkip` is dangerous and should log a warn when used, but it remains a supported field for development/test setups.
-- MQTT message payloads are untrusted when received. This issue only defines subscription plumbing; command parsing and payload validation are deferred to #86.
-- Publish helpers should log payload byte length or topic metadata, not full payloads, to avoid leaking operational details unnecessarily.
-- Reconnect loops must use bounded timers and respect `Disconnect` to avoid goroutine leaks.
+- Continue sanitizing broker URLs before logging so username/password in broker URLs are not emitted.
+- Continue never logging `Config.Password` or `Config.TLSClientCertKey`.
+- Paho strategy logs should include strategy and sanitized broker only, not payloads or credentials.
+- Do not enable Paho global debug loggers in production code.
+- Keep operation waits bounded through `waitToken`; Paho auto reconnect may let publish tokens complete after reconnect, so tests should avoid assuming a publish failed merely because the broker was briefly down.
+- Do not enable `SetConnectRetry(true)` here. It permits publishing before initial connection is established and can change failure behavior for bad credentials or missing broker cases.
 
 ---
 
 ## 11. Gotchas
 
-- Paho v1.5.1 exposes `SetAutoReconnect` and `SetMaxReconnectInterval`, but its backoff implementation does not appear to add jitter. The issue explicitly requires jitter, so implement package-owned reconnect timing.
-- Paho `Token.Wait()` can block indefinitely; use `WaitTokenTimeout` or context-aware token waiting.
-- Paho defaults `OrderMatters=true`; set it false so callbacks do not block message routing.
-- Paho package-level loggers default to no-op. Do not enable Paho DEBUG/WARN globally in production code for this issue.
-- Mochi denies clients unless an auth hook permits them. Tests need `auth.AllowHook` for happy paths and an auth ledger/hook for bad credentials.
-- Retained-message tests often need a fresh subscriber connected after publication to prove retention, not just a subscriber already online.
-- Reconnect tests should avoid fixed public ports. Use `127.0.0.1:0` for first allocation, capture the selected address, and rebind that address for restart tests.
-- If `x509.SystemCertPool()` returns nil or an error in minimal containers, create a new cert pool and append the configured CA file.
-- Use `*time.Time` for optional timestamps such as `NextRun`; this avoids zero-time JSON surprises and still marshals non-nil values as RFC3339.
+- Paho `NewClientOptions()` defaults `AutoReconnect` to true. The custom path must explicitly keep `SetAutoReconnect(false)`.
+- `SetAutoReconnect(false)` still calls the `ConnectionLostHandler`; the custom path depends on that callback.
+- `SetAutoReconnect(true)` also calls the `ConnectionLostHandler`; the Paho path must log only and must not start the custom loop.
+- Paho `SetOnConnectHandler` runs on initial connect and automatic reconnect, which is exactly where the existing retained `online` availability publish belongs.
+- Paho's built-in reconnect behavior does not expose the same jitter controls as the custom loop. That is acceptable because the goal is to compare strategies, not make Paho imitate the custom loop.
+- Mochi broker shutdown can hang with active clients. Keep using the existing crash helper pattern that stops broker-side clients before closing the server.
+- Reconnect tests should avoid fixed ports. Continue reserving a loopback address with `127.0.0.1:0`, then restart Mochi on the selected address.
+- Do not use `time.Sleep` in tests. Use `assert.Eventually` with clear timeouts.
 
 ---
 
 ## 12. Open Questions / Risks
 
-- `Config` fields and state payload shape: RESOLVED by parent #64 and user clarification on 2026-05-03.
-- Issue 84 package-only scope: RESOLVED by user clarification on 2026-05-03.
-- Paho jittered reconnect: RESOLVED by planning a package-owned reconnect loop instead of relying solely on Paho auto-reconnect.
-- Mochi restart flakiness on CI: DEFERRED risk. Mitigate with bounded test deadlines, loopback-only listeners, and reduced reconnect delays under test.
-- Future `Intent` ownership: DEFERRED risk. Issue 84 defines lightweight MQTT carrier types because the issue asks for them; #87 may adapt or map them into runner-owned intent types later.
+- Paho auto-reconnect timing under Mochi restart: DEFERRED risk. Mitigate with bounded eventually assertions and keep option-level tests mandatory.
+- Which strategy should win long term: DEFERRED by design. This plan keeps both selectable so later evidence can decide.
+- Whether to expose `mqtt_reconnect_strategy` through cobra/viper/HA add-on: DEFERRED to a later integration issue. Issue 84 stays package-only.
+- Original issue 84 jittered reconnect acceptance: RESOLVED by keeping custom strategy as default.
 
 ---
 
@@ -594,4 +443,11 @@ Docker builds are not required for issue 84 because no Dockerfile or Home Assist
 
 8/10.
 
-This is a narrow package scaffold with clear acceptance criteria, but the reconnect-after-broker-restart test has some CI-flakiness risk because it depends on timing, listener rebinding, and Paho connection-loss detection. Confidence would rise to 9/10 after a short implementation spike proves the custom reconnect loop against Mochi on this workspace; if that test flakes during implementation, do the spike before continuing with the rest of the package.
+The codebase already has a working custom reconnect implementation and strong MQTT tests, so the implementation shape is clear. The remaining uncertainty is Paho auto-reconnect timing in an in-process broker restart test. Confidence rises to 9/10 if a quick implementation spike shows the Paho strategy reconnects reliably against Mochi within the existing test timeout window.
+
+---
+
+## Revision History
+
+- 2026-05-03: Initial issue-84 scaffold plan created before `pkg/mqtt` existed.
+- 2026-05-05: Refreshed after issue 84 had been implemented. Scope changed to selectable reconnect strategies: default custom jittered reconnect plus opt-in Paho auto-reconnect, with clear separation and removal guidance.
