@@ -131,6 +131,24 @@ func TestDumpStartupParams_RedactsRegisteredSecret(t *testing.T) {
 		"value of a registered secret key must be redacted")
 }
 
+func TestDumpStartupParams_RedactsMQTTSecrets(t *testing.T) {
+	resetViper(t)
+
+	cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().String("mqtt_password", "", "MQTT password")
+	cmd.Flags().String("mqtt_tls_client_cert_key", "", "MQTT client cert key")
+	require.NoError(t, cmd.Flags().Set("mqtt_password", "top-secret-password"))
+	require.NoError(t, cmd.Flags().Set("mqtt_tls_client_cert_key", "top-secret-key"))
+	require.NoError(t, bindFlags(cmd))
+
+	out := DumpStartupParams(cmd)
+
+	assert.NotContains(t, out, "top-secret-password")
+	assert.NotContains(t, out, "top-secret-key")
+	assert.Regexp(t, `mqtt_password\s+=\s+\*\*\*\s+source=flag`, out)
+	assert.Regexp(t, `mqtt_tls_client_cert_key\s+=\s+\*\*\*\s+source=flag`, out)
+}
+
 func TestSourceOf_Precedence(t *testing.T) {
 	resetViper(t)
 	writeConfig(t, "url: from-yaml\n")

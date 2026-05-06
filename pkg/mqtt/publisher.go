@@ -39,6 +39,24 @@ func PublishAvailability(ctx context.Context, client Client, prefix string, onli
 	}
 }
 
+func PublishDiscovery(ctx context.Context, client Client, cfg Config, version string) {
+	if !cfg.Enabled || !cfg.HADiscovery {
+		return
+	}
+
+	if client == nil {
+		logPublishWarning(discoveryConfigTopic(cfg.HADiscoveryPrefix, "sensor", "sbam"), qosAtLeastOnce, true, errors.New("nil mqtt client"))
+		return
+	}
+
+	entities := BuildDiscovery(cfg, version)
+	for _, entity := range entities {
+		if err := client.Publish(ctx, entity.Topic, qosAtLeastOnce, true, entity.Payload); err != nil {
+			logPublishWarning(entity.Topic, qosAtLeastOnce, true, err)
+		}
+	}
+}
+
 func publishJSON(ctx context.Context, client Client, topic string, qos byte, retained bool, payload any) {
 	if client == nil {
 		logPublishWarning(topic, qos, retained, errors.New("nil mqtt client"))

@@ -68,6 +68,18 @@ Do not start yet but configure it:
 - **cache_forecast:** Enabling the cache forcast to reduce the number of times we query the forecast URL (Default: false).
 - **cache_file_prefix:** When caching is enabled, the forecast will be saved locally to files with this prefix. (Default: cached_forecast).
 - **cache_time:**  The length of time to cache the forecast (Default: 7200, means 7200 seconds).
+- **mqtt_enabled:** Enable MQTT publishing and command/discovery integration (Default: false).
+- **mqtt_broker:** MQTT broker URL, for example `tcp://broker:1883`.
+- **mqtt_client_id:** Optional MQTT client identifier (leave empty to auto-generate).
+- **mqtt_username:** Optional MQTT username.
+- **mqtt_password:** Optional MQTT password.
+- **mqtt_tls_ca_file:** Optional CA file path when using TLS broker URLs.
+- **mqtt_tls_client_cert:** Optional client certificate file path.
+- **mqtt_tls_client_cert_key:** Optional client certificate key file path.
+- **mqtt_tls_insecure_skip:** Skip TLS certificate verification (Default: false).
+- **mqtt_topic_prefix:** Prefix for sbam state/availability/cmd topics (Default: `sbam`).
+- **mqtt_ha_discovery:** Enable retained Home Assistant discovery config publishing (Default: true when MQTT is enabled).
+- **mqtt_ha_discovery_prefix:** Home Assistant discovery root topic prefix (Default: `homeassistant`).
 3. Click on **save** to apply the configuration
 
 ![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)

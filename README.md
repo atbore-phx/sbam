@@ -145,6 +145,18 @@ Flags:
   -n, --cache_forecast bool            Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
   -f, --cache_file_prefix              When caching is enabled, the forecast will be saved locally to files with this prefix. Defaults to cached_forecast
   -l, --cache_time                     The length of time to cache the forecast. Defaults to 7200 seconds
+      --mqtt_enabled                   Enable MQTT integration
+      --mqtt_broker string             MQTT broker URL
+      --mqtt_client_id string          MQTT client identifier
+      --mqtt_username string           MQTT username
+      --mqtt_password string           MQTT password
+      --mqtt_tls_ca_file string        MQTT TLS CA certificate file
+      --mqtt_tls_client_cert string    MQTT TLS client certificate file
+      --mqtt_tls_client_cert_key       MQTT TLS client key file
+      --mqtt_tls_insecure_skip         Skip MQTT TLS certificate verification
+      --mqtt_topic_prefix string       MQTT topic prefix (default "sbam")
+      --mqtt_ha_discovery              Enable Home Assistant MQTT discovery (default true)
+      --mqtt_ha_discovery_prefix       Home Assistant MQTT discovery prefix (default "homeassistant")
 ```
 
 #### Debug Logs
@@ -186,4 +198,24 @@ Configuration values are resolved with the following precedence (highest first):
 2. Environment variable (e.g. `URL=http://example/`)
 3. `config.yaml` in the working directory
 4. Built-in default
+
+#### MQTT and Home Assistant discovery
+
+When `mqtt_enabled=true`, `schedule` publishes state updates to MQTT:
+
+- `sbam/state`
+- `sbam/availability`
+- `sbam/error`
+
+Use `mqtt_topic_prefix` to change `sbam` to a site-specific path.
+
+When `mqtt_ha_discovery=true`, sbam also publishes Home Assistant discovery payloads
+under `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config`.
+Defaults:
+
+- `mqtt_topic_prefix=sbam`
+- `mqtt_ha_discovery_prefix=homeassistant`
+
+sbam subscribes to `homeassistant/status` and republishes discovery/state when
+Home Assistant comes online.
 

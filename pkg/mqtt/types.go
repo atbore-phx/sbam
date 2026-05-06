@@ -22,19 +22,25 @@ type Config struct {
 	TLSClientCertKey  string
 	TLSInsecureSkip   bool
 	TopicPrefix       string
+	HADiscoveryPrefix string
+	FroniusIP         string
 	HADiscovery       bool
 	ReconnectStrategy ReconnectStrategy
 }
 
 type StatePayload struct {
-	BatterySOCPct      float64    `json:"battery_soc_pct"`
-	BatteryCapacityWh  float64    `json:"battery_capacity_wh"`
-	ForecastTodayWh    float64    `json:"forecast_today_wh"`
-	LastDecision       string     `json:"last_decision"`
-	LastDecisionReason string     `json:"last_decision_reason,omitempty"`
-	Paused             bool       `json:"paused"`
-	NextRun            *time.Time `json:"next_run,omitempty"`
-	Timestamp          time.Time  `json:"ts"`
+	BatterySOCPct       *float64   `json:"battery_soc_pct"`
+	BatteryCapacityWh   *float64   `json:"battery_capacity_wh"`
+	ForecastTodayWh     *float64   `json:"forecast_today_wh"`
+	PwNetWh             *float64   `json:"pw_net_wh,omitempty"`
+	ChargePct           *int16     `json:"charge_pct,omitempty"`
+	LastDecision        string     `json:"last_decision"`
+	LastDecisionReason  string     `json:"last_decision_reason"`
+	ChargeWindowActive  *bool      `json:"charge_window_active,omitempty"`
+	ReserveWindowActive *bool      `json:"batt_reserve_window_active,omitempty"`
+	Paused              bool       `json:"paused"`
+	NextRun             *time.Time `json:"next_run,omitempty"`
+	Timestamp           time.Time  `json:"ts"`
 }
 
 type ErrorPayload struct {
@@ -62,7 +68,7 @@ const (
 
 type Intent struct {
 	Kind          IntentKind `json:"kind"`
-	TargetPct     int        `json:"target_pct,omitempty"`
+	TargetPct     int16      `json:"target_pct,omitempty"`
 	DurationS     int        `json:"duration_s,omitempty"`
 	PwBattReserve float64    `json:"pw_batt_reserve,omitempty"`
 }

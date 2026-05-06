@@ -1,16 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
+	"sbam/pkg/mqtt"
 	pw "sbam/pkg/power"
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -35,18 +38,33 @@ var s_defaults bool
 var s_cache_forecast bool
 var s_cache_file_prefix string
 var s_cache_time int32
+var mqtt_enabled bool
+var mqtt_broker string
+var mqtt_client_id string
+var mqtt_username string
+var mqtt_password string
+var mqtt_tls_ca_file string
+var mqtt_tls_client_cert string
+var mqtt_tls_client_cert_key string
+var mqtt_tls_insecure_skip bool
+var mqtt_topic_prefix string
+var mqtt_ha_discovery bool
+var mqtt_ha_discovery_prefix string
 
 const (
-	const_pc    = 0.0
-	const_sh    = "00:00"
-	const_eh    = "00:55"
-	const_mc    = 3500
-	const_plwt  = 0
-	const_pupt  = 0
-	const_pbr   = 0
-	const_br_sh = ""
-	const_br_eh = ""
-	const_ct    = "0 0 0 0 0"
+	const_pc                  = 0.0
+	const_sh                  = "00:00"
+	const_eh                  = "00:55"
+	const_mc                  = 3500
+	const_plwt                = 0
+	const_pupt                = 0
+	const_pbr                 = 0
+	const_br_sh               = ""
+	const_br_eh               = ""
+	const_ct                  = "0 0 0 0 0"
+	const_mqtt_topic_prefix   = "sbam"
+	const_ha_discovery_prefix = "homeassistant"
+	const_mqtt_op_timeout     = 5 * time.Second
 )
 
 var scdCmd = &cobra.Command{
@@ -70,6 +88,18 @@ var scdCmd = &cobra.Command{
 		s_cache_forecast = viper.GetBool("cache_forecast")
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
+		mqtt_enabled = viper.GetBool("mqtt_enabled")
+		mqtt_broker = viper.GetString("mqtt_broker")
+		mqtt_client_id = viper.GetString("mqtt_client_id")
+		mqtt_username = viper.GetString("mqtt_username")
+		mqtt_password = viper.GetString("mqtt_password")
+		mqtt_tls_ca_file = viper.GetString("mqtt_tls_ca_file")
+		mqtt_tls_client_cert = viper.GetString("mqtt_tls_client_cert")
+		mqtt_tls_client_cert_key = viper.GetString("mqtt_tls_client_cert_key")
+		mqtt_tls_insecure_skip = viper.GetBool("mqtt_tls_insecure_skip")
+		mqtt_topic_prefix = viper.GetString("mqtt_topic_prefix")
+		mqtt_ha_discovery = viper.GetBool("mqtt_ha_discovery")
+		mqtt_ha_discovery_prefix = viper.GetString("mqtt_ha_discovery_prefix")
 
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
 			batt_reserve_start_hr = viper.GetString("start_hr")
@@ -84,9 +114,33 @@ var scdCmd = &cobra.Command{
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
 
+		mqttCfg := mqtt.Config{
+			Enabled:           mqtt_enabled,
+			Broker:            mqtt_broker,
+			ClientID:          mqtt_client_id,
+			Username:          mqtt_username,
+			Password:          mqtt_password,
+			TLSCAFile:         mqtt_tls_ca_file,
+			TLSClientCert:     mqtt_tls_client_cert,
+			TLSClientCertKey:  mqtt_tls_client_cert_key,
+			TLSInsecureSkip:   mqtt_tls_insecure_skip,
+			TopicPrefix:       mqtt_topic_prefix,
+			HADiscovery:       mqtt_ha_discovery,
+			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
+			FroniusIP:         fronius_ip,
+		}
+
+		var latestState atomic.Value
+
+		mqttClient, mqttCleanup, err := mqttInitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond, &latestState)
+		defer mqttCleanup()
+		if err != nil {
+			u.Log.Warnw("mqtt homeassistant/status subscription failed", "error", err)
+		}
+
 		u.LogStartupParams(cmd)
 
-		err := checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -94,15 +148,22 @@ var scdCmd = &cobra.Command{
 
 		u.Log.Debugf("schedule crontab '%s'", crontab)
 		if crontab != "0 0 0 0 0" {
-			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time)
+			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg, &latestState)
 
 		} else {
-			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time)
+			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg, &latestState)
 
 		}
 	},
 }
 
+// registerScdCmd registers the `schedule` command and its CLI flags.
+// This is called at program startup to hook the command into Cobra's root.
+// It intentionally keeps flag wiring localized here for easier testing.
+//
+// Note: This function is internal to the package and not exported.
+//
+// See: `scdCmd` defined above.
 func registerScdCmd() {
 	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "Set the Forecast URL. For multiple URLs, use a comma (,) to separate them")
 	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", "APIKEY")
@@ -121,10 +182,26 @@ func registerScdCmd() {
 	scdCmd.Flags().BoolVarP(&s_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
 	scdCmd.Flags().StringVarP(&s_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_PREFIX (default 'cached_forecast')")
 	scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
+	scdCmd.Flags().BoolVar(&mqtt_enabled, "mqtt_enabled", false, "Enable MQTT integration")
+	scdCmd.Flags().StringVar(&mqtt_broker, "mqtt_broker", "", "MQTT broker URL")
+	scdCmd.Flags().StringVar(&mqtt_client_id, "mqtt_client_id", "", "MQTT client identifier")
+	scdCmd.Flags().StringVar(&mqtt_username, "mqtt_username", "", "MQTT username")
+	scdCmd.Flags().StringVar(&mqtt_password, "mqtt_password", "", "MQTT password")
+	scdCmd.Flags().StringVar(&mqtt_tls_ca_file, "mqtt_tls_ca_file", "", "MQTT TLS CA certificate file")
+	scdCmd.Flags().StringVar(&mqtt_tls_client_cert, "mqtt_tls_client_cert", "", "MQTT TLS client certificate file")
+	scdCmd.Flags().StringVar(&mqtt_tls_client_cert_key, "mqtt_tls_client_cert_key", "", "MQTT TLS client key file")
+	scdCmd.Flags().BoolVar(&mqtt_tls_insecure_skip, "mqtt_tls_insecure_skip", false, "Skip MQTT TLS certificate verification")
+	scdCmd.Flags().StringVar(&mqtt_topic_prefix, "mqtt_topic_prefix", const_mqtt_topic_prefix, "MQTT topic prefix")
+	scdCmd.Flags().BoolVar(&mqtt_ha_discovery, "mqtt_ha_discovery", true, "Enable Home Assistant MQTT discovery")
+	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 
 	rootCmd.AddCommand(scdCmd)
 }
 
+// isStartBeforeEnd parses the given `start` and `end` time strings (layout "15:04")
+// and returns true when `start` is strictly before `end`.
+//
+// It panics on parse errors; callers should validate input beforehand.
 func isStartBeforeEnd(start, end string) bool {
 	// Define a layout for parsing time strings
 	layout := "15:04"
@@ -146,6 +223,10 @@ func isStartBeforeEnd(start, end string) bool {
 	return startTime.Before(endTime)
 }
 
+// isStartAfterEnd parses `start` and `end` (layout "15:04") and returns true
+// when `start` is strictly after `end`.
+//
+// It panics on parse errors similarly to isStartBeforeEnd.
 func isStartAfterEnd(start, end string) bool {
 	// Define a layout for parsing time strings
 	layout := "15:04"
@@ -167,6 +248,11 @@ func isStartAfterEnd(start, end string) bool {
 	return startTime.After(endTime)
 }
 
+// CheckTimeRange returns true when the current local time is within the
+// inclusive interval between `start_hr` and `end_hr` (both in "15:04" format).
+//
+// This helper is used by the scheduler to determine whether charging window
+// and reserve windows are active at runtime.
 func CheckTimeRange(start_hr string, end_hr string) bool {
 	now := time.Now()
 
@@ -190,6 +276,11 @@ func CheckTimeRange(start_hr string, end_hr string) bool {
 	return (now.After(startTime) || now.Equal(startTime)) && (now.Before(endTime) || now.Equal(endTime))
 }
 
+// checkScheduleschedule validates the provided scheduling and runtime
+// configuration values. It returns a non-nil error when validation fails.
+//
+// The function intentionally keeps validation local to the command so the
+// runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string) error {
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
 		err := errors.New("the --fronius_ip flag must be set")
@@ -239,35 +330,197 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 	return nil
 }
 
-func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32) {
-	if !CheckTimeRange(start_hr, end_hr) {
+// schedule performs a single execution of the scheduling workflow:
+//   - retrieves the forecast
+//   - reads storage state
+//   - computes the Fronius decision
+//   - publishes the state over MQTT (if configured)
+//
+// It is intentionally a plain function so it can be called from a cron job
+// or run once from the CLI (used by tests and `crontabSchedule`).
+func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value) {
+	inChargeWindow := CheckTimeRange(start_hr, end_hr)
+	reserveWindowActive := CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr)
+
+	if !inChargeWindow {
 		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
-	} else {
-		pwr := pw.New()
-		solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
-		if err != nil {
-			u.Log.Error(err)
-			panic(err)
+
+		payload := mqtt.StatePayload{
+			LastDecision:        fronius.DecisionIdle.String(),
+			LastDecisionReason:  "current time outside configured charging window",
+			Paused:              false,
+			ChargeWindowActive:  &inChargeWindow,
+			ReserveWindowActive: &reserveWindowActive,
+			Timestamp:           time.Now().UTC(),
 		}
 
-		str := storage.New()
-		capacity2charge, capacity_max, err := str.Handler(fronius_ip)
-		if err != nil {
-			u.Log.Error(err)
-			panic(err)
+		if latestState != nil {
+			if v := latestState.Load(); v != nil {
+				if cached, ok := v.(*mqtt.StatePayload); ok && cached != nil {
+					payload = *cached
+					payload.LastDecision = fronius.DecisionIdle.String()
+					payload.LastDecisionReason = "current time outside configured charging window"
+					payload.ChargeWindowActive = &inChargeWindow
+					payload.ReserveWindowActive = &reserveWindowActive
+					payload.Timestamp = time.Now().UTC()
+				}
+			}
 		}
-		u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
 
-		scd := fronius.New()
-		_, err = scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr), pw_lwt, pw_upt, forecast_retrieved)
-		if err != nil {
-			u.Log.Error(err)
-			panic(err)
-		}
+		publishStateSnapshot(mqttClient, mqttCfg, latestState, payload)
+		return
 	}
+
+	pwr := pw.New()
+	solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
+	if err != nil {
+		u.HandleErrorPanic(err, "error retrieving power forecast")
+	}
+
+	str := storage.New()
+	capacity2charge, capacity_max, err := str.Handler(fronius_ip)
+	if err != nil {
+		u.HandleErrorPanic(err, "error retrieving storage information")
+	}
+	u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
+
+	scd := fronius.New()
+	chargePct, decision, reason, powerState, err := scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, reserveWindowActive, pw_lwt, pw_upt, forecast_retrieved)
+	if err != nil {
+		u.HandleErrorPanic(err, "error handling charge percentage")
+	}
+
+	payload := mqtt.StatePayload{
+		BatterySOCPct:       &(powerState.SoCPct),
+		BatteryCapacityWh:   &capacity_max,
+		ForecastTodayWh:     &solarPowerProduction,
+		PwNetWh:             &(powerState.Net),
+		ChargePct:           &chargePct,
+		LastDecision:        decision.String(),
+		LastDecisionReason:  reason,
+		ChargeWindowActive:  &inChargeWindow,
+		ReserveWindowActive: &reserveWindowActive,
+		Paused:              false,
+		Timestamp:           time.Now().UTC(),
+	}
+
+	publishStateSnapshot(mqttClient, mqttCfg, latestState, payload)
 }
 
-func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32) {
+// publishStateSnapshot publishes the provided `payload` using the MQTT client
+// and stores a copy in `latestState` (if provided). The copy is used to
+// re-publish a cached snapshot when Home Assistant reconnects.
+func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value, payload mqtt.StatePayload) {
+	// Use a short-lived context so the publish operation cannot block
+	// indefinitely. This matches other MQTT operations which use
+	// `const_mqtt_op_timeout`.
+	ctx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+	defer cancel()
+	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
+
+	if latestState == nil {
+		return
+	}
+
+	snapshot := payload
+	latestState.Store(&snapshot)
+}
+
+// mqttConnectWithRetries performs a small number of Connect attempts with
+// exponential backoff. It returns the last error if all attempts fail.
+//
+// The helper takes a generic `mqtt.Client` so the Noop and Paho wrappers can
+// both be used; timeouts are governed by `const_mqtt_op_timeout`.
+func mqttConnectWithRetries(client mqtt.Client, maxAttempts int, baseBackoff time.Duration) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		attemptCtx, attemptCancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+		err := client.Connect(attemptCtx)
+		attemptCancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		u.Log.Warnw("mqtt connect attempt failed", "attempt", attempt, "error", err)
+
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			u.Log.Warnw("mqtt connect aborted, disconnecting client due to context timeout", "error", err)
+			dctx, dcancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+			_ = client.Disconnect(dctx)
+			dcancel()
+		}
+
+		if attempt < maxAttempts {
+			sleep := time.Duration(1<<uint(attempt-1)) * baseBackoff
+			time.Sleep(sleep)
+		}
+	}
+	return lastErr
+}
+
+// mqttInitWithCleanup encapsulates the MQTT client creation, initial
+// connect (with retries) and returns a cleanup function that attempts a
+// graceful disconnect. The function mirrors the inline behaviour previously
+// present in `schedule` and keeps the Run body concise.
+// If Home Assistant discovery is enabled, subscribe to Home Assistant status here so
+// the caller doesn't need to wire subscription logic inline.
+func mqttInitWithCleanup(cfg mqtt.Config, version string, maxAttempts int, baseBackoff time.Duration, latestState *atomic.Value) (mqtt.Client, func(), error) {
+	client, newErr := mqtt.New(cfg, version)
+	var accErr error
+	if newErr != nil {
+		accErr = errors.Join(accErr, fmt.Errorf("mqtt client setup failed: %w", newErr))
+		u.Log.Warnw("mqtt client setup failed, using noop", "error", newErr)
+		client = mqtt.NewNoop()
+	}
+
+	if cfg.Enabled {
+		if connErr := mqttConnectWithRetries(client, maxAttempts, baseBackoff); connErr != nil {
+			accErr = errors.Join(accErr, fmt.Errorf("mqtt connect failed after retries: %w", connErr))
+			u.Log.Warnw("mqtt connect failed after retries, using noop", "error", connErr)
+			client = mqtt.NewNoop()
+		} else if cfg.HADiscovery && client.IsConnected() {
+			subCtx, subCancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+			subErr := client.Subscribe(subCtx, "homeassistant/status", byte(1), func(topic string, payload []byte) {
+				if strings.TrimSpace(string(payload)) != "online" {
+					return
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+				mqtt.PublishDiscovery(ctx, client, cfg, version)
+				if latestState != nil {
+					if v := latestState.Load(); v != nil {
+						if cached, ok := v.(*mqtt.StatePayload); ok && cached != nil {
+							mqtt.PublishState(ctx, client, cfg.TopicPrefix, *cached)
+						}
+					}
+				}
+				cancel()
+			})
+			subCancel()
+			if subErr != nil {
+				accErr = errors.Join(accErr, fmt.Errorf("mqtt subscribe homeassistant/status failed: %w", subErr))
+			}
+		}
+	}
+
+	cleanup := func() {}
+	if cfg.Enabled {
+		cleanup = func() {
+			disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+			_ = client.Disconnect(disconnectCtx)
+			disconnectCancel()
+		}
+	}
+
+	return client, cleanup, accErr
+}
+
+// crontabSchedule installs the `schedule` function into a cron scheduler
+// using the provided `crontab` expression. When `defaults` is true the
+// function also schedules a `Setdefaults` call near the configured end time.
+//
+// This keeps the cron wiring isolated from the core scheduling logic.
+func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value) {
 	layout := "15:04"
 	endTime, _ := time.Parse(layout, end_hr)
 	endTime = endTime.Add(-5 * time.Minute)
@@ -275,7 +528,7 @@ func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumptio
 
 	c := cron.New()
 	_, err := c.AddFunc(crontab, func() {
-		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time)
+		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time, mqttClient, mqttCfg, latestState)
 	})
 	if err != nil {
 		u.Log.Error(err)

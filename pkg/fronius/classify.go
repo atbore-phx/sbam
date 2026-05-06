@@ -1,6 +1,9 @@
 package fronius
 
-import "fmt"
+import (
+	"fmt"
+	u "sbam/src/utils"
+)
 
 type Decision string
 
@@ -21,6 +24,7 @@ type PowerState struct {
 	Batt           float64
 	Net            float64
 	BattReserveNet float64
+	SoCPct         float64
 }
 
 func ClassifyDecision(
@@ -34,6 +38,12 @@ func ClassifyDecision(
 	}
 	pw.Net = pw.Batt + pw.PvNet
 	pw.BattReserveNet = pw.Batt - pwBattReserve
+	if pwBattMax > 0 {
+		pw.SoCPct = (pw.Batt * 100.0) / pwBattMax
+	} else {
+		u.HandleError(fmt.Errorf("invalid battery max capacity: %f", pwBattMax), "cannot compute SoC setting to 0%")
+		pw.SoCPct = 0.0
+	}
 
 	switch {
 	case pwBatt2charge == 0:

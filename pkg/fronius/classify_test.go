@@ -116,6 +116,7 @@ func TestClassifyDecision(t *testing.T) {
 			Batt:           4500,
 			Net:            9400,
 			BattReserveNet: 3500,
+			SoCPct:         90,
 		}, gotPowerState)
 	})
 }

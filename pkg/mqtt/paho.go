@@ -37,11 +37,12 @@ const (
 )
 
 type Paho struct {
-	cfg         Config
-	client      paho.Client
-	closeOnce   sync.Once
-	closed      atomic.Bool
-	reconnecter reconnectManager
+	cfg              Config
+	client           paho.Client
+	discoveryVersion string
+	closeOnce        sync.Once
+	closed           atomic.Bool
+	reconnecter      reconnectManager
 }
 
 func NewPaho(cfg Config) (*Paho, error) {
@@ -69,7 +70,8 @@ func NewPaho(cfg Config) (*Paho, error) {
 	cfg.ReconnectStrategy = strategy
 
 	p := &Paho{
-		cfg: cfg,
+		cfg:              cfg,
+		discoveryVersion: "dev",
 	}
 
 	opts := paho.NewClientOptions()
@@ -101,6 +103,8 @@ func NewPaho(cfg Config) (*Paho, error) {
 		if err := waitToken(context.Background(), client.Publish(availabilityTopic(p.cfg.TopicPrefix), qosAtLeastOnce, true, []byte("online"))); err != nil {
 			utils.Log.Warnw("mqtt availability publish failed", "topic", availabilityTopic(p.cfg.TopicPrefix), "retained", true, "qos", qosAtLeastOnce, "error", err)
 		}
+
+		PublishDiscovery(context.Background(), p, p.cfg, p.discoveryVersion)
 	})
 
 	manager := newReconnectManager(cfg.ReconnectStrategy)

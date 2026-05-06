@@ -20,6 +20,18 @@ export LOG_TYPE=$(bashio::config 'log_type')
 export CACHE_FORECAST=$(bashio::config 'cache_forecast')
 export CACHE_FILE_PREFIX=$(bashio::config 'cache_file_prefix')
 export CACHE_TIME=$(bashio::config 'cache_time')
+export MQTT_ENABLED=$(bashio::config 'mqtt_enabled')
+export MQTT_BROKER=$(bashio::config 'mqtt_broker')
+export MQTT_CLIENT_ID=$(bashio::config 'mqtt_client_id')
+export MQTT_USERNAME=$(bashio::config 'mqtt_username')
+export MQTT_PASSWORD=$(bashio::config 'mqtt_password')
+export MQTT_TLS_CA_FILE=$(bashio::config 'mqtt_tls_ca_file')
+export MQTT_TLS_CLIENT_CERT=$(bashio::config 'mqtt_tls_client_cert')
+export MQTT_TLS_CLIENT_CERT_KEY=$(bashio::config 'mqtt_tls_client_cert_key')
+export MQTT_TLS_INSECURE_SKIP=$(bashio::config 'mqtt_tls_insecure_skip')
+export MQTT_TOPIC_PREFIX=$(bashio::config 'mqtt_topic_prefix')
+export MQTT_HA_DISCOVERY=$(bashio::config 'mqtt_ha_discovery')
+export MQTT_HA_DISCOVERY_PREFIX=$(bashio::config 'mqtt_ha_discovery_prefix')
 
 [ "$RESET" = "true" ] && sbam configure -d
 
