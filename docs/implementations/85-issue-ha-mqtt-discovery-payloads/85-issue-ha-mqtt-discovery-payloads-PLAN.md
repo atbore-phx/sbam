@@ -65,7 +65,7 @@ flowchart LR
   Paho -- on connect --> Availability[PublishAvailability]
   Paho -- on connect --> Discovery[PublishDiscovery]
   Discovery --> Builder[BuildDiscovery]
-  Builder --> Entities[[]DiscoveryEntity]
+  Builder --> Entities("[]DiscoveryEntity")
   Entities --> Broker[(MQTT broker retained configs)]
   HA[Home Assistant homeassistant/status=online] --> StatusSub[schedule status subscription]
   StatusSub --> Discovery
