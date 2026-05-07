@@ -118,7 +118,7 @@ func TestGetCapacityStorage2Charge(t *testing.T) {
 		t.Errorf("Error getting storage data: %s", err)
 	}
 
-	capacity, _, err := storage.GetCapacityStorage2Charge(batteries)
+	capacity, _, _, err := storage.GetCapacityStorage2Charge(batteries)
 	if err != nil {
 		t.Errorf("Error getting storage capacity: %s", err)
 	}
@@ -137,7 +137,7 @@ func TestGetCapacityStorageMax(t *testing.T) {
 		t.Errorf("Error getting storage data: %s", err)
 	}
 
-	_, capacity_max, err := storage.GetCapacityStorage2Charge(batteries)
+	_, capacity_max, _, err := storage.GetCapacityStorage2Charge(batteries)
 	if err != nil {
 		t.Errorf("Error getting storage capacity: %s", err)
 	}
@@ -169,9 +169,10 @@ func TestGetCapacityStorage2ChargeError(t *testing.T) {
 		},
 	}
 
-	capacity, capacity_max, err := storage.GetCapacityStorage2Charge(batteries)
+	capacity, capacity_max, socPct, err := storage.GetCapacityStorage2Charge(batteries)
 	assert.Equal(t, float64(0), capacity)
 	assert.Equal(t, float64(0), capacity_max)
+	assert.Equal(t, float64(0), socPct)
 	assert.Error(t, err)
 
 	teardown()
@@ -182,12 +183,13 @@ func TestHandler(t *testing.T) {
 
 	st := storage.New()
 	ip := strings.TrimPrefix(mockServer.URL, "http://")
-	charge, charge_max, err := st.Handler(ip)
+	charge, charge_max, socPct, err := st.Handler(ip)
 	if err != nil {
 		t.Errorf("Error getting storage charge: %s", err)
 	}
 	assert.Equal(t, 6133.32, charge)
 	assert.Equal(t, 24868.0, charge_max)
+	assert.InDelta(t, 75.34, socPct, 0.01)
 	assert.NoError(t, err)
 
 	teardown()
@@ -200,9 +202,10 @@ func TestHandlerError(t *testing.T) {
 
 	mockServer.Close() // Simulate an error by closing the mock server
 
-	charge, charge_max, err := storage.Handler(mockServer.URL)
+	charge, charge_max, socPct, err := storage.Handler(mockServer.URL)
 	assert.Equal(t, float64(0), charge)
 	assert.Equal(t, float64(0), charge_max)
+	assert.Equal(t, float64(0), socPct)
 	assert.Error(t, err)
 
 	teardown()
@@ -221,9 +224,10 @@ func TestHandlerError2(t *testing.T) {
 		}
 	}))
 
-	charge, charge_max, err := st.Handler(mockServer.URL)
+	charge, charge_max, socPct, err := st.Handler(mockServer.URL)
 	assert.Equal(t, float64(0), charge)
 	assert.Equal(t, float64(0), charge_max)
+	assert.Equal(t, float64(0), socPct)
 	assert.Error(t, err)
 
 	teardown()
@@ -235,9 +239,10 @@ func TestHandlerError3(t *testing.T) {
 	st := storage.New()
 	ip := strings.TrimPrefix(mockServer.URL, "http://")
 
-	charge, charge_max, err := st.Handler(ip)
+	charge, charge_max, socPct, err := st.Handler(ip)
 	assert.Equal(t, float64(0), charge)
 	assert.Equal(t, float64(0), charge_max)
+	assert.Equal(t, float64(0), socPct)
 	assert.Error(t, err)
 
 	teardown()

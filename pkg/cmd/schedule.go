@@ -13,7 +13,6 @@ import (
 	u "sbam/src/utils"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -66,6 +65,19 @@ const (
 	const_ha_discovery_prefix = "homeassistant"
 	const_mqtt_op_timeout     = 5 * time.Second
 )
+
+// froniusClient abstracts the subset of Fronius behavior used by the
+// scheduler. It's defined here so tests can inject a fake implementation
+// without changing production logic.
+type froniusClient interface {
+	Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error)
+}
+
+// newFronius is a factory used by `schedule` to obtain a Fronius client.
+// Tests may override this to inject fakes.
+var newFronius = func() froniusClient {
+	return fronius.New()
+}
 
 var scdCmd = &cobra.Command{
 	Use:   "schedule",
@@ -130,9 +142,7 @@ var scdCmd = &cobra.Command{
 			FroniusIP:         fronius_ip,
 		}
 
-		var latestState atomic.Value
-
-		mqttClient, mqttCleanup, err := mqttInitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond, &latestState)
+		mqttClient, mqttCleanup, err := mqttInitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond)
 		defer mqttCleanup()
 		if err != nil {
 			u.Log.Warnw("mqtt homeassistant/status subscription failed", "error", err)
@@ -148,10 +158,10 @@ var scdCmd = &cobra.Command{
 
 		u.Log.Debugf("schedule crontab '%s'", crontab)
 		if crontab != "0 0 0 0 0" {
-			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg, &latestState)
+			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg)
 
 		} else {
-			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg, &latestState)
+			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg)
 
 		}
 	},
@@ -338,60 +348,86 @@ func checkScheduleschedule(crontab string, apiKey string, url string, fronius_ip
 //
 // It is intentionally a plain function so it can be called from a cron job
 // or run once from the CLI (used by tests and `crontabSchedule`).
-func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value) {
+func schedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config) {
 	inChargeWindow := CheckTimeRange(start_hr, end_hr)
 	reserveWindowActive := CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr)
 
-	if !inChargeWindow {
-		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
+	// Read storage first. Failures are non-fatal: if we can't read storage
+	// we'll set the decision to `skip` and publish a minimal payload so
+	// the scheduler doesn't attempt to force charge with incomplete data.
+	str := storage.New()
+	capacity2charge, capacity_max, socPct, serr := str.Handler(fronius_ip)
+	if serr != nil {
+		u.Log.Warnw("storage handler failed, skipping schedule run", "error", serr)
 
 		payload := mqtt.StatePayload{
-			LastDecision:        fronius.DecisionIdle.String(),
-			LastDecisionReason:  "current time outside configured charging window",
-			Paused:              false,
+			LastDecision:        fronius.DecisionSkip.String(),
+			LastDecisionReason:  fmt.Sprintf("storage read failed: %v", serr),
 			ChargeWindowActive:  &inChargeWindow,
 			ReserveWindowActive: &reserveWindowActive,
+			Paused:              false,
 			Timestamp:           time.Now().UTC(),
 		}
 
-		if latestState != nil {
-			if v := latestState.Load(); v != nil {
-				if cached, ok := v.(*mqtt.StatePayload); ok && cached != nil {
-					payload = *cached
-					payload.LastDecision = fronius.DecisionIdle.String()
-					payload.LastDecisionReason = "current time outside configured charging window"
-					payload.ChargeWindowActive = &inChargeWindow
-					payload.ReserveWindowActive = &reserveWindowActive
-					payload.Timestamp = time.Now().UTC()
-				}
-			}
+		publishStateSnapshot(mqttClient, mqttCfg, payload)
+		return
+	}
+
+	if !inChargeWindow {
+		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
+		// Provide battery-only information.
+		capMax := capacity_max
+
+		payload := mqtt.StatePayload{
+			BatterySOCPct:       &socPct,
+			BatteryCapacityWh:   &capMax,
+			LastDecision:        fronius.DecisionIdle.String(),
+			LastDecisionReason:  "current time outside configured charging window",
+			ChargeWindowActive:  &inChargeWindow,
+			ReserveWindowActive: &reserveWindowActive,
+			Paused:              false,
+			Timestamp:           time.Now().UTC(),
 		}
 
-		publishStateSnapshot(mqttClient, mqttCfg, latestState, payload)
+		publishStateSnapshot(mqttClient, mqttCfg, payload)
 		return
 	}
 
 	pwr := pw.New()
 	solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
 	if err != nil {
-		u.HandleErrorPanic(err, "error retrieving power forecast")
+		// Forecast retrieval failures are non-fatal for the scheduler.
+		// Log and continue with forecasting disabled for this run so the
+		// scheduler can still make safe decisions based on storage alone.
+		u.Log.Warnw("power forecast retrieval failed; disabling forecast for this run", "error", err)
+		solarPowerProduction = 0.0
+		forecast_retrieved = false
 	}
 
-	str := storage.New()
-	capacity2charge, capacity_max, err := str.Handler(fronius_ip)
-	if err != nil {
-		u.HandleErrorPanic(err, "error retrieving storage information")
-	}
 	u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
 
-	scd := fronius.New()
+	scd := newFronius()
 	chargePct, decision, reason, powerState, err := scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, reserveWindowActive, pw_lwt, pw_upt, forecast_retrieved)
 	if err != nil {
-		u.HandleErrorPanic(err, "error handling charge percentage")
+		u.Log.Warnw("fronius handler failed, skipping schedule run", "error", err)
+
+		payload := mqtt.StatePayload{
+			BatterySOCPct:       &socPct,
+			BatteryCapacityWh:   &capacity_max,
+			LastDecision:        fronius.DecisionSkip.String(),
+			LastDecisionReason:  fmt.Sprintf("fronius handler failed: %v", err),
+			ChargeWindowActive:  &inChargeWindow,
+			ReserveWindowActive: &reserveWindowActive,
+			Paused:              false,
+			Timestamp:           time.Now().UTC(),
+		}
+
+		publishStateSnapshot(mqttClient, mqttCfg, payload)
+		return
 	}
 
 	payload := mqtt.StatePayload{
-		BatterySOCPct:       &(powerState.SoCPct),
+		BatterySOCPct:       &socPct,
 		BatteryCapacityWh:   &capacity_max,
 		ForecastTodayWh:     &solarPowerProduction,
 		PwNetWh:             &(powerState.Net),
@@ -404,13 +440,13 @@ func schedule(apiKey string, url string, fronius_ip string, pw_consumption float
 		Timestamp:           time.Now().UTC(),
 	}
 
-	publishStateSnapshot(mqttClient, mqttCfg, latestState, payload)
+	publishStateSnapshot(mqttClient, mqttCfg, payload)
 }
 
 // publishStateSnapshot publishes the provided `payload` using the MQTT client
 // and stores a copy in `latestState` (if provided). The copy is used to
 // re-publish a cached snapshot when Home Assistant reconnects.
-func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value, payload mqtt.StatePayload) {
+func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload mqtt.StatePayload) {
 	// Use a short-lived context so the publish operation cannot block
 	// indefinitely. This matches other MQTT operations which use
 	// `const_mqtt_op_timeout`.
@@ -418,12 +454,7 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, latestSta
 	defer cancel()
 	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
 
-	if latestState == nil {
-		return
-	}
-
-	snapshot := payload
-	latestState.Store(&snapshot)
+	return
 }
 
 // mqttConnectWithRetries performs a small number of Connect attempts with
@@ -464,7 +495,7 @@ func mqttConnectWithRetries(client mqtt.Client, maxAttempts int, baseBackoff tim
 // present in `schedule` and keeps the Run body concise.
 // If Home Assistant discovery is enabled, subscribe to Home Assistant status here so
 // the caller doesn't need to wire subscription logic inline.
-func mqttInitWithCleanup(cfg mqtt.Config, version string, maxAttempts int, baseBackoff time.Duration, latestState *atomic.Value) (mqtt.Client, func(), error) {
+func mqttInitWithCleanup(cfg mqtt.Config, version string, maxAttempts int, baseBackoff time.Duration) (mqtt.Client, func(), error) {
 	client, newErr := mqtt.New(cfg, version)
 	var accErr error
 	if newErr != nil {
@@ -487,13 +518,6 @@ func mqttInitWithCleanup(cfg mqtt.Config, version string, maxAttempts int, baseB
 
 				ctx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
 				mqtt.PublishDiscovery(ctx, client, cfg, version)
-				if latestState != nil {
-					if v := latestState.Load(); v != nil {
-						if cached, ok := v.(*mqtt.StatePayload); ok && cached != nil {
-							mqtt.PublishState(ctx, client, cfg.TopicPrefix, *cached)
-						}
-					}
-				}
 				cancel()
 			})
 			subCancel()
@@ -520,7 +544,7 @@ func mqttInitWithCleanup(cfg mqtt.Config, version string, maxAttempts int, baseB
 // function also schedules a `Setdefaults` call near the configured end time.
 //
 // This keeps the cron wiring isolated from the core scheduling logic.
-func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *atomic.Value) {
+func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, crontab string, defaults bool, batt_reserve_start_hr string, batt_reserve_end_hr string, pw_lwt float64, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config) {
 	layout := "15:04"
 	endTime, _ := time.Parse(layout, end_hr)
 	endTime = endTime.Add(-5 * time.Minute)
@@ -528,7 +552,7 @@ func crontabSchedule(apiKey string, url string, fronius_ip string, pw_consumptio
 
 	c := cron.New()
 	_, err := c.AddFunc(crontab, func() {
-		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time, mqttClient, mqttCfg, latestState)
+		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time, mqttClient, mqttCfg)
 	})
 	if err != nil {
 		u.Log.Error(err)
