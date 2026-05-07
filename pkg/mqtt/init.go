@@ -13,6 +13,11 @@ const (
 	defaultOpTimeout = 5 * time.Second
 )
 
+var (
+	newClientFactory = New
+	newNoopFactory   = func() Client { return NewNoop() }
+)
+
 // connectWithRetries performs a small number of Connect attempts with
 // exponential backoff and returns the last error if all attempts fail.
 // It uses a short per-attempt timeout governed by defaultOpTimeout.
@@ -48,19 +53,19 @@ func connectWithRetries(client Client, maxAttempts int, baseBackoff time.Duratio
 // disconnect. On Home Assistant discovery it subscribes to the status
 // topic and publishes discovery when HA comes online.
 func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration) (Client, func(), error) {
-	client, newErr := New(cfg, version)
+	client, newErr := newClientFactory(cfg, version)
 	var accErr error
 	if newErr != nil {
 		accErr = errors.Join(accErr, fmt.Errorf("mqtt client setup failed: %w", newErr))
 		u.Log.Warnw("mqtt client setup failed, using noop", "error", newErr)
-		client = NewNoop()
+		client = newNoopFactory()
 	}
 
 	if cfg.Enabled {
 		if connErr := connectWithRetries(client, maxAttempts, baseBackoff); connErr != nil {
 			accErr = errors.Join(accErr, fmt.Errorf("mqtt connect failed after retries: %w", connErr))
 			u.Log.Warnw("mqtt connect failed after retries, using noop", "error", connErr)
-			client = NewNoop()
+			client = newNoopFactory()
 		} else if cfg.HADiscovery && client.IsConnected() {
 			subCtx, subCancel := context.WithTimeout(context.Background(), defaultOpTimeout)
 			subErr := client.Subscribe(subCtx, haStatusTopic(), byte(1), func(topic string, payload []byte) {

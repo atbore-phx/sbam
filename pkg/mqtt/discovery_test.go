@@ -185,3 +185,17 @@ func decodeDiscoveryPayload(t *testing.T, payload []byte) discoveryPayloadView {
 	require.NoError(t, json.Unmarshal(payload, &decoded))
 	return decoded
 }
+
+func TestDiscoveryConfigTopicDefaults(t *testing.T) {
+	assert.Equal(
+		t,
+		"homeassistant/sensor/sbam/entity/config",
+		discoveryConfigTopic(" ", " / ", " / "),
+	)
+
+	assert.Equal(
+		t,
+		"ha/button/sbam/trigger_now/config",
+		discoveryConfigTopic(" /ha/ ", " /button/ ", " /trigger_now/ "),
+	)
+}
