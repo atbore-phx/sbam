@@ -76,17 +76,17 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "paused_state", sensorPayload(base, deviceID, "paused_state", "Paused State", "{{ value_json.paused }}", "", "", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "last_update", sensorPayload(base, deviceID, "last_update", "Last Update", "{{ value_json.ts }}", "", "timestamp", "", "diagnostic"))
 
-	pausedBinary := sensorPayload(base, deviceID, "paused", "Paused", "{{ value_json.paused }}", "", "", "", "diagnostic")
+	pausedBinary := sensorPayload(base, deviceID, "paused", "Paused", "{{ value_json.paused | string | lower }}", "", "", "", "diagnostic")
 	pausedBinary.PayloadOn = "true"
 	pausedBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "paused", pausedBinary)
 
-	chargeWindowBinary := sensorPayload(base, deviceID, "charge_window_active", "Charge Window", "{{ value_json.charge_window_active }}", "", "", "", "diagnostic")
+	chargeWindowBinary := sensorPayload(base, deviceID, "charge_window_active", "Charge Window", "{{ value_json.charge_window_active | string | lower }}", "", "", "", "diagnostic")
 	chargeWindowBinary.PayloadOn = "true"
 	chargeWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "charge_window_active", chargeWindowBinary)
 
-	reserveWindowBinary := sensorPayload(base, deviceID, "batt_reserve_window_active", "Reserve Window", "{{ value_json.batt_reserve_window_active }}", "", "", "", "diagnostic")
+	reserveWindowBinary := sensorPayload(base, deviceID, "batt_reserve_window_active", "Reserve Window", "{{ value_json.batt_reserve_window_active | string | lower }}", "", "", "", "diagnostic")
 	reserveWindowBinary.PayloadOn = "true"
 	reserveWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "batt_reserve_window_active", reserveWindowBinary)
