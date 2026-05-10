@@ -12,6 +12,12 @@
 
 Goal: implement the parser and acknowledgement layer for inbound MQTT command topics in `pkg/mqtt`.
 
+Reconciliation note (2026-05-10): this plan has been implemented locally and
+GitHub issue #86 is closed via PR #108. Keep the current `set_reserve` deferral.
+The only known downstream adjustment is for #87/#88: allow `pause` with empty
+payload or `{}` to mean indefinite pause, because the implemented HA discovery
+pause button publishes `{}`.
+
 The implementation must:
 
 - Add a pure `ParseIntent(topic string, payload []byte) (Intent, error)` API or a name-compatible equivalent if current package conventions require it.
