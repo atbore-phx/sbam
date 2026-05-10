@@ -261,6 +261,7 @@ func TestPublishAck(t *testing.T) {
 	})
 }
 
+// Additional focused tests to exercise remaining branches in commands.go
 func TestDecodeStrictJSONTrailing(t *testing.T) {
 	var out map[string]any
 	err := decodeStrictJSON([]byte(`{"a":1}{"b":2}`), &out)
@@ -289,4 +290,97 @@ func TestPublishAckWithNilContext(t *testing.T) {
 	err := PublishAck(nil, client, "sbam/cmd/force_charge", Intent{Kind: IntentForceCharge}, nil)
 	require.NoError(t, err)
 	require.Len(t, client.publishes, 1)
+}
+
+func TestParseIntentWrapperAndCases(t *testing.T) {
+	// wrapper should call into parseIntentAt and return results
+	_, err := ParseIntent("sbam/cmd/trigger_now", nil)
+	require.NoError(t, err)
+
+	_, err = ParseIntent("sbam/cmd/force_charge", []byte(`{"target_pct":20}`))
+	require.NoError(t, err)
+
+	_, err = ParseIntent("sbam/cmd/pause", []byte(`{"until":"1m"}`))
+	require.NoError(t, err)
+}
+
+func TestParseCommandTopicVariants(t *testing.T) {
+	info := parseCommandTopic("")
+	assert.Equal(t, "", info.RawName)
+
+	info = parseCommandTopic(" /sbam/cmd/force_charge ")
+	assert.Equal(t, "force_charge", info.RawName)
+	assert.Equal(t, "sbam/cmd/force_charge/ack", info.AckTopic)
+	assert.True(t, info.KnownCommand)
+	assert.Equal(t, IntentForceCharge, info.Canonical)
+
+	info = parseCommandTopic("prefix/cmd/nope/extra")
+	assert.Equal(t, "nope", info.RawName)
+	assert.False(t, info.KnownCommand)
+	assert.Equal(t, "", info.AckTopic)
+
+	// ensure mixed-case gets normalized when lowercased
+	info = parseCommandTopic(strings.ToLower("SbAm/CmD/FoRcE_cHaRgE"))
+	assert.True(t, info.KnownCommand)
+	assert.Equal(t, IntentForceCharge, info.Canonical)
+}
+
+func TestParsePausePayloadEmpty(t *testing.T) {
+	_, err := parsePausePayload(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "until is required")
+}
+
+func TestBuildAckKnownCommandErrUnknown(t *testing.T) {
+	now := time.Now().UTC()
+	_, ack, err := buildAck("sbam/cmd/force_charge", Intent{}, ErrUnknownCommand, now)
+	require.NoError(t, err)
+	assert.Equal(t, "force_charge", ack.Command)
+	assert.Equal(t, ErrUnknownCommand.Error(), ack.Error)
+}
+
+func TestBuildAckRawNameNonErr(t *testing.T) {
+	now := time.Now().UTC()
+	_, ack, err := buildAck("sbam/cmd/nope", Intent{}, errors.New("boom"), now)
+	require.NoError(t, err)
+	assert.Equal(t, "nope", ack.Command)
+	assert.Equal(t, "boom", ack.Error)
+}
+
+func TestPublishAckBuildAckError(t *testing.T) {
+	client := &fakeMQTTClient{}
+	err := PublishAck(context.Background(), client, "sbam/not-a-command", Intent{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid command topic for ack")
+}
+
+func TestParseCommandTopicRawNameEmpty(t *testing.T) {
+	// internal empty segment (space) should cause rawName to be considered empty
+	info := parseCommandTopic("prefix/cmd/ /suffix")
+	require.Equal(t, "", info.RawName)
+}
+
+func TestParseForceChargePayloadEmpty(t *testing.T) {
+	_, err := parseForceChargePayload(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidPayload)
+}
+
+func TestParsePauseUntilDurationZero(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	_, err := parsePauseUntil("0s", now)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duration must be > 0")
+}
+
+func TestPublishAckMarshalError(t *testing.T) {
+	client := &fakeMQTTClient{}
+	// override jsonMarshal to force an error
+	prev := jsonMarshal
+	jsonMarshal = func(v any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	defer func() { jsonMarshal = prev }()
+
+	err := PublishAck(context.Background(), client, "sbam/cmd/force_charge", Intent{Kind: IntentForceCharge}, nil)
+	require.Error(t, err)
+	assert.EqualError(t, err, "marshal failed")
 }

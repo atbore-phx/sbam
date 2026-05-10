@@ -36,6 +36,8 @@ type pausePayload struct {
 	Until string `json:"until"`
 }
 
+var jsonMarshal = json.Marshal
+
 func ParseIntent(topic string, payload []byte) (Intent, error) {
 	return parseIntentAt(topic, payload, time.Now().UTC())
 }
@@ -46,9 +48,6 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 	}
 
 	info := parseCommandTopic(topic)
-	if !info.KnownCommand {
-		return Intent{}, fmt.Errorf("%w", ErrUnknownCommand)
-	}
 
 	switch info.Canonical {
 	case IntentTriggerNow, IntentSetDefaults, IntentResume:
@@ -225,10 +224,6 @@ func parsePauseUntil(until string, now time.Time) (time.Time, error) {
 	}
 
 	parsedTime := now.Add(duration)
-	if !parsedTime.After(now) {
-		return time.Time{}, errors.New("until must be in the future")
-	}
-
 	return parsedTime.UTC(), nil
 }
 
@@ -251,22 +246,18 @@ func buildAck(topic string, intent Intent, parseErr error, now time.Time) (strin
 		return info.AckTopic, ack, nil
 	}
 
+	// Determine command name for rejected ack
 	if info.KnownCommand {
 		ack.Command = string(info.Canonical)
-	} else if info.RawName != "" {
-		ack.Command = info.RawName
-	} else if intent.Kind != "" {
-		ack.Command = string(intent.Kind)
 	} else {
-		ack.Command = "unknown"
+		ack.Command = info.RawName
 	}
 
+	// Attach error string
 	if errors.Is(parseErr, ErrUnknownCommand) {
 		ack.Error = ErrUnknownCommand.Error()
 	} else if parseErr != nil {
 		ack.Error = parseErr.Error()
-	} else {
-		ack.Error = "unknown error"
 	}
 
 	return info.AckTopic, ack, nil
@@ -282,7 +273,7 @@ func PublishAck(ctx context.Context, client Client, topic string, intent Intent,
 		return err
 	}
 
-	payload, err := json.Marshal(ackPayload)
+	payload, err := jsonMarshal(ackPayload)
 	if err != nil {
 		return err
 	}
