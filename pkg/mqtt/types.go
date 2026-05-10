@@ -32,14 +32,14 @@ type StatePayload struct {
 	BatterySOCPct       *float64   `json:"battery_soc_pct"`
 	BatteryCapacityWh   *float64   `json:"battery_capacity_wh"`
 	ForecastTodayWh     *float64   `json:"forecast_today_wh"`
-	PwNetWh             *float64   `json:"pw_net_wh,omitempty"`
-	ChargePct           *int16     `json:"charge_pct,omitempty"`
+	PwNetWh             *float64   `json:"pw_net_wh"`
+	ChargePct           *int16     `json:"charge_pct"`
 	LastDecision        string     `json:"last_decision"`
 	LastDecisionReason  string     `json:"last_decision_reason"`
-	ChargeWindowActive  *bool      `json:"charge_window_active,omitempty"`
-	ReserveWindowActive *bool      `json:"batt_reserve_window_active,omitempty"`
+	ChargeWindowActive  *bool      `json:"charge_window_active"`
+	ReserveWindowActive *bool      `json:"batt_reserve_window_active"`
 	Paused              bool       `json:"paused"`
-	NextRun             *time.Time `json:"next_run,omitempty"`
+	NextRun             *time.Time `json:"next_run"`
 	Timestamp           time.Time  `json:"ts"`
 }
 
