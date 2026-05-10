@@ -9,6 +9,16 @@
 
 Implement the `pkg/mqtt` command parsing and acknowledgement layer for the v2.0.0 MQTT feed effort. This feature turns inbound MQTT command topics and payloads into validated typed intents, rejects malformed or unsafe input without panics, and publishes a structured JSON acknowledgement for every command attempt.
 
+## Reconciliation Note (2026-05-10)
+
+The parser and ack code exist in `pkg/mqtt/commands.go` and
+`pkg/mqtt/commands_test.go`; GitHub issue #86 is closed via PR #108. The
+implemented scope intentionally keeps `set_reserve` out of v2.0.0. One follow-up
+is assigned to #87/#88: Home Assistant discovery currently emits the pause
+button payload `{}`, so the runner integration must make `{}` an indefinite
+pause while preserving the existing `{"until":"<RFC3339-or-duration>"}`
+auto-resume form.
+
 ## Motivation / User Story
 
 This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-phx/sbam/issues/64). Operators need sbam to accept remote commands from MQTT tools such as Home Assistant, Node-RED, Grafana, or n8n while preserving Modbus safety. A pure parser plus ack publisher gives the later schedule runner a narrow, testable boundary: all attacker-controlled MQTT input is validated before any business logic or Modbus write path can see it.
