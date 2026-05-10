@@ -11,7 +11,42 @@ permissions:
   id-token: write
 
 jobs:
+  determine-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.determine.outputs.version }}
+      release: ${{ steps.determine.outputs.release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Determine version and release type
+        id: determine
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Tag detected: $VERSION"
+          VERSION_FROM_FILE=$(jq -r '.version' home-assistant/addons/sbam/config.json)
+          echo "Config file version: $VERSION_FROM_FILE"
+          if [ "$VERSION_FROM_FILE" = "$VERSION" ]; then
+            echo "Stable release detected: $VERSION"
+            RELEASE=latest
+          elif printf '%s\n' "$VERSION" | grep -Eq "^${VERSION_FROM_FILE}-"; then
+            echo "Pre-release detected (tag has suffix after hyphen): $VERSION"
+            RELEASE=pre
+          else
+            echo "Tag does not match stable or pre-release patterns; expected formats:"
+            echo "  - Stable: vX.Y.Z (e.g. v2.0.0)"
+            echo "  - Pre-release: vX.Y.Z-<suffix> (e.g. v2.0.0-alpha.1 or v2.0.0-alpha-1)"
+            echo "Skipping release jobs."
+            RELEASE=skip
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+
   release-ha:
+    needs: determine-release
+    if: ${{ needs.determine-release.outputs.release != 'skip' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,6 +66,8 @@ jobs:
             haarch: aarch64
           - goarch: arm
             haarch: armv7
+    env:
+      VERSION: ${{ needs.determine-release.outputs.version }}
 
     steps:
       - name: Checkout
@@ -38,17 +75,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version from github tag
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" | tee -a $GITHUB_ENV
-          VERSION_FROM_FILE=$(jq -r '.version' home-assistant/addons/sbam/config.json)
-          if [ "$VERSION_FROM_FILE" != "$VERSION" ]; then
-            echo "Version mismatch under home-assistant/addons/sbam/config.json: expected $VERSION but found $VERSION_FROM_FILE"
-            exit 1
-          else
-            echo "Version matches under home-assistant/addons/sbam/config.json: $VERSION"
-          fi
+      # Version and release info taken from determine-release job outputs.
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -77,7 +104,7 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
           image-tags: |
             ${{ env.VERSION }}
-            latest
+            ${{ needs.determine-release.outputs.release == 'latest' && 'latest' || 'dev' }}
           version: ${{ env.VERSION }}
           context: home-assistant/addons/sbam
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
@@ -87,6 +114,8 @@ jobs:
             PLATFORM=${{ matrix.goarch }}
 
   release-os:
+    needs: determine-release
+    if: ${{ needs.determine-release.outputs.release != 'skip' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

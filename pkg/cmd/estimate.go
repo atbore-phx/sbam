@@ -81,7 +81,7 @@ func estimate(apiKey string, url string, fronius_ip string, cache_forecast bool,
 	}
 
 	str := storage.New()
-	_, _, err = str.Handler(fronius_ip)
+	_, _, _, err = str.Handler(fronius_ip)
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)
