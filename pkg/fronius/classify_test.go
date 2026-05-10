@@ -111,6 +111,7 @@ func TestClassifyDecision(t *testing.T) {
 		)
 		assert.NoError(t, err)
 
+		// SoC is provided by the storage package; classifier does not set it.
 		assert.Equal(t, fronius.PowerState{
 			PvNet:          4900,
 			Batt:           4500,
