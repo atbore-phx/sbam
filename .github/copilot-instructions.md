@@ -84,6 +84,7 @@ pkg/
   mqtt/
     types.go                  - MQTT config and payload carrier types
     client.go                 - MQTT client interface, factory, and topic helpers
+    commands.go               - MQTT command topic parser, payload validation, and ack publisher
     discovery.go              - Home Assistant MQTT discovery payload builder
     noop.go                   - Disabled MQTT client implementation
     paho.go                   - Paho-backed MQTT client with reconnect and TLS
@@ -92,6 +93,7 @@ pkg/
     reconnect_paho.go         - Paho auto-reconnect manager
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
+    commands_test.go          - Unit tests for command parsing and ack publishing
     discovery_test.go         - Unit tests for Home Assistant discovery generation
   power/
     types.go                  - Solcast forecast struct definitions

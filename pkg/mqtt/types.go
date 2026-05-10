@@ -50,9 +50,10 @@ type ErrorPayload struct {
 }
 
 type AckPayload struct {
-	Status    string    `json:"status"`
-	Error     string    `json:"error,omitempty"`
 	Timestamp time.Time `json:"ts"`
+	Command   string    `json:"command"`
+	Accepted  bool      `json:"accepted"`
+	Error     string    `json:"error,omitempty"`
 }
 
 type IntentKind string
@@ -70,6 +71,7 @@ type Intent struct {
 	Kind          IntentKind `json:"kind"`
 	TargetPct     int16      `json:"target_pct,omitempty"`
 	DurationS     int        `json:"duration_s,omitempty"`
+	PauseUntil    *time.Time `json:"pause_until,omitempty"`
 	PwBattReserve float64    `json:"pw_batt_reserve,omitempty"`
 }
 
