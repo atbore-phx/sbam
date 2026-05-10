@@ -8,6 +8,35 @@
 
 ---
 
+## 0. Reconciliation Notes (2026-05-10)
+
+This plan has been reconciled against the current codebase, the parent issue,
+and the sub-issues #84-#91. These notes supersede older blueprint details when
+they conflict.
+
+- Closed/implemented: #84, #85, #86, and #90 are closed on GitHub. #86 closed
+  via PR #108 and provides `ParseIntent` / `PublishAck` in `pkg/mqtt`.
+- #84 shipped more than the original scaffold sketch: selectable reconnect
+  strategy (`custom` default, `paho` opt-in), retained availability, TLS, typed
+  state/error/availability publishers, and Paho/Mochi tests.
+- #85 shipped `BuildDiscovery(cfg Config, version string)`,
+  `mqtt_ha_discovery_prefix`, deterministic hashed HA identifiers, retained
+  discovery publication, additional state fields/entities, and partial runtime
+  wiring in `schedule.go`, `config.yaml`, the add-on, and README.
+- #86's implemented ack contract is `{ "ts", "command", "accepted", "error" }`,
+  not the early parent `{ "status", "error", "ts" }` sketch.
+- The v2.0.0 command surface is narrowed to `trigger_now`, `force_charge`,
+  `set_defaults`, `pause`, and `resume`. `set_reserve` is deferred to >= v2.1;
+  keep the existing `IntentSetReserve` type only as a future placeholder.
+- The remaining runner work should fix the current pause mismatch: HA discovery
+  publishes `{}` for the pause button, so the runner/wiring issue should make
+  `{}` an indefinite pause and accept `{"until":"<RFC3339-or-duration>"}` for
+  auto-resume.
+- #88/#89/#91 are now narrower than originally planned because #85 already
+  landed some config, add-on, and README surfaces. The remaining work is command
+  subscription/ack routing, single-writer runner integration, add-on Mosquitto
+  service auto-discovery, and complete docs/migration examples.
+
 ## 1. Task Analysis
 
 **Goal.** Ship a first-class, opt-in MQTT feed for the `schedule` subcommand
@@ -16,8 +45,8 @@ through a single-goroutine `Intent` channel, and emits Home Assistant MQTT
 Discovery payloads. Default behaviour is unchanged for v1.x users.
 
 **Non-goals.** Custom HA Python integration; REST control API; multi-broker
-fan-out; persistence of `set_reserve`; MQTT 5 RESPONSE_TOPIC routing;
-metrics exposition.
+fan-out; the `set_reserve` MQTT command and persistence; MQTT 5 RESPONSE_TOPIC
+routing; metrics exposition.
 
 **Acceptance criteria.** Reproduced verbatim in
 [64-issue-mqtt-feed-TASK.md](64-issue-mqtt-feed-TASK.md#acceptance-criteria);
@@ -27,24 +56,20 @@ the implementer MUST keep them ticked through PR review.
 
 ## 2. Current State
 
-| Concern                   | File                                                                                  | Note                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| CLI root + viper init     | [pkg/cmd/root.go](../../../pkg/cmd/root.go)                                           | `viper.AutomaticEnv()`, `bindFlags(cmd)` for flag > env > yaml > default.      |
-| Schedule subcommand       | [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go)                                   | Reads 16 viper keys, runs `crontabSchedule()` with `robfig/cron/v3`, blocks on SIGTERM. |
-| Charge decision           | [pkg/fronius/schedule.go](../../../pkg/fronius/schedule.go)                           | `SetFroniusChargeBatteryMode(...)` inlines the charge/idle/skip choice.       |
-| Modbus writes             | [pkg/fronius/configure.go](../../../pkg/fronius/configure.go)                         | `Setdefaults`, `ForceCharge` — current single-caller assumption.              |
-| Modbus client             | [pkg/fronius/modbus.go](../../../pkg/fronius/modbus.go)                               | Module-level `simonvetter/modbus` client; not concurrency-safe.               |
-| Storage (SoC) handler     | [pkg/storage/handler.go](../../../pkg/storage/handler.go)                             | `(*Storage).Handler(ip) (capacity_2_charge, capacity_max, error)`.            |
-| Power (forecast) handler  | [pkg/power/handler.go](../../../pkg/power/handler.go)                                 | `(*Power).Handler(...) (Wh, retrieved bool, error)`.                          |
-| Logging                   | [src/utils/log.go](../../../src/utils/log.go)                                         | `utils.Log` (zap).                                                            |
-| Startup dump + redaction  | [src/utils/startup.go](../../../src/utils/startup.go)                                 | `SecretKeys` map + `DumpStartupParams`.                                       |
-| HA add-on schema          | [home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json) | bashio-style schema with `str`, `password`, `bool`, `int`, `match(...)`.   |
-| HA add-on entrypoint      | [home-assistant/addons/sbam/run.sh](../../../home-assistant/addons/sbam/run.sh)       | `bashio::config 'key'` → uppercase env var.                                   |
-| Tests for cmd precedence  | [pkg/cmd/precedence_test.go](../../../pkg/cmd/precedence_test.go)                     | flag > env > yaml proof; extend with new keys.                                |
-| Build                     | [Makefile](../../../Makefile)                                                         | `test`, `build`, `test-build`. CGO disabled.                                  |
-| Module / Go version       | [go.mod](../../../go.mod)                                                             | `module sbam`, `go 1.26`.                                                     |
-
-No prior `mqtt`, `paho`, or HA-Discovery code exists; this is greenfield.
+| Concern | File | Current state after #84/#85/#86/#90 |
+| --- | --- | --- |
+| CLI root + viper init | [pkg/cmd/root.go](../../../pkg/cmd/root.go) | `viper.AutomaticEnv()` and `bindFlags(cmd)` still provide flag > env > yaml > default. |
+| Schedule subcommand | [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) | MQTT flags/config, `mqtt.InitWithCleanup`, retained state publication, and HA status discovery re-publication are present. Cron still calls `schedule(...)` directly, and no single-writer runner exists yet. |
+| MQTT client scaffold | [pkg/mqtt/client.go](../../../pkg/mqtt/client.go), [pkg/mqtt/paho.go](../../../pkg/mqtt/paho.go), [pkg/mqtt/noop.go](../../../pkg/mqtt/noop.go) | `Client`, noop, Paho, retained availability, TLS, topic helpers, and `New(cfg, version...)` exist. |
+| Reconnect strategy | [pkg/mqtt/reconnect.go](../../../pkg/mqtt/reconnect.go), [pkg/mqtt/reconnect_custom.go](../../../pkg/mqtt/reconnect_custom.go), [pkg/mqtt/reconnect_paho.go](../../../pkg/mqtt/reconnect_paho.go) | Custom jittered reconnect is default; Paho auto-reconnect is opt-in via `Config.ReconnectStrategy`. |
+| Discovery payloads | [pkg/mqtt/discovery.go](../../../pkg/mqtt/discovery.go) | `BuildDiscovery(cfg, version)` emits sensors, binary sensors, and buttons under configurable `mqtt_ha_discovery_prefix`. |
+| Command parser + ack | [pkg/mqtt/commands.go](../../../pkg/mqtt/commands.go) | `ParseIntent` and `PublishAck` support `trigger_now`, `force_charge`, `set_defaults`, `pause`, and `resume`. `set_reserve` is not parsed. |
+| Charge decision | [pkg/fronius/classify.go](../../../pkg/fronius/classify.go), [pkg/fronius/schedule.go](../../../pkg/fronius/schedule.go) | `ClassifyDecision` is extracted and returns `Decision`, reason, `PowerState`, and error; `SetFroniusChargeBatteryMode` calls it. |
+| Startup dump + redaction | [src/utils/startup.go](../../../src/utils/startup.go) | `mqtt_password` and `mqtt_tls_client_cert_key` are redacted. |
+| HA add-on schema | [home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json) | Version is `2.0.0`; non-TLS MQTT options exist. `services: ["mqtt:need"]` is still missing. |
+| HA add-on entrypoint | [home-assistant/addons/sbam/run.sh](../../../home-assistant/addons/sbam/run.sh) | Non-TLS MQTT env vars are exported. Mosquitto service auto-discovery is still missing. |
+| README/add-on docs | [README.md](../../../README.md), [home-assistant/addons/sbam/DOCS.md](../../../home-assistant/addons/sbam/DOCS.md), [home-assistant/addons/sbam/CHANGELOG.md](../../../home-assistant/addons/sbam/CHANGELOG.md) | MQTT text exists, but #91 still needs full payload schemas, command examples, and migration note; add-on docs contain duplicated MQTT option bullets. |
+| Tests | [pkg/mqtt](../../../pkg/mqtt), [pkg/cmd/precedence_test.go](../../../pkg/cmd/precedence_test.go), [src/utils/startup_test.go](../../../src/utils/startup_test.go) | MQTT package tests cover scaffold/discovery/commands. Cmd precedence currently covers `mqtt_ha_discovery_prefix`; #88 should broaden coverage across all MQTT keys. |
 
 ---
 
@@ -54,7 +79,7 @@ No prior `mqtt`, `paho`, or HA-Discovery code exists; this is greenfield.
 flowchart LR
   Cron[cron.Cron tick] -->|Intent: Tick| Inbox
   MQTTSub[paho subscriber<br/>sbam/cmd/*] --> Parser
-  Parser -->|Intent: Pause/Resume/Force/Defaults/Reserve/TriggerNow| Inbox
+  Parser -->|Intent: Pause/Resume/Force/Defaults/TriggerNow| Inbox
   Inbox[(Intent chan, buffered=16)] --> Runner
   Runner -- decision --> Classify[fronius.ClassifyDecision]
   Runner -- write --> Modbus[fronius.ForceCharge / Setdefaults]
@@ -66,483 +91,258 @@ flowchart LR
 
 New / modified packages:
 
-- `pkg/mqtt/` (new): `Client` interface + `paho`, `noop` impls + discovery
-  payloads + command parser + ack publisher.
+- `pkg/mqtt/` (implemented): `Client` interface + `paho`, `noop` impls +
+  discovery payloads + command parser + ack publisher.
 - `pkg/fronius/` (modified): extract `ClassifyDecision`; existing
   `SetFroniusChargeBatteryMode` calls it.
-- `pkg/cmd/` (modified): `schedule.go` builds the runner, wires the MQTT
-  client via factory, registers all 11 keys; new `pkg/cmd/intent.go` owns
-  the `Intent` types + the runner loop.
+- `pkg/cmd/` (modified): `schedule.go` wires MQTT config and will build the
+  runner; the new runner file owns the single-goroutine loop and consumes
+  `pkg/mqtt.Intent` values.
 - `src/utils/` (modified): two new entries in `SecretKeys`.
 - `home-assistant/addons/sbam/` (modified): `config.json` schema (+ `services`),
-  `run.sh` exports + Mosquitto auto-discovery, `DOCS.md`, `CHANGELOG.md`,
-  `version` bump.
+  `run.sh` exports + Mosquitto auto-discovery, `DOCS.md`, and `CHANGELOG.md`.
 
 ---
 
 ## 4. Dependency Choices
 
-Add to [go.mod](../../../go.mod) via `go get`:
+Already present in [go.mod](../../../go.mod):
 
 | Module                                       | Version (latest @ planning time) | Purpose                                              | Godoc                                                                  |
 | -------------------------------------------- | -------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | `github.com/eclipse/paho.mqtt.golang`        | `v1.5.x`                         | Production MQTT client.                              | https://pkg.go.dev/github.com/eclipse/paho.mqtt.golang                 |
 | `github.com/mochi-mqtt/server/v2`            | `v2.7.x` (test-only)             | In-process MQTT broker for `pkg/mqtt` Paho tests.    | https://pkg.go.dev/github.com/mochi-mqtt/server/v2                     |
 
-No other new dependencies. Continue using `cobra`, `viper`, `zap`,
-`cron/v3`, `simonvetter/modbus`, `testify`, `mbserver`. Pin exact versions
-via `go get module@vX.Y.Z` and commit `go.mod` + `go.sum`.
+No other new dependencies are planned for the reconciliation work. Continue
+using `cobra`, `viper`, `zap`, `cron/v3`, `simonvetter/modbus`, `testify`, and
+`mbserver`.
 
 ---
 
 ## 5. Configuration Changes
 
-Eleven new keys. Defaults in
-[config.yaml](../../../config.yaml), schema in
-[home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json),
-exports in [run.sh](../../../home-assistant/addons/sbam/run.sh), flag
-bindings in [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go).
+Standalone `sbam schedule` now has twelve MQTT keys. Defaults live in
+[config.yaml](../../../config.yaml), flag bindings in
+[pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go), and redaction in
+[src/utils/startup.go](../../../src/utils/startup.go).
 
-| Key                        | Flag (long / short)              | Env                          | YAML default     | HA schema type      |
-| -------------------------- | -------------------------------- | ---------------------------- | ---------------- | ------------------- |
-| `mqtt_enabled`             | `--mqtt_enabled`                 | `MQTT_ENABLED`               | `false`          | `bool`              |
-| `mqtt_broker`              | `--mqtt_broker`                  | `MQTT_BROKER`                | `""`             | `str?`              |
-| `mqtt_client_id`           | `--mqtt_client_id`               | `MQTT_CLIENT_ID`             | `""`             | `str?`              |
-| `mqtt_username`            | `--mqtt_username`                | `MQTT_USERNAME`              | `""`             | `str?`              |
-| `mqtt_password`            | `--mqtt_password`                | `MQTT_PASSWORD`              | `""`             | `password?`         |
-| `mqtt_tls_ca_file`         | `--mqtt_tls_ca_file`             | `MQTT_TLS_CA_FILE`           | `""`             | `str?`              |
-| `mqtt_tls_client_cert`     | `--mqtt_tls_client_cert`         | `MQTT_TLS_CLIENT_CERT`       | `""`             | `str?`              |
-| `mqtt_tls_client_cert_key` | `--mqtt_tls_client_cert_key`     | `MQTT_TLS_CLIENT_CERT_KEY`   | `""`             | `password?`         |
-| `mqtt_tls_insecure_skip`   | `--mqtt_tls_insecure_skip`       | `MQTT_TLS_INSECURE_SKIP`     | `false`          | `bool`              |
-| `mqtt_topic_prefix`        | `--mqtt_topic_prefix`            | `MQTT_TOPIC_PREFIX`          | `"sbam"`         | `str`               |
-| `mqtt_ha_discovery`        | `--mqtt_ha_discovery`            | `MQTT_HA_DISCOVERY`          | `true`           | `bool`              |
+| Key | Flag | Env | YAML default | Standalone notes |
+| --- | --- | --- | --- | --- |
+| `mqtt_enabled` | `--mqtt_enabled` | `MQTT_ENABLED` | `false` | Master switch; noop when false. |
+| `mqtt_broker` | `--mqtt_broker` | `MQTT_BROKER` | `""` | `tcp://`, `tls://`, `ws://`, `wss://` accepted by the Paho layer. |
+| `mqtt_client_id` | `--mqtt_client_id` | `MQTT_CLIENT_ID` | `""` | Empty auto-generates `sbam-<hostname>`. |
+| `mqtt_username` | `--mqtt_username` | `MQTT_USERNAME` | `""` | Optional. |
+| `mqtt_password` | `--mqtt_password` | `MQTT_PASSWORD` | `""` | Secret; redacted. |
+| `mqtt_tls_ca_file` | `--mqtt_tls_ca_file` | `MQTT_TLS_CA_FILE` | `""` | Standalone TLS CA bundle. |
+| `mqtt_tls_client_cert` | `--mqtt_tls_client_cert` | `MQTT_TLS_CLIENT_CERT` | `""` | Standalone mTLS client cert. |
+| `mqtt_tls_client_cert_key` | `--mqtt_tls_client_cert_key` | `MQTT_TLS_CLIENT_CERT_KEY` | `""` | Secret; redacted. |
+| `mqtt_tls_insecure_skip` | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | `false` | Development only; logs warning. |
+| `mqtt_topic_prefix` | `--mqtt_topic_prefix` | `MQTT_TOPIC_PREFIX` | `sbam` | State, error, availability, and command prefix. |
+| `mqtt_ha_discovery` | `--mqtt_ha_discovery` | `MQTT_HA_DISCOVERY` | `true` | Only active when MQTT is enabled. |
+| `mqtt_ha_discovery_prefix` | `--mqtt_ha_discovery_prefix` | `MQTT_HA_DISCOVERY_PREFIX` | `homeassistant` | HA discovery config root prefix. |
 
-Precedence stays **flag > env > yaml > default** through
-[`bindFlags`](../../../pkg/cmd/root.go) (already enforced by
-[precedence_test.go](../../../pkg/cmd/precedence_test.go)).
+Precedence remains **flag > env > yaml > default** through
+[`bindFlags`](../../../pkg/cmd/root.go). #88 should extend
+[precedence_test.go](../../../pkg/cmd/precedence_test.go) to cover all MQTT
+keys, not only `mqtt_ha_discovery_prefix`.
 
-`SecretKeys` (in [src/utils/startup.go](../../../src/utils/startup.go)) gains
-`mqtt_password` and `mqtt_tls_client_cert_key`.
+Home Assistant add-on configuration is intentionally smaller than standalone
+configuration:
 
-`config.json` add-on changes:
-
-```json
-"services": ["mqtt:need"],
-"options": {
-  "mqtt_enabled": false,
-  "mqtt_broker": "",
-  "mqtt_client_id": "",
-  "mqtt_username": "",
-  "mqtt_password": "",
-  "mqtt_tls_ca_file": "",
-  "mqtt_tls_client_cert": "",
-  "mqtt_tls_client_cert_key": "",
-  "mqtt_tls_insecure_skip": false,
-  "mqtt_topic_prefix": "sbam",
-  "mqtt_ha_discovery": true
-},
-"schema": {
-  "mqtt_enabled": "bool",
-  "mqtt_broker": "match(^(tcp|tls|ws|wss)://[a-zA-Z0-9._-]+(:[0-9]{1,5})?$)?",
-  "mqtt_client_id": "str?",
-  "mqtt_username": "str?",
-  "mqtt_password": "password?",
-  "mqtt_tls_ca_file": "str?",
-  "mqtt_tls_client_cert": "str?",
-  "mqtt_tls_client_cert_key": "password?",
-  "mqtt_tls_insecure_skip": "bool",
-  "mqtt_topic_prefix": "str",
-  "mqtt_ha_discovery": "bool"
-}
-```
-
-`run.sh` additions (snippet, full ordering preserved):
-
-```bash
-export MQTT_ENABLED=$(bashio::config 'mqtt_enabled')
-export MQTT_BROKER=$(bashio::config 'mqtt_broker')
-# ... etc
-
-# Auto-discover HA Mosquitto if user did not set mqtt_broker explicitly.
-if [ "$MQTT_ENABLED" = "true" ] && [ -z "$MQTT_BROKER" ]; then
-  if bashio::services.available 'mqtt'; then
-    HOST=$(bashio::services 'mqtt' 'host')
-    PORT=$(bashio::services 'mqtt' 'port')
-    export MQTT_BROKER="tcp://${HOST}:${PORT}"
-    [ -z "$MQTT_USERNAME" ] && export MQTT_USERNAME=$(bashio::services 'mqtt' 'username')
-    [ -z "$MQTT_PASSWORD" ] && export MQTT_PASSWORD=$(bashio::services 'mqtt' 'password')
-  fi
-fi
-```
+- Expose `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`,
+  `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, and
+  `mqtt_ha_discovery_prefix`.
+- Do not expose TLS keys in the add-on UI for v2.0.0. TLS remains available to
+  standalone binary users through the twelve-key table above.
+- #89 must add `services: ["mqtt:need"]` and Mosquitto auto-discovery in
+  [run.sh](../../../home-assistant/addons/sbam/run.sh). Manual `mqtt_broker`,
+  `mqtt_username`, and `mqtt_password` values always win.
 
 ---
 
 ## 6. Implementation Blueprint
 
-Execution order matches the sub-issue dependency graph in TASK §Work
-Breakdown. Each step ends with passing `make test`.
+The remaining implementation order starts from the current codebase, not the
+original greenfield sketch.
 
-### Step 1 — Extract `ClassifyDecision` (sub-issue #90, no deps)
+### Step 1 — Account for `pkg/mqtt` parser work (sub-issue #86)
 
-File: [pkg/fronius/schedule.go](../../../pkg/fronius/schedule.go) (modified)
+Current files: [pkg/mqtt/commands.go](../../../pkg/mqtt/commands.go) and
+[pkg/mqtt/commands_test.go](../../../pkg/mqtt/commands_test.go).
 
-Add at top of the file:
+#86 is closed; before #87 consumes the parser, account for the implemented
+scope and the one pause-payload follow-up below. The parser currently supports:
 
-```go
-type Decision string
+- `cmd/trigger_now`, `cmd/force_charge`, `cmd/set_defaults`, `cmd/pause`, and
+  `cmd/resume` under any prefix ending in `/cmd/<name>`.
+- Strict JSON, payload size <= 4096 bytes, `target_pct` in `[1,100]`, and
+  `duration_s` in `[0,86400]`.
+- Ack payloads with `ts`, `command`, `accepted`, and optional `error`.
 
-const (
-    DecisionCharge Decision = "charge"
-    DecisionIdle   Decision = "idle"
-    DecisionSkip   Decision = "skip"
-)
+Small reconciled change for #87/#88: allow `pause` with an empty payload or
+`{}` to mean indefinite pause, while keeping the existing `until` payload for
+auto-resume. This makes the already-generated HA pause button usable.
 
-// ClassifyDecision returns the charging decision and a human-readable
-// reason given the current household/PV state. It is pure: no I/O.
-func ClassifyDecision(
-    pwForecast, pwBatt2Charge, pwBattMax,
-    pwConsumption, maxCharge, pwBattReserve float64,
-    startHr, endHr string,
-    battReserveChargeEnabled bool,
-    pwLwt, pwUpt float64,
-    forecastChargeEnabled bool,
-    now time.Time,
-) (Decision, string) { /* moved from SetFroniusChargeBatteryMode */ }
-```
+Do not add `set_reserve` parser support for v2.0.0.
 
-Refactor `SetFroniusChargeBatteryMode` to call `ClassifyDecision` and
-keep the same Modbus side effects + return type. **No behaviour change.**
+### Step 2 — Schedule runner refactor (sub-issue #87)
 
-New file: `pkg/fronius/classify_test.go` (table-driven, see §7).
+Create [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go) (or a
+similarly named file) and move the current `schedule(...)` workflow behind a
+single goroutine that owns Modbus access.
 
-### Step 2 — `pkg/mqtt` scaffold (sub-issue #84)
-
-New directory `pkg/mqtt/` with these files:
-
-- `types.go`:
-
-  ```go
-  package mqtt
-
-  type Client interface {
-      Connect(ctx context.Context) error
-      Disconnect(ctx context.Context) error
-      Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
-      Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error
-      IsConnected() bool
-  }
-
-  type MessageHandler func(topic string, payload []byte)
-
-  type Config struct {
-      Enabled            bool
-      Broker             string // tcp://, tls://, ws://, wss://
-      ClientID           string
-      Username, Password string
-      TLSCAFile          string
-      TLSClientCert      string
-      TLSClientCertKey   string
-      TLSInsecureSkip    bool
-      TopicPrefix        string
-      HADiscovery        bool
-  }
-  ```
-
-- `noop.go`:
-
-  ```go
-  type Noop struct{}
-  func NewNoop() *Noop { return &Noop{} }
-  // All methods return nil; IsConnected() returns false.
-  ```
-
-- `paho.go`:
-
-  ```go
-  type Paho struct {
-      cfg    Config
-      client paho.Client // github.com/eclipse/paho.mqtt.golang
-      mu     sync.Mutex
-  }
-  func NewPaho(cfg Config) (*Paho, error) // validates cfg, builds *paho.ClientOptions
-  ```
-
-  - `Connect`: builds `paho.NewClientOptions().AddBroker(cfg.Broker)`,
-    sets `ClientID` (default `"sbam-" + os.Hostname()`),
-    `Username`/`Password`, TLS config if scheme is `tls://` or `wss://`,
-    `SetAutoReconnect(true)`, `SetMaxReconnectInterval(60*time.Second)`,
-    `SetWill(prefix+"/availability", "offline", 1, true)`,
-    `SetOnConnectHandler` republishes availability `online` (retained).
-  - `Publish`: respects `ctx.Done()`; honours `ctx.Deadline` via
-    `Token.WaitTimeout`.
-  - `Subscribe`: wraps the paho callback to invoke our `MessageHandler`.
-  - `Disconnect`: idempotent; `client.Disconnect(250)`.
-
-- `factory.go`:
-
-  ```go
-  // New returns a Paho client when cfg.Enabled is true, else a Noop.
-  func New(cfg Config) (Client, error)
-  ```
-
-### Step 3 — HA MQTT Discovery payloads (sub-issue #85)
-
-New file `pkg/mqtt/discovery.go` (pure functions):
+Recommended shape:
 
 ```go
-type DiscoveryEntity struct {
-    Component string // "sensor" | "binary_sensor" | "button"
-    ObjectID  string // e.g. "battery_soc"
-    Payload   []byte // marshalled JSON config
-    Topic     string // "homeassistant/<component>/sbam/<object_id>/config"
-}
-
-func BuildDiscovery(prefix string, device DeviceInfo) []DiscoveryEntity
-```
-
-`DeviceInfo` carries `identifiers`, `name`, `manufacturer`, `model`,
-`sw_version` (from `main.version`). Payload helpers:
-
-- `sensor.battery_soc`, `unit_of_measurement: "%"`, `state_topic: <prefix>/state`, `value_template: "{{ value_json.battery_soc_pct }}"`.
-- `sensor.battery_capacity_wh`, unit `Wh`.
-- `sensor.forecast_today_wh`, unit `Wh`.
-- `sensor.last_decision`, `value_template: "{{ value_json.last_decision }}"`, `json_attributes_template: "{{ value_json.last_decision_reason | tojson }}"`.
-- `sensor.next_run`, device_class `timestamp`.
-- `binary_sensor.paused`, `payload_on: "true"`, `payload_off: "false"`.
-- `button.trigger_now` / `pause` / `resume` / `set_defaults`: `command_topic: <prefix>/cmd/<name>`, `payload_press: "{}"`.
-- `button.force_charge`: `command_topic: <prefix>/cmd/force_charge`, `payload_press: '{"target_pct":100,"duration_s":3600}'`.
-
-Add `discovery_test.go` with golden-file assertions
-(`testdata/discovery_*.json`).
-
-### Step 4 — Command parser + ack publisher (sub-issue #86)
-
-New file `pkg/mqtt/command.go`:
-
-```go
-type CommandName string
-const (
-    CmdPause       CommandName = "pause"
-    CmdResume      CommandName = "resume"
-    CmdForceCharge CommandName = "force_charge"
-    CmdSetDefaults CommandName = "set_defaults"
-    CmdSetReserve  CommandName = "set_reserve"
-    CmdTriggerNow  CommandName = "trigger_now"
-)
-
-type Command struct {
-    Name        CommandName
-    TargetPct   int16   // force_charge
-    DurationS   int32   // force_charge (advisory; not enforced in v2.0.0)
-    PwBattReserve float64 // set_reserve (Wh)
-}
-
-const MaxPayloadBytes = 4096
-
-// Parse validates and decodes a command payload from topic+bytes.
-// Returns ErrUnknownCommand, ErrPayloadTooLarge, ErrInvalidPayload.
-func Parse(topic, prefix string, payload []byte) (Command, error)
-
-// Ack publishes {"status":"ok"|"error","error":"...","ts":"<RFC3339>"}.
-func Ack(ctx context.Context, c Client, prefix string, name CommandName, err error) error
-```
-
-Sentinel errors via `errors.New`. `command_test.go` tables: valid each
-command, oversize payload, malformed JSON, unknown command, out-of-range
-`target_pct`, negative `duration_s`.
-
-### Step 5 — Schedule runner refactor (sub-issue #87)
-
-New file `pkg/cmd/intent.go`:
-
-```go
-package cmd
-
-type IntentKind int
-const (
-    IntentTick IntentKind = iota
-    IntentPause
-    IntentResume
-    IntentForceCharge
-    IntentSetDefaults
-    IntentSetReserve
-    IntentTriggerNow
-    IntentShutdown
-)
-
-type Intent struct {
-    Kind          IntentKind
-    TargetPct     int16
-    PwBattReserve float64
-    Source        string // "cron" | "mqtt" | "signal"
-    AckTopic      string // empty for cron
-}
+type RunnerConfig struct { /* grouped schedule + MQTT config */ }
 
 type Runner struct {
-    Cfg       RunnerConfig
-    Inbox     chan Intent      // buffered, cap 16
-    Mqtt      mqtt.Client
-    Storage   *storage.Storage
-    Power     *power.Power
-    Fronius   *fronius.Fronius
-    paused    atomic.Bool
-    reserve   atomic.Int64    // Wh, mirrors cfg.PwBattReserve
+    cfg    RunnerConfig
+    inbox  chan mqtt.Intent // cap 16
+    mqtt   mqtt.Client
+    paused atomic.Pointer[time.Time] // nil = not paused, zero time = indefinite
 }
 
-func NewRunner(cfg RunnerConfig, m mqtt.Client) *Runner
-func (r *Runner) Run(ctx context.Context) error // single goroutine consumes Inbox
-func (r *Runner) Submit(i Intent)               // non-blocking, drops with WARN if full
+func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner
+func (r *Runner) Run(ctx context.Context) error
+func (r *Runner) Submit(intent mqtt.Intent) bool
 ```
 
 Behaviour:
 
-- `Run` loops `for { select { case <-ctx.Done(); case i := <-r.Inbox } }`.
-- `IntentTick`: if `paused`, log skip and `publishState`; else call
-  `tickCharge` (existing logic moved verbatim from `schedule()`).
-- `IntentForceCharge`: validate range, call `fronius.ForceCharge`, publish
-  state + ack.
-- `IntentSetDefaults`: call `fronius.Setdefaults`, publish state + ack.
-- `IntentSetReserve`: store in `r.reserve`, publish state + ack.
-- `IntentPause` / `IntentResume`: flip `r.paused`, publish state + ack.
-- `IntentTriggerNow`: same as `IntentTick` but ack-publishing.
-- After every Modbus-touching intent, call `publishState` (retained, QoS 1).
+- `Run` is the only path that calls Fronius Modbus write helpers.
+- Cron callbacks submit `mqtt.Intent{Kind: mqtt.IntentTriggerNow}` or a
+  private tick wrapper; they do not run the charge workflow directly.
+- `pause {}` sets an indefinite pause; `pause {"until":"1h"}` sets a deadline;
+  `resume` clears both. Paused ticks publish state with `paused=true` and skip
+  Modbus writes.
+- `force_charge` validates `TargetPct`, calls `fronius.ForceCharge`, publishes
+  an ack, and publishes a state snapshot.
+- `set_defaults` calls `fronius.Setdefaults`, publishes an ack, and publishes a
+  state snapshot.
+- `trigger_now` runs the same schedule path as a cron tick and publishes an ack
+  when it originated from MQTT.
+- Non-fatal storage/power/Fronius errors publish `mqtt.PublishError` and state
+  with `last_decision=skip`; they do not panic.
 
-`publishState` builds:
+State payloads should continue the fields introduced by #85:
 
 ```json
 {
   "battery_soc_pct": 47,
   "battery_capacity_wh": 9600,
   "forecast_today_wh": 21500,
-  "last_decision": "charge",
-  "last_decision_reason": "net power < pw_lwt and reserve below threshold",
-  "next_run": "2026-05-01T13:00:00+02:00",
+  "pw_net_wh": -1200,
+  "charge_pct": 35,
+  "last_decision": "forecast_charge",
+  "last_decision_reason": "Net Power ...",
+  "charge_window_active": true,
+  "batt_reserve_window_active": true,
   "paused": false,
+  "next_run": "2026-05-01T13:00:00+02:00",
   "ts": "2026-05-01T12:34:56+02:00"
 }
 ```
 
-### Step 6 — Wire `schedule` cobra command (sub-issue #88)
+### Step 3 — Finish `schedule` wiring (sub-issue #88)
 
-Modify [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go):
+[pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) already has the MQTT flags,
+Viper reads, `mqtt.Config`, startup redaction, `mqtt.InitWithCleanup`, and basic
+state publication. Do not duplicate those pieces.
 
-1. Add `StringVarP` / `BoolVarP` registrations for the 11 new flags
-   (mirrors existing pattern around lines 132–156 of the file).
-2. Read the 11 new viper keys inside `scdCmd.Run`.
-3. Build `mqtt.Config`, instantiate `mqtt.New(cfg)`, `Connect(ctx)` if
-   `mqtt_enabled`. On failure: log error, fall back to `mqtt.NewNoop()`
-   (do **not** crash — keeps backward compatibility).
-4. Build `Runner`, start `go runner.Run(ctx)`.
-5. Replace the existing `cron.AddFunc` body with
-   `runner.Submit(Intent{Kind: IntentTick, Source: "cron"})`.
-6. Subscribe to `<prefix>/cmd/+`. Each message → `mqtt.Parse` →
-   `runner.Submit(Intent{...})`. Ack publication is the runner's
-   responsibility.
-7. Subscribe to `homeassistant/status`; on `"online"` republish discovery
-   + state.
-8. On SIGTERM/SIGINT: cancel ctx → `runner.Run` exits → publish
-   availability `offline` (handled by Paho LWT, but also explicit
-   `Disconnect`).
+Remaining #88 work:
 
-Append `mqtt_password` and `mqtt_tls_client_cert_key` to
-[`SecretKeys`](../../../src/utils/startup.go).
+1. Replace direct cron calls to `schedule(...)` with `runner.Submit(...)`.
+2. Subscribe to `<mqtt_topic_prefix>/cmd/+` after the MQTT client connects.
+3. For every command message, call `mqtt.ParseIntent`, publish a rejected ack
+   immediately when parsing fails, and submit accepted intents to the runner.
+4. Let the runner publish accepted/error acks after command execution.
+5. Re-publish discovery and the latest state on `homeassistant/status=online`.
+6. Extend `pkg/cmd/precedence_test.go` to cover all twelve MQTT keys.
+7. Preserve `mqtt_enabled=false` as a no-connect, no-extra-INFO, no-Modbus-diff
+   path.
 
-### Step 7 — HA add-on (sub-issue #89)
+### Step 4 — Home Assistant add-on finish (sub-issue #89)
 
-- Edit [home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json)
-  with `services` array, options + schema from §5, bump `"version"` to
-  `"2.0.0"`.
-- Edit [home-assistant/addons/sbam/run.sh](../../../home-assistant/addons/sbam/run.sh)
-  with the 11 exports + Mosquitto auto-discovery snippet from §5.
-- Edit [home-assistant/addons/sbam/CHANGELOG.md](../../../home-assistant/addons/sbam/CHANGELOG.md)
-  adding a `## 2.0.0 - 2026-MM-DD` section (MQTT feed, opt-in,
-  backward compatible).
-- Edit [home-assistant/addons/sbam/DOCS.md](../../../home-assistant/addons/sbam/DOCS.md):
-  document each new option, the topic schema, the auto-discovery
-  behaviour, and the migration note.
+Current add-on files already have `version: 2.0.0`, the non-TLS MQTT options,
+env exports, a changelog entry, and initial docs. Remaining #89 work:
 
-### Step 8 — README + Project Structure (sub-issue #91)
+- Add `services: ["mqtt:need"]` to
+  [home-assistant/addons/sbam/config.json](../../../home-assistant/addons/sbam/config.json).
+- In [run.sh](../../../home-assistant/addons/sbam/run.sh), when
+  `MQTT_ENABLED=true` and `MQTT_BROKER` is empty, resolve HA Mosquitto with
+  `bashio::services 'mqtt'` and export broker/credentials. Manual values win.
+- Keep TLS options out of the add-on UI for v2.0.0 unless a dedicated issue
+  asks to support external TLS brokers in HA add-on mode.
+- Remove duplicated MQTT option bullets from
+  [DOCS.md](../../../home-assistant/addons/sbam/DOCS.md) and document the
+  Mosquitto auto-fill behavior.
+- Run the local add-on build script if available in the development environment.
 
-- Add an `## MQTT feed` section to [README.md](../../../README.md)
-  covering: enable, topics, payload schema, command examples
-  (`mosquitto_pub` snippets), HA Discovery screenshot caption
-  placeholder, migration note.
-- Update the `Project Structure` block in
-  [.github/copilot-instructions.md](../../../.github/copilot-instructions.md)
-  to add `pkg/mqtt/` and `pkg/cmd/intent.go` (and any new test files
-  whose existence is structurally relevant).
+### Step 5 — README + project structure polish (sub-issue #91)
+
+Current README has a short MQTT section. Expand it with:
+
+- Enablement examples for CLI/env/YAML.
+- Topic map: availability, state, error, command, ack, and HA discovery config.
+- `sbam/state` JSON schema matching the #85 fields.
+- `mosquitto_pub` examples for `trigger_now`, `pause`, `resume`,
+  `force_charge`, and `set_defaults`.
+- Migration from v1.x: no action required while `mqtt_enabled=false`; opt-in
+  users configure the new MQTT keys.
+
+Update [.github/copilot-instructions.md](../../../.github/copilot-instructions.md)
+only for newly added source/test files. `pkg/mqtt` is already listed; add the
+runner files when #87 creates them.
 
 ---
 
 ## 7. Test Plan
 
-For each new file, ship at least one expected, one edge, one failure case.
-All servers `defer close`.
+For each new or changed file, keep the repo rule of at least one expected, one
+edge, and one failure case. All HTTP/Modbus/MQTT test servers must be closed
+with `defer` cleanup.
 
-### `pkg/fronius/classify_test.go`
+Already implemented and covered:
 
-- expected: forecast ≫ consumption + reserve OK → `DecisionIdle`.
-- edge: SoC exactly at `pw_batt_reserve` → `DecisionCharge`, reason
-  contains `"reserve threshold"`.
-- failure: negative `pwForecast` → `DecisionSkip`, reason contains
-  `"invalid"`.
-- regression: existing `pkg/fronius/fronius_test.go` Modbus expectations
-  must remain green.
+- `pkg/fronius/classify_test.go`: covers the shipped decision enum and keeps
+  existing Modbus tests green.
+- `pkg/mqtt/mqtt_test.go`: covers noop behavior, Paho client behavior,
+  reconnect strategies, TLS branches, publishers, and in-process broker paths.
+- `pkg/mqtt/discovery_test.go`: covers `BuildDiscovery(cfg, version)`, prefix
+  defaults, templates, retained discovery publication, and version handling.
+- `pkg/mqtt/commands_test.go`: covers canonical commands, parser failures,
+  payload bounds, ack topics, ack JSON, nil client, publish failure, and marshal
+  failure.
+- `src/utils/startup_test.go`: covers MQTT secret redaction.
 
-### `pkg/mqtt/noop_test.go`
+Remaining #87/#88 tests:
 
-- expected: every method returns `nil`; `IsConnected()` is `false`.
+- Runner expected: one tick performs exactly one schedule workflow and publishes
+  one retained state snapshot.
+- Runner edge: `pause {}` then tick publishes `paused=true` and performs no
+  Modbus writes; `resume` restores normal ticks.
+- Runner edge: `pause {"until":"1h"}` blocks ticks until the deadline, then
+  auto-resumes.
+- Runner command expected: `force_charge` and `set_defaults` execute exactly
+  once and publish accepted acks.
+- Runner failure: invalid/out-of-range command payloads publish rejected acks
+  and never reach Fronius code.
+- Runner concurrency: many concurrent cron/MQTT submissions are serialized by
+  the runner; run focused tests with `go test -race ./pkg/cmd`.
+- Wiring: `<prefix>/cmd/+` messages call `mqtt.ParseIntent`; parse failures get
+  immediate acks; accepted commands are submitted to the runner.
+- Precedence: extend [pkg/cmd/precedence_test.go](../../../pkg/cmd/precedence_test.go)
+  to cover all twelve MQTT keys.
 
-### `pkg/mqtt/paho_test.go`
+Remaining #89/#91 checks:
 
-- expected: spin up `mochi-mqtt/server/v2` on `127.0.0.1:0`,
-  `NewPaho` + `Connect`, `Subscribe("sbam/test")`, `Publish` round-trip
-  within 2 s.
-- edge: `retained=true` then disconnect/reconnect → handler receives
-  retained payload.
-- failure: `Connect` against `tcp://127.0.0.1:1` (closed port) returns
-  error within 2 s; `IsConnected()` stays `false`. Use
-  `t.Deadline()`-aware contexts.
-- always `defer broker.Close()` and `defer paho.Disconnect(ctx)`.
-
-### `pkg/mqtt/discovery_test.go`
-
-- expected: `BuildDiscovery("sbam", DeviceInfo{...})` returns the full
-  set; assert each topic + JSON shape via golden files in `testdata/`.
-- edge: empty prefix → defaults to `"sbam"`.
-
-### `pkg/mqtt/command_test.go`
-
-- expected: each of the six commands round-trips through `Parse`.
-- edge: `force_charge` `target_pct=100`, `duration_s=0`.
-- failure: payload > 4 KiB → `ErrPayloadTooLarge`; bad JSON →
-  `ErrInvalidPayload`; `target_pct=0` and `target_pct=101` → error;
-  unknown command name → `ErrUnknownCommand`.
-
-### `pkg/cmd/intent_test.go` (new) & `pkg/cmd/schedule_intent_test.go` (new)
-
-Use `mbserver.NewServer()` (defer `Close`) and a `mqtt.Noop` swapped for
-a recording fake (`type recClient struct { mqtt.Client; pubs []rec }`):
-
-- expected: `IntentTick` produces exactly one Modbus write set and one
-  `sbam/state` publish.
-- edge: `IntentPause` then `IntentTick` → no Modbus writes; one state
-  publish.
-- failure: out-of-range `IntentForceCharge` (target=200) → no Modbus
-  write; ack publish has `status=error`.
-- concurrency: spawn 10 goroutines submitting `IntentTick` and
-  `IntentPause`; assert (a) no race detector errors and (b) Modbus write
-  count ≤ 1 per tick (verified by `mbserver` register inspection).
-
-### `pkg/cmd/precedence_test.go` (extended)
-
-Extend the existing test table with the 11 new keys, asserting flag > env
-> yaml > default for each.
-
-### `src/utils/startup_test.go` (extended)
-
-Extend with `mqtt_password=secret` and `mqtt_tls_client_cert_key=/path`
-to assert both render as `***` in `DumpStartupParams`.
+- Add-on `config.json` includes `services: ["mqtt:need"]`; non-TLS MQTT options
+  still render with password masking.
+- `run.sh` exports manual MQTT values unchanged and fills broker/credentials
+  from `bashio::services 'mqtt'` only when the broker is empty.
+- README topic maps and examples match `pkg/mqtt` helper topics and the actual
+  `AckPayload` / `StatePayload` JSON.
 
 ---
 
@@ -570,14 +370,14 @@ in the PR description (no new workflow file is required).
 
 - Default config changes nothing observable: `mqtt_enabled=false`. All
   existing v1.x deployments produce byte-identical Modbus traffic.
-- The 11 new keys are additive; existing `config.yaml`, env vars, and
+- The twelve standalone MQTT keys are additive; existing `config.yaml`, env vars, and
   CLI invocations are untouched.
-- HA add-on `version` bumps to `2.0.0`; users see a normal add-on update.
+- HA add-on `version` is already `2.0.0`; users see a normal add-on update.
 - HA add-on `CHANGELOG.md` `## 2.0.0` entry must contain:
   - "Added: MQTT feed (opt-in, off by default)."
   - "Added: Home Assistant MQTT Discovery sensors, paused
     binary_sensor, command buttons."
-  - "Added: 11 new options (`mqtt_*`); see DOCS for details."
+  - "Added: MQTT options (`mqtt_*`); see DOCS for details."
   - "Note: no breaking changes for users who do not enable
     `mqtt_enabled`."
 - README MQTT section + a `Migration from v1.x` callout.
@@ -595,8 +395,9 @@ in the PR description (no new workflow file is required).
   `mqtt_tls_insecure_skip=true` AND log a `WARN` on connect.
 - **Input validation (OWASP A03).** Inbound payloads are untrusted:
   - Reject payloads > 4 KiB (`MaxPayloadBytes`) before `json.Unmarshal`.
-  - Strict numeric ranges: `target_pct ∈ [1,100]`, `duration_s ∈ [0,86400]`,
-    `pw_batt_reserve ∈ [0, 1e6]`.
+  - Strict numeric ranges: `target_pct ∈ [1,100]`, `duration_s ∈ [0,86400]`.
+  - `set_reserve` is not accepted in v2.0.0; add its validation only if a
+    future issue reintroduces it.
   - Topic match must be exact (`<prefix>/cmd/<name>`); reject `+`/`#`
     in command names.
 - **DoS resilience.** `Inbox` is buffered (cap 16) and `Submit` is
@@ -611,19 +412,18 @@ in the PR description (no new workflow file is required).
 
 - `simonvetter/modbus` keeps a module-level client (see
   [pkg/fronius/modbus.go](../../../pkg/fronius/modbus.go)). The
-  single-goroutine `Runner` is the **only** thing that may call
-  `OpenModbusClient` / `WriteFroniusModbusRegisters` / `ClosemodbusClient`.
-  Document this invariant in a comment at the top of `intent.go`.
+  single-goroutine `Runner` is the **only** thing that may call Modbus write
+  helpers. Document this invariant in the runner file created by #87.
 - Paho's `Token.Wait()` blocks forever if the network is half-open; always
   use `Token.WaitTimeout(...)` or wrap with `ctx.Done()`.
 - `paho.NewClient` does not validate the broker URL scheme until
   `Connect`; pre-validate in `NewPaho` to fail fast.
-- `viper.AutomaticEnv` lowercases keys but uppercases env names; the 11
-  new keys must use snake_case to map cleanly (`mqtt_topic_prefix` →
-  `MQTT_TOPIC_PREFIX`).
-- HA Discovery `unique_id` MUST be globally unique; build it as
-  `"sbam_" + cfg.ClientID + "_" + objectID` so multiple sbam instances
-  on one HA do not collide.
+- `viper.AutomaticEnv` lowercases keys but uppercases env names; the twelve
+  standalone MQTT keys must use snake_case to map cleanly (`mqtt_topic_prefix`
+  → `MQTT_TOPIC_PREFIX`).
+- HA Discovery `unique_id` MUST be globally unique; the implemented builder
+  hashes `fronius_ip`, then falls back to client ID/topic prefix, and appends
+  the entity object ID.
 - Bashio `bashio::services 'mqtt'` returns empty when the user has no
   Mosquitto add-on; the conditional in `run.sh` MUST tolerate that.
 - `cron/v3` triggers callbacks in its own goroutines; the callback must
@@ -644,14 +444,16 @@ in the PR description (no new workflow file is required).
 - **R2** (HA Mosquitto auto-discovery vs external broker) — RESOLVED:
   external `mqtt_broker` always wins over `bashio::services` lookup.
 - **R3** (semantics of pause mid-cycle) — RESOLVED: an in-flight cycle
-  finishes; subsequent ticks short-circuit. Documented in `intent.go`.
+  finishes; subsequent ticks short-circuit. Document this in the #87 runner
+  implementation.
 - **R4** (`mochi-mqtt/server/v2` test-only dep) — RESOLVED: kept as a
   regular dependency; `go mod tidy` will mark it as `// indirect` if
   unused outside tests, otherwise it stays direct.
 - **OQ1** (`sbam/state` field names + units) — RESOLVED in §5 and §6:
   `_pct` for percentages, `_wh` for energy, `_w` would be reserved for
   power if added later.
-- **OQ2** (persist `set_reserve` to YAML) — DEFERRED to ≥ v2.1.
+- **OQ2** (`set_reserve`) — DEFERRED to ≥ v2.1; v2.0.0 keeps the placeholder
+  intent type but exposes no MQTT command for it.
 
 ---
 
@@ -670,6 +472,6 @@ Raisers (would push to 9–10):
 - A check that `mochi-mqtt/server/v2`'s default port allocator works
   inside the GitHub Actions runner used by `.github/workflows/test.yml`.
 
-If any of these is blocking at implementation time, raise it before
-starting Step 5 (the runner refactor) — earlier steps are independent
-and safe to ship behind the `mqtt_enabled=false` default.
+If any of these is blocking at implementation time, raise it before finishing
+#87/#88, because those are the remaining behavior-changing steps behind the
+`mqtt_enabled=false` default.
