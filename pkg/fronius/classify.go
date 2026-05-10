@@ -45,11 +45,11 @@ func ClassifyDecision(
 	case pwBatt2charge == 0:
 		return DecisionBatteryFull, "Battery is full charged", pw, nil
 	case pw.Net < -1*pwLwt && forecastChargeEnabled:
-		return DecisionForecastCharge, fmt.Sprintf("Net Power (actual battery power + Net solar power) is not enough: %f Wh", pw.Net), pw, nil
+		return DecisionForecastCharge, fmt.Sprintf("Net Power (actual battery power + Net solar power) is not enough: %2f Wh", pw.Net), pw, nil
 	case pw.BattReserveNet < -1*pwLwt && battReserveChargeEnabled:
-		return DecisionReserveCharge, fmt.Sprintf("battery %f Wh < reserve %f Wh", pw.Batt, pwBattReserve), pw, nil
+		return DecisionReserveCharge, fmt.Sprintf("battery %2f Wh < reserve %2f Wh", pw.Batt, pwBattReserve), pw, nil
 	case pw.Net >= -1*pwLwt:
-		return DecisionIdle, fmt.Sprintf("Net Power (actual battery power + Net solar power) is enough: %f Wh", pw.Net), pw, nil
+		return DecisionIdle, fmt.Sprintf("Net Power (actual battery power + Net solar power) is enough: %2f Wh", pw.Net), pw, nil
 	default:
 		reason := fmt.Sprintf("unexpected power state: %+v", pw)
 		return DecisionSkip, reason, pw, fmt.Errorf("%s", reason)
