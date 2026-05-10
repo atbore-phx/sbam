@@ -31,7 +31,10 @@ func OpenModbusClient(proto string, url string, port ...string) error {
 	}
 
 	err = modbusClient.SetUnitId(1)
-	u.HandleErrorPanic(err, "Someting goes wrong setting Modbus Client SlaveID")
+	if err != nil {
+		u.Log.Errorf("Something goes wrong setting Modbus Client SlaveID: %v", err)
+		return err
+	}
 
 	return nil
 

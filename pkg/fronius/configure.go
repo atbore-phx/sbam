@@ -38,9 +38,11 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
 	for r, v := range modbusStorageCfg {
 		u.Log.Debugf("Writing register: %d ; value: %v", r, uint16(v))
-		err = modbusClient.WriteRegister(r-1, uint16(v))
-		u.HandleErrorPanic(err, "Error Writing register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
-
+		werr := modbusClient.WriteRegister(r-1, uint16(v))
+		if werr != nil {
+			u.Log.Errorf("Error writing register %d value %d: %v", r, v, werr)
+			return fmt.Errorf("write register %d failed: %w", r, werr)
+		}
 	}
 	return nil
 }
@@ -48,9 +50,12 @@ func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 func ReadFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) ([]int16, error) {
 	values := []int16{}
 	for r, v := range modbusStorageCfg {
-		value, err := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
-		u.HandleErrorPanic(err, "Error Reading register "+fmt.Sprintf("%d", r)+", value: "+fmt.Sprintf("%d", v))
-		u.Log.Debugf("Reading register: %d ; value: %v; default:", r, value)
+		value, rerr := modbusClient.ReadRegister(r-1, modbus.HOLDING_REGISTER)
+		if rerr != nil {
+			u.Log.Errorf("Error reading register %d: %v", r, rerr)
+			return nil, fmt.Errorf("read register %d failed: %w", r, rerr)
+		}
+		u.Log.Debugf("Reading register: %d ; default value: %v ; read value: %v", r, v, value)
 
 		values = append(values, int16(value))
 	}
@@ -124,13 +129,24 @@ func Connectmodbus(url string, regList map[uint16]int16, port ...string) error {
 		return err
 	}
 
-	_, err = ReadFroniusModbusRegisters(regList)
-	u.HandleErrorPanic(err, "Something goes wrong reading ReadFroniusModbusRegisters")
+	// Ensure client is closed when we exit this function
+	defer func() {
+		if cerr := ClosemodbusClient(); cerr != nil {
+			u.Log.Warnf("error closing modbus client: %v", cerr)
+		}
+	}()
 
-	err = WriteFroniusModbusRegisters(regList)
-	u.HandleErrorPanic(err, "Something goes wrong writing FroniusModbusRegisters")
+	_, rerr := ReadFroniusModbusRegisters(regList)
+	if rerr != nil {
+		u.Log.Errorf("Something goes wrong reading ReadFroniusModbusRegisters: %v", rerr)
+		return rerr
+	}
 
-	ClosemodbusClient()
+	werr := WriteFroniusModbusRegisters(regList)
+	if werr != nil {
+		u.Log.Errorf("Something goes wrong writing FroniusModbusRegisters: %v", werr)
+		return werr
+	}
 
 	return nil
 }

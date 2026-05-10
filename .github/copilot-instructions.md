@@ -75,6 +75,7 @@ pkg/
   mqtt/
     types.go                  - MQTT config and payload carrier types
     client.go                 - MQTT client interface, factory, and topic helpers
+    discovery.go              - Home Assistant MQTT discovery payload builder
     noop.go                   - Disabled MQTT client implementation
     paho.go                   - Paho-backed MQTT client with reconnect and TLS
     reconnect.go              - Reconnect strategy normalization and manager selection
@@ -82,6 +83,7 @@ pkg/
     reconnect_paho.go         - Paho auto-reconnect manager
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
+    discovery_test.go         - Unit tests for Home Assistant discovery generation
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
@@ -157,7 +159,7 @@ Rules:
 ### Configuration
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`
+- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`
 
 ### Build
 - Binary built with `CGO_ENABLED=0` for portability

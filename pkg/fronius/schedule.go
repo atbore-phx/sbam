@@ -2,7 +2,7 @@ package fronius
 
 import u "sbam/src/utils"
 
-func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, error) {
+func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, string, PowerState, error) {
 	p := "502"
 	if len(fronius_port) > 0 {
 		p = fronius_port[0]
@@ -21,9 +21,10 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		err = ForceCharge(fronius_ip, 0, p)
 		if err != nil {
 			u.Log.Errorf("Error setting defaults after classifier error: %s", err)
-			return 0, err
+			return 0, decision, reason, pw, err
 		}
-		return 0, nil
+		// Return the classification (decision/reason/power state) and no op error
+		return 0, decision, reason, pw, nil
 	}
 
 	switch decision {
@@ -36,10 +37,10 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	err = ForceCharge(fronius_ip, ch_pc, p)
 	if err != nil {
 		u.Log.Errorln("Error forcing charge: %s ", err)
-		return ch_pc, err
+		return ch_pc, decision, reason, pw, err
 	}
 
-	return ch_pc, nil
+	return ch_pc, decision, reason, pw, nil
 }
 
 func SetChargePower(max float64, load float64, limit float64) int16 {

@@ -171,3 +171,18 @@ func TestBindFlags_RealScheduleCmd(t *testing.T) {
 		"yaml must beat default when no flag is set")
 	assert.Equal(t, "0 0 * * *", viper.GetString("crontab"))
 }
+
+func TestBindFlags_RealScheduleCmdMQTTDiscoveryPrefixPrecedence(t *testing.T) {
+	resetViper(t)
+	writeConfig(t, "mqtt_ha_discovery_prefix: from-yaml\n")
+	t.Setenv("MQTT_HA_DISCOVERY_PREFIX", "from-env")
+
+	require.NoError(t, scdCmd.Flags().Set("mqtt_ha_discovery_prefix", "from-flag"))
+	t.Cleanup(func() {
+		_ = scdCmd.Flags().Set("mqtt_ha_discovery_prefix", const_ha_discovery_prefix)
+		scdCmd.Flags().Lookup("mqtt_ha_discovery_prefix").Changed = false
+	})
+
+	require.NoError(t, bindFlags(scdCmd))
+	assert.Equal(t, "from-flag", viper.GetString("mqtt_ha_discovery_prefix"))
+}

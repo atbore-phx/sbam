@@ -44,3 +44,15 @@ func TestExecute_WithConfigYaml(t *testing.T) {
 
 	assert.NoError(t, cmd.Execute())
 }
+
+func TestMain_EntrypointWithVersionArg(t *testing.T) {
+	old := os.Args
+	defer func() { os.Args = old }()
+
+	t.Chdir(t.TempDir())
+	os.Args = []string{"cmd", "--version"}
+
+	assert.NotPanics(t, func() {
+		main()
+	})
+}
