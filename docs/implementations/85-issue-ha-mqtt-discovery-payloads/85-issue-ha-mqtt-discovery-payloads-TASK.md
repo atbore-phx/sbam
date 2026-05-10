@@ -37,12 +37,12 @@ Home Assistant users should see sbam as a single MQTT device with useful sensors
 - The implementation MUST keep `pkg/mqtt/discovery.go` independent from `pkg/cmd`, `pkg/fronius`, `pkg/power`, and `pkg/storage`.
 
 ## Non-functional Requirements
-- Backward compatibility: `mqtt_enabled=false` remains the default and must not create MQTT connections, discovery messages, INFO logs, or Modbus behavior changes.
-- Safety / defaults: discovery generation must not trigger commands or Modbus writes; buttons only describe MQTT command topics.
-- Performance: discovery payloads should be built once per publish event and remain small JSON objects suitable for retained broker storage.
-- Reliability: re-publication on Home Assistant birth messages must be idempotent and tolerate publish failures by logging warnings rather than crashing the schedule workflow.
-- Security: MQTT password and TLS client key handling are unchanged; discovery payloads must not include secrets or raw broker credentials.
-- Maintainability: discovery payload generation should use typed structs or structured maps and `encoding/json`, not ad hoc string concatenation.
+ - Backward compatibility: `mqtt_enabled=false` remains the default and must not create MQTT connections, discovery messages, INFO logs, or Modbus behavior changes.
+ - Safety / defaults: discovery generation must not trigger commands or Modbus writes; buttons only describe MQTT command topics.
+ - Performance: discovery payloads should be built once per publish event and remain small JSON objects suitable for retained broker storage.
+ - Reliability: re-publication on Home Assistant birth messages must be idempotent and tolerate publish failures by logging warnings rather than crashing the schedule workflow.
+ - Security: For the Home Assistant add-on, TLS-related options (CA/cert/key and `mqtt_tls_insecure_skip`) are not exposed; TLS configuration remains available for the standalone `sbam` binary via CLI flags and `config.yaml`. Discovery payloads must not include secrets or raw broker credentials.
+ - Maintainability: discovery payload generation should use typed structs or structured maps and `encoding/json`, not ad hoc string concatenation.
 
 ## Configuration Impact
 - New CLI flags: `--mqtt_ha_discovery_prefix` with default `homeassistant`.

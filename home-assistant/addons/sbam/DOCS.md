@@ -73,10 +73,11 @@ Do not start yet but configure it:
 - **mqtt_client_id:** Optional MQTT client identifier (leave empty to auto-generate).
 - **mqtt_username:** Optional MQTT username.
 - **mqtt_password:** Optional MQTT password.
-- **mqtt_tls_ca_file:** Optional CA file path when using TLS broker URLs.
-- **mqtt_tls_client_cert:** Optional client certificate file path.
-- **mqtt_tls_client_cert_key:** Optional client certificate key file path.
-- **mqtt_tls_insecure_skip:** Skip TLS certificate verification (Default: false).
+- **mqtt_topic_prefix:** Prefix for sbam state/availability/cmd topics (Default: `sbam`).
+- **mqtt_ha_discovery:** Enable retained Home Assistant discovery config publishing (Default: true when MQTT is enabled).
+- **mqtt_ha_discovery_prefix:** Home Assistant discovery root topic prefix (Default: `homeassistant`).
+
+Note: TLS-related options (e.g., `mqtt_tls_ca_file`, client certificate/key, `mqtt_tls_insecure_skip`) are not exposed in the Home Assistant add-on. TLS configuration is supported only for the standalone `sbam` binary; the add-on assumes the integrated Home Assistant/Mosquitto broker and expects only `mqtt_username`/`mqtt_password` when credentials are required.
 - **mqtt_topic_prefix:** Prefix for sbam state/availability/cmd topics (Default: `sbam`).
 - **mqtt_ha_discovery:** Enable retained Home Assistant discovery config publishing (Default: true when MQTT is enabled).
 - **mqtt_ha_discovery_prefix:** Home Assistant discovery root topic prefix (Default: `homeassistant`).

@@ -118,10 +118,7 @@ Add one issue-specific key and, if schedule MQTT wiring is still absent at imple
 | `mqtt_client_id` | `--mqtt_client_id` | `MQTT_CLIENT_ID` | string | `""` | Empty uses existing `defaultClientID()`. |
 | `mqtt_username` | `--mqtt_username` | `MQTT_USERNAME` | string | `""` | Optional. |
 | `mqtt_password` | `--mqtt_password` | `MQTT_PASSWORD` | string | `""` | Secret; add to `SecretKeys`. |
-| `mqtt_tls_ca_file` | `--mqtt_tls_ca_file` | `MQTT_TLS_CA_FILE` | string | `""` | Optional CA bundle. |
-| `mqtt_tls_client_cert` | `--mqtt_tls_client_cert` | `MQTT_TLS_CLIENT_CERT` | string | `""` | Optional client cert. |
-| `mqtt_tls_client_cert_key` | `--mqtt_tls_client_cert_key` | `MQTT_TLS_CLIENT_CERT_KEY` | string | `""` | Secret; add to `SecretKeys`. |
-| `mqtt_tls_insecure_skip` | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | bool | `false` | Existing Paho TLS option. |
+NOTE: The Home Assistant add-on will not expose TLS-related options (`mqtt_tls_*`). TLS configuration remains available for the standalone `sbam` binary via CLI flags and `config.yaml`; the add-on assumes the integrated HA/Mosquitto broker and only exposes `mqtt_username`/`mqtt_password` when credentials are required.
 | `mqtt_topic_prefix` | `--mqtt_topic_prefix` | `MQTT_TOPIC_PREFIX` | string | `sbam` | State/availability/command topic prefix. |
 | `mqtt_ha_discovery` | `--mqtt_ha_discovery` | `MQTT_HA_DISCOVERY` | bool | `true` | Publish discovery when MQTT is enabled. |
 | `mqtt_ha_discovery_prefix` | `--mqtt_ha_discovery_prefix` | `MQTT_HA_DISCOVERY_PREFIX` | string | `homeassistant` | New issue #85 key for HA discovery config topics. |
@@ -368,10 +365,7 @@ var mqtt_broker string
 var mqtt_client_id string
 var mqtt_username string
 var mqtt_password string
-var mqtt_tls_ca_file string
-var mqtt_tls_client_cert string
-var mqtt_tls_client_cert_key string
-var mqtt_tls_insecure_skip bool
+// TLS flags are supported by the standalone binary; the HA add-on does not expose them.
 var mqtt_topic_prefix string
 var mqtt_ha_discovery bool
 var mqtt_ha_discovery_prefix string
@@ -388,10 +382,8 @@ mqttCfg := mqtt.Config{
     ClientID:          viper.GetString("mqtt_client_id"),
     Username:          viper.GetString("mqtt_username"),
     Password:          viper.GetString("mqtt_password"),
-    TLSCAFile:         viper.GetString("mqtt_tls_ca_file"),
-    TLSClientCert:     viper.GetString("mqtt_tls_client_cert"),
-    TLSClientCertKey:  viper.GetString("mqtt_tls_client_cert_key"),
-    TLSInsecureSkip:   viper.GetBool("mqtt_tls_insecure_skip"),
+    // TLSCAFile, TLSClientCert and TLSClientCertKey are configured for the standalone binary
+    // and are not exposed via the Home Assistant add-on UI. They are still read from flags/env/yaml when present.
     TopicPrefix:       viper.GetString("mqtt_topic_prefix"),
     HADiscovery:       viper.GetBool("mqtt_ha_discovery"),
     HADiscoveryPrefix: viper.GetString("mqtt_ha_discovery_prefix"),
