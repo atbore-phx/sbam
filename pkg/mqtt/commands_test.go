@@ -260,3 +260,33 @@ func TestPublishAck(t *testing.T) {
 		assert.Equal(t, "unknown command", payload.Error)
 	})
 }
+
+func TestDecodeStrictJSONTrailing(t *testing.T) {
+	var out map[string]any
+	err := decodeStrictJSON([]byte(`{"a":1}{"b":2}`), &out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trailing")
+}
+
+func TestBuildAckParseErrorUsesParseErrMessage(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+
+	_, payload, err := buildAck("sbam/cmd/force_charge", Intent{}, errors.New("parse failed"), now)
+	require.NoError(t, err)
+	assert.Equal(t, "force_charge", payload.Command)
+	assert.Equal(t, "parse failed", payload.Error)
+}
+
+func TestBuildAckAcceptedMissingIntent(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	_, _, err := buildAck("sbam/cmd/force_charge", Intent{}, nil, now)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "accepted ack requires a command intent")
+}
+
+func TestPublishAckWithNilContext(t *testing.T) {
+	client := &fakeMQTTClient{}
+	err := PublishAck(nil, client, "sbam/cmd/force_charge", Intent{Kind: IntentForceCharge}, nil)
+	require.NoError(t, err)
+	require.Len(t, client.publishes, 1)
+}
