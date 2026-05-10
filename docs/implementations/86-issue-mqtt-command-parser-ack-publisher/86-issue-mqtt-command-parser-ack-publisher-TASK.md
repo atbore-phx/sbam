@@ -15,7 +15,7 @@ This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-
 
 ## Scope
 
-- In scope: add pure command parsing APIs in `pkg/mqtt`; define a minimal typed command intent shape; support the required command topics and legacy aliases; build ack topic/payload publishing helpers; add table-driven unit tests for valid, edge, and failure cases.
+- In scope: add pure command parsing APIs in `pkg/mqtt`; define a minimal typed command intent shape; build ack topic/payload publishing helpers; add table-driven unit tests for valid, edge, and failure cases.
 - In scope: document the boundary with the parent MQTT feed plan and keep this issue focused on parser and ack APIs only.
 - Out of scope: real subscription lifecycle wiring into the schedule runner; Modbus actions; cron or runner refactors; Home Assistant discovery changes; new configuration keys; broker integration tests unless needed for the ack publisher helper already backed by the existing `pkg/mqtt.Client` abstraction.
 
@@ -27,7 +27,6 @@ This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-
   - `pause`: parsed future deadline from `until`.
   - `trigger_now`, `set_defaults`, `resume`: no command-specific fields.
 - Support these canonical topics below the command prefix: `cmd/trigger_now`, `cmd/force_charge`, `cmd/set_defaults`, `cmd/pause`, `cmd/resume`.
-- Accept these legacy aliases and map them to canonical commands: `cmd/refresh` -> `trigger_now`, `cmd/charge` -> `force_charge`, `cmd/stop` -> `set_defaults`.
 - Validate `cmd/force_charge` JSON payload:
   - `target_pct` is required and must be in `[1,100]`.
   - `duration_s` is optional and must be in `[0,86400]` when present.
@@ -38,17 +37,16 @@ This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-
 - Bound command payload size with `MaxPayloadBytes = 4096`.
 - Every command attempt must be representable as an ack published on `<base>/cmd/<name>/ack` with JSON matching the issue contract:
 
-  ```json
-  {
-    "ts": "<RFC3339>",
-    "command": "<name>",
-    "accepted": true,
-    "error": "omitted when accepted=true"
-  }
-  ```
+```json
+{
+  "ts": "<RFC3339>",
+  "command": "<name>",
+  "accepted": true,
+  "error": "omitted when accepted=true"
+}
+```
 
 - Unknown sub-topics must produce `accepted=false` with `error="unknown command"`.
-- Legacy alias commands must publish their ack under the alias topic used by the caller, while the ack `command` field reports the canonical command name.
 
 ## Non-functional Requirements
 
@@ -76,20 +74,18 @@ This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-
 ## Acceptance Criteria
 
 - [ ] Table-driven tests cover every canonical command happy path.
-- [ ] Table-driven tests cover every legacy alias happy path.
 - [ ] Tests cover malformed JSON, wrong JSON types, out-of-range values, oversized payloads, and unknown sub-topics.
 - [ ] `force_charge` rejects missing `target_pct`, `target_pct=0`, `target_pct=101`, negative `duration_s`, and `duration_s>86400`.
 - [ ] `pause` accepts future RFC3339 deadlines and positive Go duration strings, and rejects past deadlines, invalid timestamps, and non-positive durations.
 - [ ] `trigger_now`, `set_defaults`, and `resume` accept empty payload and `{}` only.
 - [ ] Ack payloads contain RFC3339 `ts`, canonical `command`, boolean `accepted`, and omit `error` when accepted.
 - [ ] Unknown commands produce `accepted=false` with `error="unknown command"`.
-- [ ] Alias commands ack on the alias ack topic but report the canonical command in the payload.
 - [ ] No new long-lived goroutines are introduced by this feature.
 - [ ] `make test` is green.
 
 ## Test Strategy
 
-- Unit tests (`pkg/mqtt`): table-driven parser tests for every canonical command and legacy alias.
+- Unit tests (`pkg/mqtt`): table-driven parser tests for every canonical command.
 - Unit tests (`pkg/mqtt`): ack payload builder/publisher tests with a fake `Client` implementation that captures topic, QoS, retained flag, and JSON payload.
 - Edge cases: empty payload, `{}`, payload exactly at `MaxPayloadBytes`, `force_charge` boundary values `target_pct=1`, `target_pct=100`, `duration_s=0`, `duration_s=86400`, `pause` deadline barely in the future.
 - Failure cases: malformed JSON, wrong field types, missing required fields, unknown topics, payload over `MaxPayloadBytes`, out-of-range integer values, past or invalid pause deadlines.
@@ -116,6 +112,5 @@ This is part of the v2.0.0 MQTT feed tracked by [#64](https://github.com/atbore-
 - Scope this issue to parser and ack APIs only; real MQTT subscriber wiring belongs to a later runner/subscriber task.
 - Use a minimal typed intent: command enum/name plus `TargetPct`, `Duration`, and `PauseUntil` as applicable.
 - Check the parent `64-issue-mqtt-feed-PLAN.md` for context, but resolve conflicts in favor of issue #86 and these clarifications.
-- For legacy aliases, publish the ack under the alias topic while reporting the canonical command in the ack payload.
 - Use `MaxPayloadBytes = 4096`.
 - Satisfy no-goroutine-leak acceptance through manual inspection plus unit tests rather than adding `goleak` for this parser-only feature.
