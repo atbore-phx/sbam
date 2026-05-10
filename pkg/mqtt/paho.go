@@ -74,6 +74,8 @@ func NewPaho(cfg Config) (*Paho, error) {
 		discoveryVersion: "dev",
 	}
 
+	utils.Log.Debugw("mqtt paho configured", "broker", sanitizeBroker(cfg.Broker), "client_id", cfg.ClientID, "topic_prefix", cfg.TopicPrefix, "ha_discovery", cfg.HADiscovery)
+
 	opts := paho.NewClientOptions()
 	opts.AddBroker(cfg.Broker)
 	opts.SetClientID(cfg.ClientID)
@@ -100,8 +102,11 @@ func NewPaho(cfg Config) (*Paho, error) {
 	}
 
 	opts.SetOnConnectHandler(func(client paho.Client) {
+		utils.Log.Debugw("mqtt onConnect handler", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
 		if err := waitToken(context.Background(), client.Publish(availabilityTopic(p.cfg.TopicPrefix), qosAtLeastOnce, true, []byte("online"))); err != nil {
 			utils.Log.Warnw("mqtt availability publish failed", "topic", availabilityTopic(p.cfg.TopicPrefix), "retained", true, "qos", qosAtLeastOnce, "error", err)
+		} else {
+			utils.Log.Debugw("mqtt availability published", "topic", availabilityTopic(p.cfg.TopicPrefix), "status", "online")
 		}
 
 		PublishDiscovery(context.Background(), p, p.cfg, p.discoveryVersion)
@@ -123,10 +128,17 @@ func (p *Paho) Connect(ctx context.Context) error {
 	if p.client.IsConnected() {
 		return nil
 	}
-	return waitToken(ctx, p.client.Connect())
+	utils.Log.Debugw("mqtt connect requested", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
+	if err := waitToken(ctx, p.client.Connect()); err != nil {
+		utils.Log.Warnw("mqtt connect failed", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID, "error", err)
+		return err
+	}
+	utils.Log.Debugw("mqtt connected", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
+	return nil
 }
 
 func (p *Paho) Disconnect(ctx context.Context) error {
+	utils.Log.Debugw("mqtt disconnect requested", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
 	called := false
 	done := make(chan struct{})
 
@@ -138,6 +150,7 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 		}
 		go func() {
 			if p.client != nil {
+				utils.Log.Debugw("mqtt client performing disconnect", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
 				p.client.Disconnect(disconnectQuiesceMS)
 			}
 			close(done)
@@ -145,6 +158,7 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 	})
 
 	if !called {
+		utils.Log.Debugw("mqtt disconnect called but client already closed", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
 		return nil
 	}
 
@@ -156,6 +170,7 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
+		utils.Log.Debugw("mqtt disconnected", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
 		return nil
 	}
 }
@@ -164,7 +179,13 @@ func (p *Paho) Publish(ctx context.Context, topic string, qos byte, retained boo
 	if strings.TrimSpace(topic) == "" {
 		return errors.New("mqtt topic required")
 	}
-	return waitToken(ctx, p.client.Publish(topic, qos, retained, payload))
+	utils.Log.Debugw("mqtt publish requested", "topic", topic, "qos", qos, "retained", retained, "len", len(payload))
+	if err := waitToken(ctx, p.client.Publish(topic, qos, retained, payload)); err != nil {
+		utils.Log.Warnw("mqtt publish failed", "topic", topic, "qos", qos, "retained", retained, "error", err)
+		return err
+	}
+	utils.Log.Debugw("mqtt publish succeeded", "topic", topic, "qos", qos, "retained", retained, "len", len(payload))
+	return nil
 }
 
 func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error {
@@ -180,7 +201,13 @@ func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler Me
 		handler(message.Topic(), payload)
 	}
 
-	return waitToken(ctx, p.client.Subscribe(topic, qos, callback))
+	utils.Log.Debugw("mqtt subscribe requested", "topic", topic, "qos", qos)
+	if err := waitToken(ctx, p.client.Subscribe(topic, qos, callback)); err != nil {
+		utils.Log.Warnw("mqtt subscribe failed", "topic", topic, "qos", qos, "error", err)
+		return err
+	}
+	utils.Log.Debugw("mqtt subscribe succeeded", "topic", topic, "qos", qos)
+	return nil
 }
 
 func (p *Paho) IsConnected() bool {

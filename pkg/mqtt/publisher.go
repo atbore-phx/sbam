@@ -34,9 +34,12 @@ func PublishAvailability(ctx context.Context, client Client, prefix string, onli
 		return
 	}
 
+	utils.Log.Debugw("mqtt publish availability requested", "topic", availabilityTopic(prefix), "status", status)
 	if err := client.Publish(ctx, availabilityTopic(prefix), qosAtLeastOnce, true, []byte(status)); err != nil {
 		logPublishWarning(availabilityTopic(prefix), qosAtLeastOnce, true, err)
+		return
 	}
+	utils.Log.Debugw("mqtt publish availability succeeded", "topic", availabilityTopic(prefix), "status", status)
 }
 
 func PublishDiscovery(ctx context.Context, client Client, cfg Config, version string) {
@@ -51,9 +54,12 @@ func PublishDiscovery(ctx context.Context, client Client, cfg Config, version st
 
 	entities := BuildDiscovery(cfg, version)
 	for _, entity := range entities {
+		utils.Log.Debugw("mqtt publish discovery requested", "topic", entity.Topic, "size", len(entity.Payload))
 		if err := client.Publish(ctx, entity.Topic, qosAtLeastOnce, true, entity.Payload); err != nil {
 			logPublishWarning(entity.Topic, qosAtLeastOnce, true, err)
+			continue
 		}
+		utils.Log.Debugw("mqtt publish discovery succeeded", "topic", entity.Topic, "size", len(entity.Payload))
 	}
 }
 
@@ -69,9 +75,12 @@ func publishJSON(ctx context.Context, client Client, topic string, qos byte, ret
 		return
 	}
 
+	utils.Log.Debugw("mqtt publish json requested", "topic", topic, "qos", qos, "retained", retained, "size", len(body))
 	if err := client.Publish(ctx, topic, qos, retained, body); err != nil {
 		logPublishWarning(topic, qos, retained, err)
+		return
 	}
+	utils.Log.Debugw("mqtt publish json succeeded", "topic", topic, "qos", qos, "retained", retained, "size", len(body))
 }
 
 func logPublishWarning(topic string, qos byte, retained bool, err error) {
