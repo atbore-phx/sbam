@@ -38,7 +38,7 @@ This prompt is the GitHub-issue counterpart of [generate-plan-local.prompt.md](g
     1. `gh` CLI (preferred fallback):
 
          ```bash
-         gh issue view <N> --repo atbore-phx/sbam --json number,title,body,labels,state,url,author,comments
+         gh issue view <N> --repo atbore-phx/sbam --json number,title,body,labels,state,url,author,comments | jq
          ```
 
     2. `curl` (final fallback) — fetch the issue and then iterate comments with pagination:
