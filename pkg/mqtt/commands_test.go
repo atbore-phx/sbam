@@ -336,6 +336,13 @@ func TestParsePausePayloadEmpty(t *testing.T) {
 	assert.Nil(t, parsed.Until)
 }
 
+func TestParsePausePayloadRejectsNonObjectPayload(t *testing.T) {
+	_, err := parsePausePayload([]byte("[]"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidPayload)
+	assert.Contains(t, err.Error(), "invalid pause payload")
+}
+
 func TestBuildAckKnownCommandErrUnknown(t *testing.T) {
 	now := time.Now().UTC()
 	_, ack, err := buildAck("sbam/cmd/force_charge", Intent{}, ErrUnknownCommand, now)
