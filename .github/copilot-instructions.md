@@ -62,6 +62,8 @@ pkg/
     configure.go              - `configure` command: battery defaults & force charge
     estimate.go               - `estimate` command: display forecast & battery state
     schedule.go               - `schedule` command: main intelligent charging workflow
+    schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
+    schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
   fronius/
     types.go                  - Fronius struct definitions

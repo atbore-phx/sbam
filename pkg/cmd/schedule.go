@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
 	pw "sbam/pkg/power"
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -151,13 +149,54 @@ var scdCmd = &cobra.Command{
 			return
 		}
 
+		runnerCfg := RunnerConfig{
+			APIKey:             s_apiKey,
+			URL:                s_url,
+			FroniusIP:          fronius_ip,
+			PWConsumption:      pw_consumption,
+			MaxCharge:          max_charge,
+			PWBattReserve:      pw_batt_reserve,
+			StartHR:            start_hr,
+			EndHR:              end_hr,
+			BattReserveStartHR: batt_reserve_start_hr,
+			BattReserveEndHR:   batt_reserve_end_hr,
+			PWLWT:              pw_lwt,
+			PWUPT:              pw_upt,
+			CacheForecast:      s_cache_forecast,
+			CacheFilePrefix:    s_cache_file_prefix,
+			CacheTime:          s_cache_time,
+			Defaults:           s_defaults,
+			MQTT:               mqttCfg,
+			Now:                time.Now,
+		}
+
+		runner := NewRunner(runnerCfg, mqttClient)
+
 		u.Log.Debugf("schedule crontab '%s'", crontab)
-		if crontab != "0 0 0 0 0" {
-			crontabSchedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, crontab, s_defaults, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg)
+		if crontab != const_ct {
+			runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
 
-		} else {
-			schedule(s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, s_cache_forecast, s_cache_file_prefix, s_cache_time, mqttClient, mqttCfg)
+			runDone := make(chan error, 1)
+			go func() {
+				runDone <- runner.Run(runCtx)
+			}()
 
+			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, end_hr); err != nil {
+				u.Log.Error(err)
+			}
+
+			_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+			stop()
+
+			if runErr := <-runDone; runErr != nil && !errors.Is(runErr, context.Canceled) {
+				u.Log.Error(runErr)
+			}
+			return
+		}
+
+		if err := runner.Tick(context.Background(), time.Now()); err != nil {
+			u.Log.Error(err)
 		}
 	},
 }
@@ -259,26 +298,13 @@ func isStartAfterEnd(start, end string) bool {
 // This helper is used by the scheduler to determine whether charging window
 // and reserve windows are active at runtime.
 func CheckTimeRange(start_hr, end_hr string) bool {
-	now := time.Now()
-
-	layout := "15:04"
-	startTime, err := time.Parse(layout, start_hr)
+	inRange, err := checkTimeRangeAt(time.Now(), start_hr, end_hr)
 	if err != nil {
-		u.Log.Error("Something goes wrong parsing start time")
+		u.Log.Error("Something goes wrong parsing time range")
 		panic(err)
 	}
 
-	endTime, err := time.Parse(layout, end_hr)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing end time")
-		panic(err)
-	}
-
-	// Convert the current time to a time.Time value for today's date with the hour and minute set to the parsed start and end times
-	startTime = time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
-	endTime = time.Date(now.Year(), now.Month(), now.Day(), endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
-
-	return (now.After(startTime) || now.Equal(startTime)) && (now.Before(endTime) || now.Equal(endTime))
+	return inRange
 }
 
 // checkScheduleschedule validates the provided scheduling and runtime
@@ -342,75 +368,35 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 //   - computes the Fronius decision
 //   - publishes the state over MQTT (if configured)
 //
-// It is intentionally a plain function so it can be called from a cron job
-// or run once from the CLI (used by tests and `crontabSchedule`).
+// It is intentionally retained as a compatibility wrapper for tests.
+// New runtime paths should call Runner.Tick directly.
 func schedule(apiKey, url, fronius_ip string, pw_consumption, max_charge, pw_batt_reserve float64,
 	start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr string, pw_lwt, pw_upt float64,
 	cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config) {
-	inChargeWindow := CheckTimeRange(start_hr, end_hr)
-	reserveWindowActive := CheckTimeRange(batt_reserve_start_hr, batt_reserve_end_hr)
-
-	// Read storage first. Failures are non-fatal: if we can't read storage
-	// we'll set the decision to `skip` and publish a minimal payload so
-	// the scheduler doesn't attempt to force charge with incomplete data.
-	str := newStorage()
-	capacity2charge, capacity_max, socPct, serr := str.Handler(fronius_ip)
-	if serr != nil {
-		u.HandleError(serr, "storage handler failed, skipping schedule run")
-
-		p := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("storage read failed: %v", serr), inChargeWindow, reserveWindowActive)
-
-		publishStateSnapshot(mqttClient, mqttCfg, p)
-		return
+	runnerCfg := RunnerConfig{
+		APIKey:             apiKey,
+		URL:                url,
+		FroniusIP:          fronius_ip,
+		PWConsumption:      pw_consumption,
+		MaxCharge:          max_charge,
+		PWBattReserve:      pw_batt_reserve,
+		StartHR:            start_hr,
+		EndHR:              end_hr,
+		BattReserveStartHR: batt_reserve_start_hr,
+		BattReserveEndHR:   batt_reserve_end_hr,
+		PWLWT:              pw_lwt,
+		PWUPT:              pw_upt,
+		CacheForecast:      cache_forecast,
+		CacheFilePrefix:    cache_file_prefix,
+		CacheTime:          cache_time,
+		MQTT:               mqttCfg,
+		Now:                time.Now,
 	}
 
-	if !inChargeWindow {
-		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + start_hr + " <= t <= " + end_hr)
-		// Provide battery-only information.
-		capMax := capacity_max
-
-		p := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
-		p.BatterySOCPct = &socPct
-		p.BatteryCapacityWh = &capMax
-
-		publishStateSnapshot(mqttClient, mqttCfg, p)
-		return
+	runner := NewRunner(runnerCfg, mqttClient)
+	if err := runner.Tick(context.Background(), time.Now()); err != nil {
+		u.Log.Error(err)
 	}
-
-	pwr := newPower()
-	solarPowerProduction, forecast_retrieved, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
-	if err != nil {
-		// Forecast retrieval failures are non-fatal for the scheduler.
-		// Log and continue with forecasting disabled for this run so the
-		// scheduler can still make safe decisions based on storage alone.
-		u.HandleError(err, "power forecast retrieval failed; disabling forecast for this run")
-		solarPowerProduction = 0.0
-		forecast_retrieved = false
-	}
-
-	u.Log.Infof("your Daily consumption is:%d Wh", int(pw_consumption))
-
-	scd := newFronius()
-	chargePct, decision, reason, powerState, err := scd.Handler(solarPowerProduction, capacity2charge, capacity_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, reserveWindowActive, pw_lwt, pw_upt, forecast_retrieved)
-	if err != nil {
-		u.HandleError(err, "fronius handler failed, skipping schedule run")
-
-		p := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", err), inChargeWindow, reserveWindowActive)
-		p.BatterySOCPct = &socPct
-		p.BatteryCapacityWh = &capacity_max
-
-		publishStateSnapshot(mqttClient, mqttCfg, p)
-		return
-	}
-
-	p := makeBasePayload(decision.String(), reason, inChargeWindow, reserveWindowActive)
-	p.BatterySOCPct = &socPct
-	p.BatteryCapacityWh = &capacity_max
-	p.ForecastTodayWh = &solarPowerProduction
-	p.PwNetWh = &(powerState.Net)
-	p.ChargePct = &chargePct
-
-	publishStateSnapshot(mqttClient, mqttCfg, p)
 }
 
 // publishStateSnapshot publishes the provided `payload` using the MQTT client
@@ -443,39 +429,50 @@ func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWin
 }
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
-// using the provided `crontab` expression. When `defaults` is true the
-// function also schedules a `Setdefaults` call near the configured end time.
-//
-// This keeps the cron wiring isolated from the core scheduling logic.
-func crontabSchedule(apiKey, url, fronius_ip string, pw_consumption, max_charge, pw_batt_reserve float64,
-	start_hr, end_hr, crontab string, defaults bool, batt_reserve_start_hr, batt_reserve_end_hr string,
-	pw_lwt, pw_upt float64, cache_forecast bool, cache_file_prefix string, cache_time int32,
-	mqttClient mqtt.Client, mqttCfg mqtt.Config) {
+// using the provided cron expression. Callbacks submit intents and return
+// immediately; the runner serializes all schedule and Modbus operations.
+func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaults bool, end_hr string) error {
+	if runner == nil {
+		return errors.New("runner must not be nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	layout := "15:04"
-	endTime, _ := time.Parse(layout, end_hr)
+	endTime, err := time.Parse(layout, end_hr)
+	if err != nil {
+		return fmt.Errorf("invalid end_hr %q: %w", end_hr, err)
+	}
 	endTime = endTime.Add(-5 * time.Minute)
-	end_crontab := strconv.Itoa(endTime.Minute()) + " " + strconv.Itoa(endTime.Hour()) + " * * *"
+	end_crontab := fmt.Sprintf("%d %d * * *", endTime.Minute(), endTime.Hour())
 
 	c := cron.New()
-	_, err := c.AddFunc(crontab, func() {
-		schedule(apiKey, url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, pw_lwt, pw_upt, cache_forecast, cache_file_prefix, cache_time, mqttClient, mqttCfg)
+	_, err = c.AddFunc(crontab, func() {
+		if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+			u.Log.Warn("schedule tick dropped because runner queue is full")
+		}
 	})
 	if err != nil {
-		u.Log.Error(err)
-		panic(err)
+		return err
 	}
 	if defaults {
 		_, err = c.AddFunc(end_crontab, func() {
-			fronius.Setdefaults(fronius_ip)
+			if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
+				u.Log.Warn("set_defaults dropped because runner queue is full")
+			}
 		})
 		if err != nil {
-			u.Log.Error(err)
-			panic(err)
+			return err
 		}
 	}
+
 	c.Start()
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
-	fmt.Println("Running, press ctrl+c to exit...")
-	<-done // Will block here until user hits ctrl+c
+	defer func() {
+		stopCtx := c.Stop()
+		<-stopCtx.Done()
+	}()
+
+	<-ctx.Done()
+	return nil
 }
