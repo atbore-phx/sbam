@@ -7,13 +7,48 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	u "sbam/src/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// schedule is a small test-only compatibility wrapper that constructs a
+// Runner with the provided args and runs a single Tick. It mirrors the
+// historical production helper but lives in tests to avoid exporting a
+// test-facing helper from production code.
+func schedule(apiKey, url, fronius_ip string, pw_consumption, max_charge, pw_batt_reserve float64,
+	start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr string, pw_lwt, pw_upt float64,
+	cache_forecast bool, cache_file_prefix string, cache_time int32, mqttClient mqtt.Client, mqttCfg mqtt.Config) {
+	runnerCfg := RunnerConfig{
+		APIKey:             apiKey,
+		URL:                url,
+		FroniusIP:          fronius_ip,
+		PWConsumption:      pw_consumption,
+		MaxCharge:          max_charge,
+		PWBattReserve:      pw_batt_reserve,
+		StartHR:            start_hr,
+		EndHR:              end_hr,
+		BattReserveStartHR: batt_reserve_start_hr,
+		BattReserveEndHR:   batt_reserve_end_hr,
+		PWLWT:              pw_lwt,
+		PWUPT:              pw_upt,
+		CacheForecast:      cache_forecast,
+		CacheFilePrefix:    cache_file_prefix,
+		CacheTime:          cache_time,
+		MQTT:               mqttCfg,
+		Now:                time.Now,
+	}
+
+	runner := NewRunner(runnerCfg, mqttClient)
+	if err := runner.Tick(context.Background(), time.Now()); err != nil {
+		u.Log.Error(err)
+	}
+}
 
 type publishedMessage struct {
 	topic   string

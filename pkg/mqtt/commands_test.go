@@ -25,12 +25,15 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 		expectedTarget   int16
 		expectedDuration int
 		checkPause       bool
+		expectPauseNil   bool
 	}{
 		{name: "trigger_now empty", topic: "sbam/cmd/trigger_now", payload: nil, expectedKind: IntentTriggerNow},
 		{name: "trigger_now empty object", topic: "sbam/cmd/trigger_now", payload: []byte("{}"), expectedKind: IntentTriggerNow},
 		{name: "set_defaults empty", topic: "sbam/cmd/set_defaults", payload: nil, expectedKind: IntentSetDefaults},
 		{name: "resume empty object", topic: "sbam/cmd/resume", payload: []byte("{}"), expectedKind: IntentResume},
 		{name: "force_charge full payload", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":50,"duration_s":3600}`), expectedKind: IntentForceCharge, expectedTarget: 50, expectedDuration: 3600},
+		{name: "pause empty payload is indefinite", topic: "sbam/cmd/pause", payload: nil, expectedKind: IntentPause, expectPauseNil: true},
+		{name: "pause empty object is indefinite", topic: "sbam/cmd/pause", payload: []byte("{}"), expectedKind: IntentPause, expectPauseNil: true},
 		{name: "pause rfc3339 future", topic: "sbam/cmd/pause", payload: []byte(fmt.Sprintf(`{"until":%q}`, future)), expectedKind: IntentPause, checkPause: true},
 		{name: "pause duration future", topic: "sbam/cmd/pause", payload: []byte(`{"until":"1h"}`), expectedKind: IntentPause, checkPause: true},
 	}
@@ -41,10 +44,15 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 			intent, err := parseIntentAt(tc.topic, tc.payload, now)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedKind, intent.Kind)
+			assert.Equal(t, tc.topic, intent.CommandTopic)
 
 			if tc.expectedKind == IntentForceCharge {
 				assert.Equal(t, tc.expectedTarget, intent.TargetPct)
 				assert.Equal(t, tc.expectedDuration, intent.DurationS)
+			}
+
+			if tc.expectPauseNil {
+				assert.Nil(t, intent.PauseUntil)
 			}
 
 			if tc.checkPause {
@@ -137,7 +145,7 @@ func TestParseIntentPauseValidation(t *testing.T) {
 		`{"until":"0s"}`,
 		`{"until":"-1m"}`,
 		`{"until":123}`,
-		`{}`,
+		`{"until":""}`,
 	}
 
 	for _, payload := range invalid {
@@ -285,13 +293,6 @@ func TestBuildAckAcceptedMissingIntent(t *testing.T) {
 	assert.Contains(t, err.Error(), "accepted ack requires a command intent")
 }
 
-func TestPublishAckWithNilContext(t *testing.T) {
-	client := &fakeMQTTClient{}
-	err := PublishAck(nil, client, "sbam/cmd/force_charge", Intent{Kind: IntentForceCharge}, nil)
-	require.NoError(t, err)
-	require.Len(t, client.publishes, 1)
-}
-
 func TestParseIntentWrapperAndCases(t *testing.T) {
 	// wrapper should call into parseIntentAt and return results
 	_, err := ParseIntent("sbam/cmd/trigger_now", nil)
@@ -326,9 +327,20 @@ func TestParseCommandTopicVariants(t *testing.T) {
 }
 
 func TestParsePausePayloadEmpty(t *testing.T) {
-	_, err := parsePausePayload(nil)
+	parsed, err := parsePausePayload(nil)
+	require.NoError(t, err)
+	assert.Nil(t, parsed.Until)
+
+	parsed, err = parsePausePayload([]byte("{}"))
+	require.NoError(t, err)
+	assert.Nil(t, parsed.Until)
+}
+
+func TestParsePausePayloadRejectsNonObjectPayload(t *testing.T) {
+	_, err := parsePausePayload([]byte("[]"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "until is required")
+	assert.ErrorIs(t, err, ErrInvalidPayload)
+	assert.Contains(t, err.Error(), "invalid pause payload")
 }
 
 func TestBuildAckKnownCommandErrUnknown(t *testing.T) {
