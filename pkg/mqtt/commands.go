@@ -33,7 +33,7 @@ type forceChargePayload struct {
 }
 
 type pausePayload struct {
-	Until string `json:"until"`
+	Until *string `json:"until,omitempty"`
 }
 
 var jsonMarshal = json.Marshal
@@ -54,7 +54,7 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 		if err := validateEmptyOrObjectPayload(payload); err != nil {
 			return Intent{}, err
 		}
-		return Intent{Kind: info.Canonical}, nil
+		return Intent{Kind: info.Canonical, CommandTopic: topic}, nil
 	case IntentForceCharge:
 		forcePayload, err := parseForceChargePayload(payload)
 		if err != nil {
@@ -62,8 +62,9 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 		}
 
 		intent := Intent{
-			Kind:      IntentForceCharge,
-			TargetPct: int16(*forcePayload.TargetPct),
+			Kind:         IntentForceCharge,
+			TargetPct:    int16(*forcePayload.TargetPct),
+			CommandTopic: topic,
 		}
 		if forcePayload.DurationS != nil {
 			intent.DurationS = *forcePayload.DurationS
@@ -76,15 +77,18 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 			return Intent{}, err
 		}
 
-		pauseUntil, err := parsePauseUntil(pauseData.Until, now)
+		intent := Intent{Kind: IntentPause, CommandTopic: topic}
+		if pauseData.Until == nil {
+			return intent, nil
+		}
+
+		pauseUntil, err := parsePauseUntil(*pauseData.Until, now)
 		if err != nil {
 			return Intent{}, fmt.Errorf("%w: %v", ErrInvalidPayload, err)
 		}
 
-		return Intent{
-			Kind:       IntentPause,
-			PauseUntil: &pauseUntil,
-		}, nil
+		intent.PauseUntil = &pauseUntil
+		return intent, nil
 	default:
 		return Intent{}, fmt.Errorf("%w", ErrUnknownCommand)
 	}
@@ -192,7 +196,10 @@ func parseForceChargePayload(payload []byte) (forceChargePayload, error) {
 func parsePausePayload(payload []byte) (pausePayload, error) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) == 0 {
-		return pausePayload{}, fmt.Errorf("%w: until is required", ErrInvalidPayload)
+		return pausePayload{}, nil
+	}
+	if trimmed[0] != '{' {
+		return pausePayload{}, fmt.Errorf("%w: invalid pause payload", ErrInvalidPayload)
 	}
 
 	parsed := pausePayload{}
@@ -200,7 +207,7 @@ func parsePausePayload(payload []byte) (pausePayload, error) {
 		return pausePayload{}, fmt.Errorf("%w: invalid pause payload", ErrInvalidPayload)
 	}
 
-	if strings.TrimSpace(parsed.Until) == "" {
+	if parsed.Until != nil && strings.TrimSpace(*parsed.Until) == "" {
 		return pausePayload{}, fmt.Errorf("%w: until is required", ErrInvalidPayload)
 	}
 
