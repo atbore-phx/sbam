@@ -1,15 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"os/exec"
+	"os/signal"
 	"syscall"
 	"testing"
 	"time"
 
-	"sbam/pkg/mqtt"
-
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,53 +48,31 @@ func TestCrontabSchedule_SubprocessHelper(t *testing.T) {
 		}
 	}()
 
-	crontabSchedule(
-		"api-key",
-		"https://a.test,https://b.test,https://c.test",
-		"127.0.0.1",
-		1000,
-		3500,
-		100,
-		"00:00",
-		"00:55",
-		"0 0 1 1 *",
-		defaults,
-		"00:00",
-		"00:55",
-		0,
-		0,
-		false,
-		"cached_forecast",
-		7200,
-		nil,
-		mqtt.Config{},
-	)
+	runner := NewRunner(RunnerConfig{
+		StartHR:            "00:00",
+		EndHR:              "00:55",
+		BattReserveStartHR: "00:00",
+		BattReserveEndHR:   "00:55",
+		Now:                time.Now,
+	}, nil)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	require.NoError(t, crontabSchedule(ctx, runner, "0 0 1 1 *", defaults, "00:55"))
 }
 
-func TestCrontabSchedule_PanicsOnInvalidCronExpression(t *testing.T) {
-	assert.Panics(t, func() {
-		crontabSchedule(
-			"api-key",
-			"https://example.test/forecast",
-			"127.0.0.1",
-			1000,
-			3500,
-			100,
-			"00:00",
-			"00:55",
-			"not a cron expression",
-			false,
-			"00:00",
-			"00:55",
-			0,
-			0,
-			false,
-			"cached_forecast",
-			7200,
-			nil,
-			mqtt.Config{},
-		)
-	})
+func TestCrontabSchedule_InvalidCronExpressionReturnsError(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR:            "00:00",
+		EndHR:              "00:55",
+		BattReserveStartHR: "00:00",
+		BattReserveEndHR:   "00:55",
+		Now:                time.Now,
+	}, nil)
+
+	err := crontabSchedule(context.Background(), runner, "not a cron expression", false, "00:55")
+	require.Error(t, err)
 }
 
 func TestCrontabSchedule_ValidSpecReturnsAfterSignal(t *testing.T) {

@@ -59,6 +59,8 @@ type AckPayload struct {
 type IntentKind string
 
 const (
+	IntentTick        IntentKind = "tick"
+	IntentShutdown    IntentKind = "shutdown"
 	IntentPause       IntentKind = "pause"
 	IntentResume      IntentKind = "resume"
 	IntentForceCharge IntentKind = "force_charge"
@@ -73,6 +75,7 @@ type Intent struct {
 	DurationS     int        `json:"duration_s,omitempty"`
 	PauseUntil    *time.Time `json:"pause_until,omitempty"`
 	PwBattReserve float64    `json:"pw_batt_reserve,omitempty"`
+	CommandTopic  string     `json:"-"`
 }
 
 type DiscoveryEntity struct {
