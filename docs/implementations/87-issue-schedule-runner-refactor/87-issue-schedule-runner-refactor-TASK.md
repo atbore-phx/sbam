@@ -8,7 +8,7 @@
 
 ## Summary
 
-Refactor the current `schedule` workflow into a single-goroutine runner so cron ticks and MQTT commands cannot access Fronius Modbus concurrently. The runner must build on the existing MQTT state publication landed by #85 and the parser/ack APIs landed by #86, while preserving single-shot and cron behavior.
+Refactor the current `schedule` workflow into a single-goroutine runner so cron ticks and MQTT commands cannot access Fronius Modbus concurrently. The runner must build on the existing MQTT state publication landed by #85 and the parser/ack APIs landed by #86, while preserving cron behavior and keeping no-cron mode alive for MQTT command handling when `mqtt_enabled=true`.
 
 ## Motivation / User Story
 
@@ -44,7 +44,8 @@ As an sbam operator using MQTT commands and scheduled charging together, I need 
 
 ## Non-functional Requirements
 
-- Backward compatibility: single-shot mode without `crontab` must still run one schedule cycle and exit cleanly.
+- Backward compatibility: when `crontab` is disabled and `mqtt_enabled=true`, the runner must remain active and wait for MQTT commands until shutdown.
+- Backward compatibility: when `crontab` is disabled and `mqtt_enabled=false`, the command must exit cleanly.
 - Backward compatibility: cron scheduling behavior must remain equivalent except that cron callbacks submit `IntentTick` rather than running Modbus work directly.
 - Safety / defaults: only the runner may perform Fronius Modbus write helpers; document this single-writer invariant in the runner header comment.
 - Safety / defaults: invalid command payloads must publish rejected acks and must never reach Fronius code.
@@ -68,7 +69,8 @@ As an sbam operator using MQTT commands and scheduled charging together, I need 
 
 ## Acceptance Criteria
 
-- [ ] Single-shot mode still runs one schedule cycle and exits cleanly.
+- [ ] No-cron mode with `mqtt_enabled=true` keeps the runner alive and waits for MQTT commands until process shutdown.
+- [ ] No-cron mode with `mqtt_enabled=false` exits cleanly.
 - [ ] Cron mode submits ticks to the runner instead of running Modbus work in the cron callback.
 - [ ] `pause {}` prevents later ticks from writing Modbus until `resume`.
 - [ ] `pause {"until":"1h"}` and RFC3339 deadlines auto-resume after the deadline.
@@ -86,6 +88,7 @@ As an sbam operator using MQTT commands and scheduled charging together, I need 
 - Unit tests in `pkg/cmd` should use fake power/storage/Fronius adapters where practical and a recording fake `mqtt.Client` for state, error, and ack publishes.
 - Expected case: one successful tick publishes the preserved state payload and performs the expected Fronius action once.
 - Expected case: `force_charge` and `set_defaults` intents publish accepted acks and call the corresponding Fronius helpers exactly once.
+- Expected case: no-cron mode with `mqtt_enabled=true` blocks until SIGINT/SIGTERM while the runner loop is active.
 - Edge case: `pause {}` then tick publishes paused state and performs no Modbus writes until `resume`.
 - Edge case: timed pause with relative duration and RFC3339 deadline auto-resumes after the deadline.
 - Edge case: submitting many intents concurrently keeps Modbus writes serialized and passes `go test -race ./pkg/cmd`.

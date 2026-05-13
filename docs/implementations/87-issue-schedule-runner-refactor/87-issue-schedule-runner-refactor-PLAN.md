@@ -14,7 +14,7 @@ Issue #87 extracts the scheduling workflow into a single-goroutine runner that s
 
 Goals:
 
-- Preserve single-shot behavior: no crontab still runs exactly one schedule cycle and exits cleanly.
+- Preserve no-cron lifecycle behavior: when `mqtt_enabled=true`, keep the runner alive waiting for MQTT commands until shutdown; when `mqtt_enabled=false`, exit cleanly.
 - Preserve cron behavior: cron ticks enqueue work instead of doing Modbus work in cron goroutines.
 - Preserve MQTT state payload fields from #85 and ack/error helpers from #86.
 - Make `pause {}` an indefinite pause and `pause {"until":"1h"}` / RFC3339 a timed pause.
@@ -75,7 +75,7 @@ The runner lives in `pkg/cmd` because it coordinates CLI config, cron, MQTT, and
 Recommended new internal data flow:
 
 - `scdCmd.Run` builds `RunnerConfig` from the already-read Viper values.
-- Single-shot mode calls `runner.Tick(ctx, now)` directly or starts `runner.Run(ctx)` and submits one `IntentTick`; choose the simpler path that still exercises the same tick method.
+- No-cron mode starts `runner.Run(ctx)` immediately; if `mqtt_enabled=true` it waits for process shutdown, and if `mqtt_enabled=false` it submits shutdown and exits cleanly.
 - Cron mode starts `runner.Run(ctx)` once. Each cron callback submits a non-blocking intent and returns quickly.
 - Future #88 subscription callbacks call `runner.HandleCommand(ctx, topic, payload)` or equivalent. Invalid commands publish rejected acks immediately; valid commands enqueue an intent for serial execution.
 - The runner is the only component that calls Fronius Modbus write helpers.
@@ -296,8 +296,9 @@ After config validation and MQTT initialization:
 
 - Build `RunnerConfig` from the local values already read from Viper.
 - Construct `runner := NewRunner(runnerCfg, mqttClient)`.
-- For single-shot mode (`crontab == const_ct`), call `runner.Tick(context.Background(), time.Now())`; log/publish returned errors but exit cleanly.
-- For cron mode, create `ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)`, start `runner.Run(ctx)` in one goroutine, call `crontabSchedule(ctx, runner, crontab, s_defaults, end_hr)`, and stop the context on exit.
+- Create `ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)` and start `runner.Run(ctx)` in one goroutine.
+- For cron mode, call `crontabSchedule(ctx, runner, crontab, s_defaults, end_hr)` so ticks/defaults are submitted as intents.
+- For no-cron mode, do not run a one-shot tick in #87. If `mqtt_enabled=true`, block waiting for shutdown while keeping the runner loop active. If `mqtt_enabled=false`, submit shutdown and exit cleanly.
 - Preserve `mqttCleanup()` and startup logging.
 - Leave MQTT subscribe wiring out of this issue, but the runner API should be ready for #88 to call `HandleCommand`.
 
@@ -354,7 +355,8 @@ Expected cases:
 - `TestRunner_TriggerNowPublishesAckAndState`: `HandleCommand` or submitted `IntentTriggerNow` runs the same path as a cron tick and publishes accepted ack.
 - `TestRunner_ForceChargePublishesAck`: force charge calls `writer.ForceCharge(ip, targetPct)` exactly once and publishes accepted ack.
 - `TestRunner_SetDefaultsPublishesAck`: set defaults calls `writer.SetDefaults(ip)` exactly once and publishes accepted ack.
-- `TestSchedule_SingleShotUsesRunner`: no crontab still runs one tick and exits cleanly.
+- `TestFinalizeRunnerModeMQTTEnabledWaitsForSignal`: no-cron mode with `mqtt_enabled=true` blocks until SIGINT/SIGTERM.
+- `TestFinalizeRunnerModeMQTTDisabledStopsRunner`: no-cron mode with `mqtt_enabled=false` submits shutdown and exits cleanly.
 
 Edge cases:
 
@@ -399,7 +401,7 @@ Docker builds are not required for #87 unless the implementation unexpectedly ch
 
 - Default behavior remains unchanged when `mqtt_enabled=false`.
 - Existing `config.yaml`, environment variables, CLI flags, Docker image behavior, and Home Assistant add-on schema are unchanged by this issue.
-- Single-shot mode remains available and should not require a long-lived runner goroutine.
+- No-cron mode with `mqtt_enabled=true` keeps a long-lived runner goroutine active until shutdown; no-cron mode with `mqtt_enabled=false` exits cleanly.
 - Cron mode still accepts the same `crontab` string and defaults scheduling behavior, but invalid cron specs now return/log errors instead of panicking.
 - MQTT command subscription remains a follow-up in #88; #87 only provides the runner API and command handler surface needed by #88.
 - README and Home Assistant add-on changelog updates are intentionally deferred to #91/#89, except for updating [.github/copilot-instructions.md](../../../.github/copilot-instructions.md) if new source/test files are added.
@@ -444,3 +446,4 @@ The codebase already has the important seams: package-local factories for storag
 ## 14. Revision History
 
 - 2026-05-10: Expanded the initial short PLAN into a full issue #87 implementation plan after reconciling the GitHub issue, issue comment, current codebase, and parent #64 MQTT plan.
+- 2026-05-13: Updated no-cron lifecycle requirements to keep runner active for MQTT command handling when `mqtt_enabled=true`, while keeping command-topic wiring deferred to #88.

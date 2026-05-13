@@ -171,31 +171,27 @@ var scdCmd = &cobra.Command{
 		}
 
 		runner := NewRunner(runnerCfg, mqttClient)
+		runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
 
-		u.Log.Debugf("schedule crontab '%s'", crontab)
+		runDone := make(chan error, 1)
+		go func() {
+			runDone <- runner.Run(runCtx)
+		}()
+
 		if crontab != const_ct {
-			runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			defer stop()
-
-			runDone := make(chan error, 1)
-			go func() {
-				runDone <- runner.Run(runCtx)
-			}()
-
 			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, end_hr); err != nil {
 				u.Log.Error(err)
+				_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+				stop()
+				if waitErr := waitForRunnerDone(runDone); waitErr != nil {
+					u.Log.Error(waitErr)
+				}
+				return
 			}
-
-			_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
-			stop()
-
-			if runErr := <-runDone; runErr != nil && !errors.Is(runErr, context.Canceled) {
-				u.Log.Error(runErr)
-			}
-			return
 		}
 
-		if err := runner.Tick(context.Background(), time.Now()); err != nil {
+		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
 			u.Log.Error(err)
 		}
 	},
@@ -426,6 +422,33 @@ func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWin
 		Paused:              false,
 		Timestamp:           time.Now().UTC(),
 	}
+}
+
+func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, stop context.CancelFunc) error {
+	if !mqttEnabled {
+		u.Log.Info("MQTT integration disabled, stopping runner")
+		_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+		if stop != nil {
+			stop()
+		}
+		return waitForRunnerDone(runDone)
+	}
+
+	u.Log.Info("MQTT integration enabled, waiting for commands...")
+	return waitForRunnerDone(runDone)
+}
+
+func waitForRunnerDone(runDone <-chan error) error {
+	if runDone == nil {
+		return errors.New("runner completion channel is required")
+	}
+
+	runErr := <-runDone
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		return runErr
+	}
+
+	return nil
 }
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
