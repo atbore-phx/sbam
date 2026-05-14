@@ -192,7 +192,6 @@ var scdCmd = &cobra.Command{
 				}
 				return
 			}
-			u.Log.Info("Scheduler started with crontab: " + crontab)
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
@@ -437,7 +436,7 @@ func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, 
 		return waitForRunnerDone(runDone)
 	}
 
-	u.Log.Info("MQTT integration enabled, waiting for commands...")
+	u.Log.Info("MQTT integration enabled, waiting for commands... press ctrl+c to exit...")
 	return waitForRunnerDone(runDone)
 }
 
@@ -498,7 +497,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 		stopCtx := c.Stop()
 		<-stopCtx.Done()
 	}()
-
+	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
 }
