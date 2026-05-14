@@ -51,7 +51,8 @@ func connectWithRetries(client Client, maxAttempts int, baseBackoff time.Duratio
 // InitWithCleanup encapsulates client creation, initial connect (with
 // retries) and returns a cleanup function that attempts a graceful
 // disconnect. On Home Assistant discovery it subscribes to the status
-// topic and publishes discovery when HA comes online.
+// topic and publishes discovery when HA comes online. Optional handlers
+// are invoked after discovery publish in the same callback.
 func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration) (Client, func(), error) {
 	client, newErr := newClientFactory(cfg, version)
 	var accErr error
@@ -66,10 +67,12 @@ func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff ti
 			accErr = errors.Join(accErr, fmt.Errorf("mqtt connect failed after retries: %w", connErr))
 			u.Log.Warnw("mqtt connect failed after retries, using noop", "error", connErr)
 			client = newNoopFactory()
-		} else if cfg.HADiscovery && client.IsConnected() {
+		} else if client.IsConnected() && cfg.HADiscovery {
 			subCtx, subCancel := context.WithTimeout(context.Background(), defaultOpTimeout)
 			subErr := client.Subscribe(subCtx, haStatusTopic(), byte(1), func(topic string, payload []byte) {
-				if strings.TrimSpace(string(payload)) != "online" {
+				_ = topic
+				payloadCopy := append([]byte(nil), payload...)
+				if strings.TrimSpace(string(payloadCopy)) != "online" {
 					return
 				}
 

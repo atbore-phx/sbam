@@ -21,10 +21,16 @@ endif
 
 DATE=$(shell date)
 
-.PHONY: build test test-build
+.PHONY: build test test-build fmt tidy vet
 
-make fmt:
+fmt:
 	go fmt ./...
+
+tidy:
+	go mod tidy
+
+vet:
+	go vet ./...
 
 test:
 	go test -cover -race ./...
@@ -36,4 +42,4 @@ build:
 
 test-build: test build
 
-all: fmt test-build
+all: fmt tidy vet test build

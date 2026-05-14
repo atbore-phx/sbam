@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
 
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,15 @@ type fakeBatteryWriter struct {
 	lastTargetPct    int16
 	forceChargeErr   error
 	setDefaultsErr   error
+}
+
+// stubFroniusClient is a test helper that implements the froniusClient
+// interface and records the number of Handler calls.
+type stubFroniusClient struct{ calls int }
+
+func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error) {
+	s.calls++
+	return 0, fronius.DecisionIdle, "stub", fronius.PowerState{}, nil
 }
 
 func (f *fakeBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
@@ -299,4 +309,40 @@ func TestRunner_HandleCommandUnknownTopicRejected(t *testing.T) {
 	assert.False(t, ack.Accepted)
 	assert.Equal(t, "not_known", ack.Command)
 	assert.Equal(t, mqtt.ErrUnknownCommand.Error(), ack.Error)
+}
+
+func TestRunner_TickSkipsForecastAndChargeWhenPaused(t *testing.T) {
+	client := newFakeClient()
+
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	fakePower := &fakePowerClient{forecastWh: 9999, retrieved: true}
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return fakePower }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.setPause(nil) // indefinite pause
+
+	require.NoError(t, runner.Tick(context.Background(), runner.now()))
+
+	// storage should be called, but power and fronius should not be called
+	assert.Equal(t, 1, fakeStorage.calls)
+	assert.Equal(t, 0, fakePower.calls)
+	assert.Equal(t, 0, stub.calls)
+
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok)
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.True(t, state.Paused)
+	assert.Equal(t, "paused", state.LastDecision)
 }
