@@ -81,6 +81,8 @@ func TestNormalizePrefix(t *testing.T) {
 	assert.Equal(t, defaultTopicPrefix+"/state", stateTopic(" /// "))
 	assert.Equal(t, "custom/error", errorTopic(" /custom/ "))
 	assert.Equal(t, "custom/availability", availabilityTopic(" /custom/ "))
+	assert.Equal(t, defaultTopicPrefix+"/cmd/+", CommandTopicFilter(" /// "))
+	assert.Equal(t, "custom/cmd/+", CommandTopicFilter(" /custom/ "))
 }
 
 func TestPublishStateRoundTrip(t *testing.T) {

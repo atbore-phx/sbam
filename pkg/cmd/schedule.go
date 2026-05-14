@@ -134,7 +134,6 @@ var scdCmd = &cobra.Command{
 			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
 			FroniusIP:         fronius_ip,
 		}
-
 		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond)
 		defer mqttCleanup()
 		if err != nil {
@@ -178,6 +177,10 @@ var scdCmd = &cobra.Command{
 		go func() {
 			runDone <- runner.Run(runCtx)
 		}()
+
+		if err := subscribeScheduleCommands(runCtx, mqttClient, mqttCfg, runner); err != nil {
+			u.HandleError(err, "mqtt command subscription failed")
+		}
 
 		if crontab != const_ct {
 			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, end_hr); err != nil {
@@ -362,9 +365,7 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 // package tests (pkg/cmd/schedule_test.go). Tests should call the
 // wrapper or directly call `NewRunner(...).Tick(...)`.
 
-// publishStateSnapshot publishes the provided `payload` using the MQTT client
-// and stores a copy in `latestState` (if provided). The copy is used to
-// re-publish a cached snapshot when Home Assistant reconnects.
+// publishStateSnapshot publishes the provided `payload` using the MQTT client.
 func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload mqtt.StatePayload) {
 	// Use a short-lived context so the publish operation cannot block
 	// indefinitely. This matches other MQTT operations which use
@@ -372,6 +373,40 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload m
 	ctx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
 	defer cancel()
 	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
+}
+
+// publishLatestState re-publishes the cached latest state snapshot, if one exists.
+// latest-state republish was removed; discovery publish remains in mqtt.InitWithCleanup
+
+func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqttCfg mqtt.Config, runner *Runner) error {
+	if !mqttCfg.Enabled || mqttClient == nil {
+		return nil
+	}
+	if runner == nil {
+		return errors.New("runner must not be nil")
+	}
+	if !mqttClient.IsConnected() {
+		return nil
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	commandFilter := mqtt.CommandTopicFilter(mqttCfg.TopicPrefix)
+	subCtx, cancel := context.WithTimeout(ctx, const_mqtt_op_timeout)
+	defer cancel()
+
+	if err := mqttClient.Subscribe(subCtx, commandFilter, byte(1), func(topic string, payload []byte) {
+		payloadCopy := append([]byte(nil), payload...)
+		opCtx, opCancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+		defer opCancel()
+		runner.HandleCommand(opCtx, topic, payloadCopy)
+	}); err != nil {
+		return fmt.Errorf("mqtt subscribe %q failed: %w", commandFilter, err)
+	}
+
+	return nil
 }
 
 // makeBasePayload builds a StatePayload with fields common to all
@@ -401,7 +436,7 @@ func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, 
 		return waitForRunnerDone(runDone)
 	}
 
-	u.Log.Info("MQTT integration enabled, waiting for commands...")
+	u.Log.Info("MQTT integration enabled, waiting for commands... press ctrl+c to exit...")
 	return waitForRunnerDone(runDone)
 }
 
@@ -462,7 +497,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 		stopCtx := c.Stop()
 		<-stopCtx.Done()
 	}()
-
+	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
 }

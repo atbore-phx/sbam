@@ -63,6 +63,8 @@ var newBatteryWriter = func() batteryWriter {
 	return froniusBatteryWriter{}
 }
 
+// latest state caching was removed; the runner publishes state directly.
+
 // Runner owns serialized schedule and command execution.
 // Single-writer invariant: all Fronius Modbus write operations must be executed by this runner.
 type Runner struct {
@@ -167,7 +169,16 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return storageErr
 	}
 
-	paused, pauseUntil := r.pauseStateAt(now)
+	if paused, pauseUntil := r.pauseStateAt(now); paused {
+		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive)
+		payload.BatterySOCPct = &socPct
+		payload.BatteryCapacityWh = &capacityMax
+		payload.Paused = true
+		payload.NextRun = pauseUntil
+		r.publishState(payload)
+		return nil
+	}
+
 	if !inChargeWindow {
 		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + r.cfg.StartHR + " <= t <= " + r.cfg.EndHR)
 		capMax := capacityMax
@@ -175,8 +186,6 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
-		payload.Paused = paused
-		payload.NextRun = pauseUntil
 		r.publishState(payload)
 		return nil
 	}
@@ -188,17 +197,6 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		r.publishError(ctx, "power", forecastErr)
 		solarPowerProduction = 0.0
 		forecastRetrieved = false
-	}
-
-	if paused {
-		payload := makeBasePayload("paused", "schedule execution skipped because runner is paused", inChargeWindow, reserveWindowActive)
-		payload.BatterySOCPct = &socPct
-		payload.BatteryCapacityWh = &capacityMax
-		payload.ForecastTodayWh = &solarPowerProduction
-		payload.Paused = true
-		payload.NextRun = pauseUntil
-		r.publishState(payload)
-		return nil
 	}
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(r.cfg.PWConsumption))

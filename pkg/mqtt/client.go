@@ -61,6 +61,10 @@ func availabilityTopic(prefix string) string {
 	return normalizePrefix(prefix) + "/availability"
 }
 
+func CommandTopicFilter(prefix string) string {
+	return normalizePrefix(prefix) + "/cmd/+"
+}
+
 func normalizeDiscoveryPrefix(prefix string) string {
 	trimmed := strings.Trim(strings.TrimSpace(prefix), "/")
 	if trimmed == "" {
