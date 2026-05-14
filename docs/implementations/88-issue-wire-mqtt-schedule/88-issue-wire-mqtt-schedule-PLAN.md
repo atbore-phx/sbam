@@ -100,17 +100,11 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 ## 6. Implementation Blueprint
 
 1. Update MQTT HA status init hook in [pkg/mqtt/init.go](../../../pkg/mqtt/init.go).
-	 - Add a small extension point while preserving current callers, for example:
+ 	 - Ensure `InitWithCleanup` subscribes to `homeassistant/status` and publishes discovery when `cfg.HADiscovery` is true. The function no longer accepts caller-provided handlers; discovery re-publication is the sole built-in HA-online behavior.
 
-		 ```go
-		 type HAOnlineHandler func(context.Context, Client)
-
-		 func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration, handlers ...HAOnlineHandler) (Client, func(), error)
-		 ```
-
-	 - In the existing `homeassistant/status` callback, copy `payload` with `append([]byte(nil), payload...)`, ignore non-`online`, publish discovery as today, then invoke each non-nil handler with the same short-lived context and connected client.
-	- Keep existing behavior when no handler is passed.
-	- Rationale: schedule needs a way to re-publish discovery when HA signals online; `pkg/mqtt` should own the HA status subscription and discovery publish behavior.
+	 - In the existing `homeassistant/status` callback, copy `payload` with `append([]byte(nil), payload...)`, ignore non-`online`, and call `PublishDiscovery(ctx, client, cfg, version)`.
+	 - Keep existing behavior when `HADiscovery` is false (no subscription).
+	 - Rationale: `pkg/mqtt` should own discovery publish; higher-level code should publish any additional application state explicitly (for example, via the runner) rather than registering inline callbacks.
 
 2. Add command topic filter helper in [pkg/mqtt/client.go](../../../pkg/mqtt/client.go).
 	 - Add:
@@ -148,11 +142,10 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 	 - Keep comments succinct and tied to concurrency/state behavior.
 
 6. Extend MQTT init tests in [pkg/mqtt/init_test.go](../../../pkg/mqtt/init_test.go).
-	 - Expected: existing discovery-on-`online` behavior still publishes discovery.
-	 - Expected: a passed `HAOnlineHandler` is called exactly once for `online` and not for `offline`.
-	 - Edge: nil handler is ignored.
-	 - Failure: subscription failure is still returned as an accumulated error.
-	 - Verify payload copying if practical by mutating the original byte slice after callback entry in a focused unit test.
+ 	 - Expected: existing discovery-on-`online` behavior still publishes discovery.
+ 	 - Expected: handler-based registration support has been removed; tests should exercise discovery publish and subscription behavior via `HADiscovery=true` instead of passing inline handlers.
+ 	 - Failure: subscription failure is still returned as an accumulated error.
+ 	 - Verify payload copying if practical by mutating the original byte slice after callback entry in a focused unit test.
 
 7. Extend command wiring tests in `pkg/cmd`.
 	 - Extend the existing fake MQTT client in [pkg/cmd/schedule_test.go](../../../pkg/cmd/schedule_test.go) or create a local recording fake in a new test file under `pkg/cmd`.
