@@ -94,7 +94,7 @@ No new config keys are expected for this issue. Home Assistant add-on schema cha
 - Fronius Solar API: unchanged.
 - Fronius Modbus registers: unchanged register semantics; write access remains serialized by the runner.
 - MQTT broker: subscribe to command topics and publish command acks/state/discovery through the existing `pkg/mqtt.Client` interface.
-- Home Assistant: respond to `homeassistant/status=online` by re-publishing discovery and latest state.
+- Home Assistant: respond to `homeassistant/status=online` by re-publishing discovery.
 
 ## Acceptance Criteria
 
@@ -104,7 +104,9 @@ No new config keys are expected for this issue. Home Assistant add-on schema cha
 - [ ] `cmd/pause`, `cmd/resume`, `cmd/force_charge`, and `cmd/set_defaults` route through the runner.
 - [ ] Bad command payloads publish rejected acks and do not reach the runner.
 - [ ] Accepted commands publish accepted/error acks from runner execution, not directly from the MQTT callback.
-- [ ] `homeassistant/status=online` re-publishes discovery and latest state when known.
+ - [ ] `homeassistant/status=online` re-publishes discovery (no latest-state cache is stored by this change).
+
+Note: Runner.Tick now checks the paused state early. When paused, a Tick will short-circuit before charge-window evaluation, forecast retrieval, and Fronius handler execution; tests must assert this behavior.
 - [ ] `mqtt_password` and `mqtt_tls_client_cert_key` remain rendered as `***` in `DEBUG=true sbam schedule ...` startup dumps.
 - [ ] All twelve MQTT keys observe flag > env > yaml > default precedence.
 - [ ] `make test` and `make build` are green.

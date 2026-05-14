@@ -18,16 +18,7 @@ Non-goals:
 - Do not modify Home Assistant add-on service auto-discovery or README release docs; those remain #89/#91.
 - Do not change Solcast, Fronius Solar API, or Fronius Modbus register semantics.
 
-Acceptance criteria from the TASK:
-
-- `mqtt_enabled=false` remains a no-connect/no-subscribe/no-Modbus-diff path.
-- MQTT-enabled `schedule` subscribes to `<mqtt_topic_prefix>/cmd/+` and publishes state after ticks.
-- `trigger_now`, `pause`, `resume`, `force_charge`, and `set_defaults` route through the runner.
-- Parser failures publish rejected acks immediately; accepted/error execution acks are published by the runner.
-- `homeassistant/status=online` re-publishes discovery and latest state when known.
-- `mqtt_password` and `mqtt_tls_client_cert_key` stay redacted.
-- All twelve MQTT keys observe flag > env > yaml > default precedence.
-- `make test` and `make build` pass.
+ - `homeassistant/status=online` re-publishes discovery. (No latest-state cache is added by this change.)
 
 ## 2. Current State
 
@@ -36,7 +27,7 @@ Acceptance criteria from the TASK:
 | Schedule flags/config | [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) | Registers and reads all twelve MQTT keys, builds `mqtt.Config`, calls `mqtt.InitWithCleanup`, logs startup parameters, constructs `Runner`, starts `Runner.Run`, and uses `crontabSchedule` for cron. |
 | Runner lifecycle | [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) | `finalizeRunnerMode` stops the runner immediately when MQTT is disabled, and waits for signals when MQTT is enabled. `crontabSchedule` already submits `mqtt.IntentTick` and `mqtt.IntentSetDefaults` instead of running schedule work directly. |
 | Runner API | [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go) | `NewRunner`, `Run`, `Submit`, `HandleCommand`, `Tick`, and `handleIntent` exist. `Submit` is non-blocking with queue size 16. `HandleCommand` parses with `mqtt.ParseIntent`, publishes rejected acks for parser failures or full queue, and submits accepted intents. `handleIntent` publishes accepted/error acks after execution. |
-| State/error publishing | [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go), [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) | `Runner.publishState` delegates to `publishStateSnapshot`, which publishes retained `mqtt.StatePayload`. Despite its comment, no latest-state cache currently exists. |
+| State/error publishing | [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go), [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go) | `Runner.publishState` delegates to `publishStateSnapshot`, which publishes retained `mqtt.StatePayload`. No latest-state cache exists; this change will not add one. |
 | MQTT init | [pkg/mqtt/init.go](../../../pkg/mqtt/init.go) | `InitWithCleanup` creates/connects the client, falls back to noop on setup/connect failure, and subscribes to `homeassistant/status` to re-publish discovery only. |
 | MQTT client API | [pkg/mqtt/client.go](../../../pkg/mqtt/client.go) | `Client` supports `Connect`, `Disconnect`, `Publish`, `Subscribe`, and `IsConnected`. Topic helpers are currently unexported. |
 | MQTT parser/ack | [pkg/mqtt/commands.go](../../../pkg/mqtt/commands.go) | `ParseIntent` supports `trigger_now`, `force_charge`, `set_defaults`, `pause`, and `resume`; `pause` accepts empty payload or `{}` as indefinite. `PublishAck` publishes `{ts, command, accepted, error}` to `<cmd-topic>/ack`. |
@@ -60,16 +51,14 @@ flowchart LR
 	Runner -->|state / ack / error| Broker
 	HA[homeassistant/status=online] --> HAHandler[HA status handler]
 	HAHandler -->|discovery| Broker
-	HAHandler -->|latest state if cached| Broker
 ```
 
 Implementation shape:
 
 - Keep the runner as the only owner of Fronius write operations.
 - Use `Runner.HandleCommand(ctx, topic, payload)` as the command entry point instead of duplicating parser/ack logic in `schedule.go`.
-- Add command subscription wiring in `schedule.go` after MQTT init and runner construction.
-- Add a small latest-state cache in `pkg/cmd` and store snapshots inside `Runner.publishState` before calling `mqtt.PublishState`.
-- Extend MQTT HA status handling so `homeassistant/status=online` can publish discovery and also call a schedule-owned latest-state republisher.
+ - Add command subscription wiring in `schedule.go` after MQTT init and runner construction.
+ - Do not add a latest-state cache; keep HA online handling limited to discovery re-publication only.
 - Keep MQTT init fallback behavior: setup/connect failures return a noop client and a non-fatal error to log.
 
 ## 4. Dependency Choices
@@ -120,8 +109,8 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 		 ```
 
 	 - In the existing `homeassistant/status` callback, copy `payload` with `append([]byte(nil), payload...)`, ignore non-`online`, publish discovery as today, then invoke each non-nil handler with the same short-lived context and connected client.
-	 - Keep existing behavior when no handler is passed.
-	 - Rationale: schedule needs a latest-state republish hook, but `pkg/mqtt` should still own the HA status topic helper and discovery publish behavior it already has.
+	- Keep existing behavior when no handler is passed.
+	- Rationale: schedule needs a way to re-publish discovery when HA signals online; `pkg/mqtt` should own the HA status subscription and discovery publish behavior.
 
 2. Add command topic filter helper in [pkg/mqtt/client.go](../../../pkg/mqtt/client.go).
 	 - Add:
@@ -155,7 +144,7 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 	- Do not publish accepted acks in this callback; `Runner.handleIntent` already does that.
 
 5. Tighten/adjust comments in [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go).
-	 - Update the `publishStateSnapshot` comment so it no longer claims to store `latestState` unless the cache is actually passed/stored elsewhere.
+ 	 - Update the `publishStateSnapshot` comment so it no longer claims to store `latestState` (no cache is added by this change).
 	 - Keep comments succinct and tied to concurrency/state behavior.
 
 6. Extend MQTT init tests in [pkg/mqtt/init_test.go](../../../pkg/mqtt/init_test.go).
@@ -173,10 +162,9 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 		 - expected: invoking the stored handler with `sbam/cmd/trigger_now` enqueues `mqtt.IntentTriggerNow` through `Runner.HandleCommand`.
 		 - failure: invalid payload publishes a rejected ack and leaves the runner queue empty.
 		 - failure: subscribe error is returned/loggable and does not panic.
-	 - Test latest-state cache:
-		 - before any state, HA online handler does not publish `state`.
-		 - after `Runner.publishState`, HA online handler publishes the cached state.
-		 - mutate original payload pointer values after storing and verify cached state does not change.
+	- Test HA online discovery republish:
+		- before any state, HA online handler does not publish `state`.
+		- discovery is re-published on `homeassistant/status=online` but no latest-state republish occurs.
 
 8. Extend precedence tests in [pkg/cmd/precedence_test.go](../../../pkg/cmd/precedence_test.go).
 	 - Replace the one-off MQTT discovery-prefix test with a table covering all twelve keys.
@@ -204,7 +192,7 @@ For every changed area, include expected, edge, and failure coverage.
 
 - Expected: command subscription uses `<mqtt_topic_prefix>/cmd/+` and routes `trigger_now` to the runner.
 - Expected: `pause`, `resume`, `force_charge`, and `set_defaults` still get accepted/execution acks from runner tests.
- - Edge: no latest state exists when HA comes online; discovery re-publishes and no empty state is sent.
+ - Edge: no cached state exists when HA comes online; discovery re-publishes and no empty state is sent.
 - Edge: a full runner queue returns `false` from `HandleCommand` and publishes a rejected ack.
 - Failure: invalid command topic/payload publishes rejected ack and does not enqueue an intent.
 - Failure: command subscription error is surfaced/logged and does not crash `schedule`.
@@ -233,7 +221,7 @@ make test
 make build
 ```
 
-If command subscription or latest-state cache introduces goroutine/channel-sensitive tests, also run:
+If command subscription introduces goroutine/channel-sensitive tests, also run:
 
 ```bash
 go test -race ./pkg/cmd
@@ -246,7 +234,7 @@ No Docker build is required for this issue unless implementation unexpectedly ch
 - `mqtt_enabled=false` remains the default and must not attempt any MQTT connection or command subscription.
 - Existing schedule cron behavior is already routed through the runner; #88 must preserve that behavior.
 - Existing MQTT command topics and ack payload shapes from #86 remain stable.
-- Existing `homeassistant/status=online` discovery re-publication remains; #88 adds latest-state re-publication only when a snapshot exists.
+- Existing `homeassistant/status=online` discovery re-publication remains; this change does not add latest-state re-publication.
 - No migration is required for users who do not enable MQTT.
 - No Home Assistant add-on schema migration is part of this issue.
 
@@ -256,15 +244,15 @@ No Docker build is required for this issue unless implementation unexpectedly ch
 - Keep command callbacks non-blocking enough for Paho receive goroutines. Use short contexts and rely on `Runner.Submit` queue-full handling.
 - Copy MQTT payload bytes before parsing/dispatch to avoid retaining or racing with broker/client buffers.
 - Do not log raw secret config values. `mqtt_password` and `mqtt_tls_client_cert_key` must remain in `utils.SecretKeys`.
-- Latest-state cache must deep-copy pointer fields to avoid data races or later mutation changing retained snapshots.
+- No latest-state cache is added; no deep-copy requirement applies.
 - No command path should execute shell commands, evaluate templates, or call reflection based on MQTT payload content.
 
 ## 11. Gotchas
 
-- `InitWithCleanup` currently owns the HA status subscription. Add the latest-state hook there rather than creating two subscriptions to `homeassistant/status` from the same client.
+- `InitWithCleanup` currently owns the HA status subscription. Keep that single subscription rather than creating additional subscriptions to `homeassistant/status` from other packages.
 - `Runner.HandleCommand` already publishes parser-failure acks and queue-full rejected acks; duplicating that logic in `schedule.go` would create double acks.
 - `Runner.handleIntent` already publishes accepted/error execution acks for command intents; the MQTT callback should stop after `HandleCommand` returns.
-- `publishStateSnapshot` currently has a stale comment about latest-state storage. Fix the comment while adding the actual cache.
+- `publishStateSnapshot` currently has a stale comment about latest-state storage. Fix the comment and do not add a cache.
 - Topic helper functions in `pkg/mqtt/client.go` are unexported today, so command subscription should use a small exported helper rather than hand-normalizing prefixes in `pkg/cmd`.
 - Shared Cobra command flags and Viper globals make precedence tests order-sensitive. Reset flag values and `Changed` state in `t.Cleanup`.
 - `mqtt.New` returns a noop client when disabled; guard subscriptions with both `cfg.Enabled` and `client.IsConnected()` to keep disabled behavior quiet.
@@ -276,14 +264,14 @@ No Docker build is required for this issue unless implementation unexpectedly ch
 - RESOLVED: pause `{}` already parses as indefinite pause in `pkg/mqtt/commands.go`.
 - RESOLVED: runner stays alive in no-cron MQTT mode through `finalizeRunnerMode`.
 - RISK: adding an HA online hook to `InitWithCleanup` touches `pkg/mqtt` tests; keep the variadic API backward-compatible.
-- RISK: latest-state cache cloning can miss a pointer field if `mqtt.StatePayload` grows; keep clone tests strict.
+- RISK: none specific to latest-state cache; keep HA discovery behaviour and subscription handling well-tested.
 - RISK: command subscription is non-fatal by design; document/log clearly so operators can diagnose missing remote control while state publishing still works.
 
 ## 13. Confidence Score
 
 9/10.
 
-The runner, parser, ack publisher, MQTT init, and most lifecycle behavior already exist and have focused tests. The remaining work is narrow. Confidence would rise further after implementation validates the exact latest-state cache shape under `go test -race ./pkg/cmd`.
+The runner, parser, ack publisher, MQTT init, and most lifecycle behavior already exist and have focused tests. The remaining work is narrow. Confidence would rise further after implementation validates pause semantics and command wiring under `go test -race ./pkg/cmd`.
 
 ## 14. Revision History
 
