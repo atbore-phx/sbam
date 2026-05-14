@@ -192,6 +192,7 @@ var scdCmd = &cobra.Command{
 				}
 				return
 			}
+			u.Log.Info("Scheduler started with crontab: " + crontab)
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
