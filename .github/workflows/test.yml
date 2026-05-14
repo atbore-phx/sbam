@@ -27,7 +27,10 @@ jobs:
           fi
 
       - name: go testing
-        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: |
+          go mod tidy
+          go vet ./...
+          go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage to codecov
         uses: codecov/codecov-action@v6

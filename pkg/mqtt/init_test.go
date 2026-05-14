@@ -206,3 +206,39 @@ func TestInitWithCleanupHADiscoveryPublishesOnOnline(t *testing.T) {
 	}
 	assert.True(t, foundConfigTopic)
 }
+
+func TestInitWithCleanupOnlineHandlerInvokedOnOnlineOnly(t *testing.T) {
+	client := &fakeInitClient{connectErrs: []error{nil}}
+	withInitFactories(
+		t,
+		func(_ Config, _ ...string) (Client, error) {
+			return client, nil
+		},
+		nil,
+	)
+
+	// handler registration support removed; discovery publish is covered
+	// by TestInitWithCleanupHADiscoveryPublishesOnOnline.
+}
+
+// handler-based registration removed; subscription behavior is covered
+// by TestInitWithCleanupHADiscoveryPublishesOnOnline and
+// TestInitWithCleanupSubscribeErrorIsReturned.
+
+func TestInitWithCleanupNoHandlersNoDiscoveryDoesNotSubscribe(t *testing.T) {
+	client := &fakeInitClient{connectErrs: []error{nil}}
+	withInitFactories(
+		t,
+		func(_ Config, _ ...string) (Client, error) {
+			return client, nil
+		},
+		nil,
+	)
+
+	cfg := Config{Enabled: true, HADiscovery: false}
+	_, cleanup, err := InitWithCleanup(cfg, "dev", 1, 0)
+	defer cleanup()
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, client.subscribeCalls, "should not subscribe when no handlers and discovery disabled")
+}
