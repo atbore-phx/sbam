@@ -206,3 +206,68 @@ func TestInitWithCleanupHADiscoveryPublishesOnOnline(t *testing.T) {
 	}
 	assert.True(t, foundConfigTopic)
 }
+
+func TestInitWithCleanupOnlineHandlerInvokedOnOnlineOnly(t *testing.T) {
+	client := &fakeInitClient{connectErrs: []error{nil}}
+	withInitFactories(
+		t,
+		func(_ Config, _ ...string) (Client, error) {
+			return client, nil
+		},
+		nil,
+	)
+
+	cfg := Config{
+		Enabled:           true,
+		HADiscovery:       true,
+		HADiscoveryPrefix: "homeassistant",
+		TopicPrefix:       "sbam",
+		FroniusIP:         "127.0.0.1",
+	}
+
+	handlerCalls := 0
+	_, cleanup, err := InitWithCleanup(cfg, "dev", 1, 0,
+		func(ctx context.Context, c Client) {
+			handlerCalls++
+			require.NotNil(t, ctx)
+			assert.Same(t, client, c)
+		},
+		nil,
+	)
+	defer cleanup()
+
+	require.NoError(t, err)
+	require.NotNil(t, client.subscribeHdlr)
+
+	client.subscribeHdlr(haStatusTopic(), []byte("offline"))
+	client.subscribeHdlr(haStatusTopic(), []byte(" online "))
+
+	assert.Equal(t, 1, handlerCalls)
+}
+
+func TestInitWithCleanupOnlineHandlerSubscribesWhenDiscoveryDisabled(t *testing.T) {
+	client := &fakeInitClient{connectErrs: []error{nil}}
+	withInitFactories(
+		t,
+		func(_ Config, _ ...string) (Client, error) {
+			return client, nil
+		},
+		nil,
+	)
+
+	cfg := Config{Enabled: true, HADiscovery: false}
+	handlerCalls := 0
+	_, cleanup, err := InitWithCleanup(cfg, "dev", 1, 0, func(context.Context, Client) {
+		handlerCalls++
+	})
+	defer cleanup()
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, client.subscribeCalls)
+	assert.Equal(t, haStatusTopic(), client.subscribeTopic)
+	require.NotNil(t, client.subscribeHdlr)
+
+	client.subscribeHdlr(haStatusTopic(), []byte("online"))
+	assert.Equal(t, 1, handlerCalls)
+	assert.Equal(t, 0, client.publishCalls, "discovery publish stays disabled when HADiscovery=false")
+}

@@ -18,6 +18,20 @@ var (
 	newNoopFactory   = func() Client { return NewNoop() }
 )
 
+// HAOnlineHandler is invoked when a connected client receives
+// homeassistant/status = online.
+type HAOnlineHandler func(ctx context.Context, client Client)
+
+func hasHAOnlineHandlers(handlers []HAOnlineHandler) bool {
+	for _, handler := range handlers {
+		if handler != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 // connectWithRetries performs a small number of Connect attempts with
 // exponential backoff and returns the last error if all attempts fail.
 // It uses a short per-attempt timeout governed by defaultOpTimeout.
@@ -51,8 +65,9 @@ func connectWithRetries(client Client, maxAttempts int, baseBackoff time.Duratio
 // InitWithCleanup encapsulates client creation, initial connect (with
 // retries) and returns a cleanup function that attempts a graceful
 // disconnect. On Home Assistant discovery it subscribes to the status
-// topic and publishes discovery when HA comes online.
-func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration) (Client, func(), error) {
+// topic and publishes discovery when HA comes online. Optional handlers
+// are invoked after discovery publish in the same callback.
+func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration, haOnlineHandlers ...HAOnlineHandler) (Client, func(), error) {
 	client, newErr := newClientFactory(cfg, version)
 	var accErr error
 	if newErr != nil {
@@ -66,15 +81,22 @@ func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff ti
 			accErr = errors.Join(accErr, fmt.Errorf("mqtt connect failed after retries: %w", connErr))
 			u.Log.Warnw("mqtt connect failed after retries, using noop", "error", connErr)
 			client = newNoopFactory()
-		} else if cfg.HADiscovery && client.IsConnected() {
+		} else if client.IsConnected() && (cfg.HADiscovery || hasHAOnlineHandlers(haOnlineHandlers)) {
 			subCtx, subCancel := context.WithTimeout(context.Background(), defaultOpTimeout)
 			subErr := client.Subscribe(subCtx, haStatusTopic(), byte(1), func(topic string, payload []byte) {
-				if strings.TrimSpace(string(payload)) != "online" {
+				_ = topic
+				payloadCopy := append([]byte(nil), payload...)
+				if strings.TrimSpace(string(payloadCopy)) != "online" {
 					return
 				}
 
 				ctx, cancel := context.WithTimeout(context.Background(), defaultOpTimeout)
 				PublishDiscovery(ctx, client, cfg, version)
+				for _, handler := range haOnlineHandlers {
+					if handler != nil {
+						handler(ctx, client)
+					}
+				}
 				cancel()
 			})
 			subCancel()
