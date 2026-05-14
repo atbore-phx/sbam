@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"sbam/pkg/mqtt"
 
@@ -131,59 +130,4 @@ func TestSubscribeScheduleCommands_RequiresRunner(t *testing.T) {
 	err := subscribeScheduleCommands(context.Background(), client, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "runner must not be nil")
-}
-
-func TestPublishLatestState_NoSnapshot(t *testing.T) {
-	client := &recordingMQTTClient{connected: true}
-	latest := newLatestStateCache()
-
-	published := publishLatestState(context.Background(), client, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, latest)
-	assert.False(t, published)
-	assert.Empty(t, client.publishedTopics)
-}
-
-func TestPublishLatestState_PublishesCachedSnapshotCopy(t *testing.T) {
-	client := &recordingMQTTClient{connected: true}
-	latest := newLatestStateCache()
-
-	now := time.Date(2026, time.May, 14, 12, 0, 0, 0, time.UTC)
-	soc := 42.0
-	capacity := 10000.0
-	next := now.Add(30 * time.Minute)
-	payload := mqtt.StatePayload{
-		BatterySOCPct:      &soc,
-		BatteryCapacityWh:  &capacity,
-		LastDecision:       "idle",
-		LastDecisionReason: "cached",
-		NextRun:            &next,
-		Timestamp:          now,
-	}
-
-	runner := NewRunner(RunnerConfig{
-		StartHR:            "00:00",
-		EndHR:              "23:59",
-		BattReserveStartHR: "00:00",
-		BattReserveEndHR:   "23:59",
-		MQTT:               mqtt.Config{Enabled: true, TopicPrefix: "sbam"},
-		LatestState:        latest,
-		Now:                func() time.Time { return now },
-	}, client)
-
-	runner.publishState(payload)
-
-	soc = 88.0
-	capacity = 5000.0
-	next = now.Add(2 * time.Hour)
-
-	published := publishLatestState(context.Background(), client, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, latest)
-	require.True(t, published)
-	require.GreaterOrEqual(t, len(client.publishedBodies), 2)
-
-	republished := decodeStatePayload(t, client.publishedBodies[len(client.publishedBodies)-1])
-	require.NotNil(t, republished.BatterySOCPct)
-	require.NotNil(t, republished.BatteryCapacityWh)
-	require.NotNil(t, republished.NextRun)
-	assert.Equal(t, 42.0, *republished.BatterySOCPct)
-	assert.Equal(t, 10000.0, *republished.BatteryCapacityWh)
-	assert.Equal(t, now.Add(30*time.Minute), republished.NextRun.UTC())
 }

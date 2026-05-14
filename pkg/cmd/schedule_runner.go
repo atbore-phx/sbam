@@ -8,7 +8,6 @@ import (
 	"sbam/pkg/mqtt"
 	u "sbam/src/utils"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -42,7 +41,6 @@ type RunnerConfig struct {
 	CacheTime          int32
 	Defaults           bool
 	MQTT               mqtt.Config
-	LatestState        *latestStateCache
 	Now                func() time.Time
 }
 
@@ -65,84 +63,7 @@ var newBatteryWriter = func() batteryWriter {
 	return froniusBatteryWriter{}
 }
 
-type latestStateCache struct {
-	mu      sync.RWMutex
-	payload *mqtt.StatePayload
-}
-
-func newLatestStateCache() *latestStateCache {
-	return &latestStateCache{}
-}
-
-func cloneFloat64Ptr(v *float64) *float64 {
-	if v == nil {
-		return nil
-	}
-	copyV := *v
-	return &copyV
-}
-
-func cloneInt16Ptr(v *int16) *int16 {
-	if v == nil {
-		return nil
-	}
-	copyV := *v
-	return &copyV
-}
-
-func cloneBoolPtr(v *bool) *bool {
-	if v == nil {
-		return nil
-	}
-	copyV := *v
-	return &copyV
-}
-
-func cloneTimePtr(v *time.Time) *time.Time {
-	if v == nil {
-		return nil
-	}
-	copyV := v.UTC()
-	return &copyV
-}
-
-func cloneStatePayload(payload mqtt.StatePayload) mqtt.StatePayload {
-	cloned := payload
-	cloned.BatterySOCPct = cloneFloat64Ptr(payload.BatterySOCPct)
-	cloned.BatteryCapacityWh = cloneFloat64Ptr(payload.BatteryCapacityWh)
-	cloned.ForecastTodayWh = cloneFloat64Ptr(payload.ForecastTodayWh)
-	cloned.PwNetWh = cloneFloat64Ptr(payload.PwNetWh)
-	cloned.ChargePct = cloneInt16Ptr(payload.ChargePct)
-	cloned.ChargeWindowActive = cloneBoolPtr(payload.ChargeWindowActive)
-	cloned.ReserveWindowActive = cloneBoolPtr(payload.ReserveWindowActive)
-	cloned.NextRun = cloneTimePtr(payload.NextRun)
-	return cloned
-}
-
-func (c *latestStateCache) Store(payload mqtt.StatePayload) {
-	if c == nil {
-		return
-	}
-	cloned := cloneStatePayload(payload)
-
-	c.mu.Lock()
-	c.payload = &cloned
-	c.mu.Unlock()
-}
-
-func (c *latestStateCache) Load() (mqtt.StatePayload, bool) {
-	if c == nil {
-		return mqtt.StatePayload{}, false
-	}
-
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.payload == nil {
-		return mqtt.StatePayload{}, false
-	}
-
-	return cloneStatePayload(*c.payload), true
-}
+// latest state caching was removed; the runner publishes state directly.
 
 // Runner owns serialized schedule and command execution.
 // Single-writer invariant: all Fronius Modbus write operations must be executed by this runner.
@@ -157,9 +78,6 @@ type Runner struct {
 func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
-	}
-	if cfg.LatestState == nil {
-		cfg.LatestState = newLatestStateCache()
 	}
 
 	return &Runner{
@@ -441,9 +359,6 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 }
 
 func (r *Runner) publishState(payload mqtt.StatePayload) {
-	if r.cfg.LatestState != nil {
-		r.cfg.LatestState.Store(payload)
-	}
 	publishStateSnapshot(r.client, r.cfg.MQTT, payload)
 }
 

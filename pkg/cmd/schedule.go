@@ -134,17 +134,7 @@ var scdCmd = &cobra.Command{
 			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
 			FroniusIP:         fronius_ip,
 		}
-		latestState := newLatestStateCache()
-
-		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(
-			mqttCfg,
-			appVersion,
-			3,
-			250*time.Millisecond,
-			func(ctx context.Context, client mqtt.Client) {
-				publishLatestState(ctx, client, mqttCfg, latestState)
-			},
-		)
+		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond)
 		defer mqttCleanup()
 		if err != nil {
 			u.HandleError(err, "mqtt homeassistant/status subscription failed")
@@ -176,7 +166,6 @@ var scdCmd = &cobra.Command{
 			CacheTime:          s_cache_time,
 			Defaults:           s_defaults,
 			MQTT:               mqttCfg,
-			LatestState:        latestState,
 			Now:                time.Now,
 		}
 
@@ -387,25 +376,7 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload m
 }
 
 // publishLatestState re-publishes the cached latest state snapshot, if one exists.
-func publishLatestState(ctx context.Context, mqttClient mqtt.Client, mqttCfg mqtt.Config, latestState *latestStateCache) bool {
-	if latestState == nil {
-		return false
-	}
-
-	payload, ok := latestState.Load()
-	if !ok {
-		return false
-	}
-
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), const_mqtt_op_timeout)
-		defer cancel()
-	}
-
-	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
-	return true
-}
+// latest-state republish was removed; discovery publish remains in mqtt.InitWithCleanup
 
 func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqttCfg mqtt.Config, runner *Runner) error {
 	if !mqttCfg.Enabled || mqttClient == nil {

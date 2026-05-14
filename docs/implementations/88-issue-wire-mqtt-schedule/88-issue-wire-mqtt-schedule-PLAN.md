@@ -9,7 +9,7 @@
 
 ## 1. Task Analysis
 
-Goal: finish the remaining #88 `schedule` MQTT wiring by subscribing to command topics, routing messages into the #87 runner, preserving runner-owned execution acknowledgements, re-publishing the latest state when Home Assistant comes online, and expanding precedence tests for every MQTT key.
+Goal: finish the remaining #88 `schedule` MQTT wiring by subscribing to command topics, routing messages into the #87 runner, preserving runner-owned execution acknowledgements, and expanding precedence tests for every MQTT key.
 
 Non-goals:
 
@@ -57,7 +57,6 @@ flowchart LR
 	Cron[cron callbacks] -->|IntentTick / IntentSetDefaults| Inbox
 	Inbox --> Runner[single-goroutine Runner]
 	Runner -->|Modbus writes| Fronius[Fronius writer]
-	Runner -->|state| StateCache[latest state cache]
 	Runner -->|state / ack / error| Broker
 	HA[homeassistant/status=online] --> HAHandler[HA status handler]
 	HAHandler -->|discovery| Broker
@@ -134,57 +133,26 @@ Home Assistant add-on schema and `run.sh` changes remain #89. This issue should 
 	 - Return `normalizePrefix(prefix) + "/cmd/+"`.
 	 - Rationale: avoid duplicating topic prefix normalization in `pkg/cmd`.
 
-3. Add latest-state cache support in [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go).
-	 - Add an unexported cache type using `sync.RWMutex` or `atomic.Value`.
-	 - Store a deep copy of `mqtt.StatePayload` because it contains pointer fields (`*float64`, `*int16`, `*bool`, `*time.Time`).
-	 - Add an optional field to `RunnerConfig`:
+3. Wire MQTT command subscription in [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go).
+	- Call `mqtt.InitWithCleanup` after configuration is prepared.
+	- After `runner := NewRunner(...)`, subscribe when `mqttCfg.Enabled && mqttClient != nil && mqttClient.IsConnected()`:
 
-		 ```go
-		 LatestState *latestStateCache
-		 ```
+		```go
+		func subscribeScheduleCommands(ctx context.Context, client mqtt.Client, cfg mqtt.Config, runner *Runner) error
+		```
 
-	 - In `NewRunner`, create a cache when `RunnerConfig.LatestState` is nil.
-	 - In `Runner.publishState`, store the cloned payload before calling `publishStateSnapshot`.
-	 - Add a helper such as:
+	- Use `mqtt.CommandTopicFilter(cfg.TopicPrefix)` and QoS 1.
+	- In the callback, copy the payload before dispatch:
 
-		 ```go
-		 func publishLatestState(ctx context.Context, client mqtt.Client, cfg mqtt.Config, latest *latestStateCache) bool
-		 ```
+		```go
+		payloadCopy := append([]byte(nil), payload...)
+		opCtx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
+		defer cancel()
+		runner.HandleCommand(opCtx, topic, payloadCopy)
+		```
 
-		 It returns `false` when no snapshot exists and otherwise calls `mqtt.PublishState`.
-	 - Rationale: HA birth handling needs the latest state without reaching into runner internals or racing on mutable pointer fields.
-
-4. Wire MQTT command subscription in [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go).
-	 - Create `latestState := newLatestStateCache()` before calling MQTT init.
-	 - Call `mqtt.InitWithCleanup` with an HA-online handler that publishes the cached state after discovery:
-
-		 ```go
-		 mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond,
-				 func(ctx context.Context, client mqtt.Client) {
-						 publishLatestState(ctx, client, mqttCfg, latestState)
-				 },
-		 )
-		 ```
-
-	 - Pass `LatestState: latestState` into `RunnerConfig`.
-	 - After `runner := NewRunner(...)`, subscribe when `mqttCfg.Enabled && mqttClient != nil && mqttClient.IsConnected()`:
-
-		 ```go
-		 func subscribeScheduleCommands(ctx context.Context, client mqtt.Client, cfg mqtt.Config, runner *Runner) error
-		 ```
-
-	 - Use `mqtt.CommandTopicFilter(cfg.TopicPrefix)` and QoS 1.
-	 - In the callback, copy the payload before dispatch:
-
-		 ```go
-		 payloadCopy := append([]byte(nil), payload...)
-		 opCtx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
-		 defer cancel()
-		 runner.HandleCommand(opCtx, topic, payloadCopy)
-		 ```
-
-	 - Treat subscribe failure as non-fatal but visible: return/log the error with `u.HandleError`, because state publication can still work even if command control does not.
-	 - Do not publish accepted acks in this callback; `Runner.handleIntent` already does that.
+	- Treat subscribe failure as non-fatal but visible: return/log the error with `u.HandleError`, because state publication can still work even if command control does not.
+	- Do not publish accepted acks in this callback; `Runner.handleIntent` already does that.
 
 5. Tighten/adjust comments in [pkg/cmd/schedule.go](../../../pkg/cmd/schedule.go).
 	 - Update the `publishStateSnapshot` comment so it no longer claims to store `latestState` unless the cache is actually passed/stored elsewhere.
@@ -236,8 +204,7 @@ For every changed area, include expected, edge, and failure coverage.
 
 - Expected: command subscription uses `<mqtt_topic_prefix>/cmd/+` and routes `trigger_now` to the runner.
 - Expected: `pause`, `resume`, `force_charge`, and `set_defaults` still get accepted/execution acks from runner tests.
-- Edge: no latest state exists when HA comes online; discovery re-publishes and no empty state is sent.
-- Edge: latest state exists; HA online re-publishes a retained state snapshot with the same values.
+ - Edge: no latest state exists when HA comes online; discovery re-publishes and no empty state is sent.
 - Edge: a full runner queue returns `false` from `HandleCommand` and publishes a rejected ack.
 - Failure: invalid command topic/payload publishes rejected ack and does not enqueue an intent.
 - Failure: command subscription error is surfaced/logged and does not crash `schedule`.

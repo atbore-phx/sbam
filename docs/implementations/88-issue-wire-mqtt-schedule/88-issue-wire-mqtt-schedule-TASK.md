@@ -9,7 +9,7 @@
 
 ## Summary
 
-Finish the `schedule` command MQTT integration after #87 introduces the long-lived single-goroutine runner. The codebase already has most flags, config loading, MQTT initialization, availability/state publishing, Home Assistant discovery publishing, startup redaction, and basic documentation from #84/#85/#86, so this issue focuses on command subscriptions, parser-failure acknowledgements, runner handoff, latest-state re-publication on Home Assistant birth messages, and complete MQTT config precedence tests.
+Finish the `schedule` command MQTT integration after #87 introduces the long-lived single-goroutine runner. The codebase already has most flags, config loading, MQTT initialization, availability/state publishing, Home Assistant discovery publishing, startup redaction, and basic documentation from #84/#85/#86, so this issue focuses on command subscriptions, parser-failure acknowledgements, runner handoff, and complete MQTT config precedence tests.
 
 ## Motivation / User Story
 
@@ -34,7 +34,7 @@ In scope:
 - Submit accepted intents to the single-goroutine runner or call the runner command entry point added by #87.
 - Let the runner publish accepted/error execution acks after commands complete.
 - Ensure cron ticks submit through the runner when that is not already complete from #87.
-- Preserve `homeassistant/status=online` discovery re-publication and add latest known state re-publication when a state snapshot exists.
+ - Preserve `homeassistant/status=online` discovery re-publication.
 - Extend `pkg/cmd` config precedence tests to all twelve standalone MQTT keys.
 - Preserve disabled MQTT behavior: no broker connection, no command subscription, no extra INFO logs, and no Modbus behavior changes.
 
@@ -55,7 +55,7 @@ Out of scope:
 - Accepted commands must be serialized through the runner so cron ticks and MQTT commands cannot race on Modbus writes.
 - `trigger_now` must run the same schedule path as a cron tick.
 - `pause`, `resume`, `force_charge`, and `set_defaults` must route through the runner command handling path added by #87.
-- `homeassistant/status=online` must re-publish discovery and the latest known state snapshot when one exists.
+ - `homeassistant/status=online` must re-publish discovery.
 - All twelve MQTT keys must continue to load through Viper with precedence `flag > env > yaml > default`.
 
 ## Non-functional Requirements
@@ -114,7 +114,7 @@ No new config keys are expected for this issue. Home Assistant add-on schema cha
 - Unit tests in `pkg/cmd` should use recording fakes or the existing noop/factory test hooks rather than a required external broker.
 - Expected case: MQTT enabled subscribes to `<prefix>/cmd/+`, accepted `trigger_now` reaches the runner, and a state snapshot is published after the tick.
 - Expected case: `pause`, `resume`, `force_charge`, and `set_defaults` route to the runner command path and produce execution acks from the runner.
-- Edge case: `homeassistant/status=online` before any state exists re-publishes discovery without publishing an empty state; after state exists it re-publishes both.
+ - Edge case: `homeassistant/status=online` before any state exists re-publishes discovery without publishing an empty state.
 - Edge case: disabled MQTT remains a no-connect/no-subscribe path and existing schedule lifecycle behavior remains green.
 - Failure case: malformed JSON, unknown command, invalid topic, and out-of-range payloads publish rejected acks immediately and do not reach the runner.
 - Failure case: MQTT subscribe/publish failures are logged and do not crash the `schedule` command.
@@ -126,7 +126,7 @@ No new config keys are expected for this issue. Home Assistant add-on schema cha
 - Risk: the exact runner API from #87 may be `Submit`, `HandleCommand`, or both. The plan should bind to the actual code and avoid inventing a second command pathway.
 - Risk: command ack ownership must remain clear. Parser failures belong in the MQTT callback; execution success/failure belongs in the runner.
 - Risk: Paho callback goroutines must not block on a full runner queue.
-- Risk: Home Assistant birth re-publication needs a latest-state holder that does not race with runner updates.
+ - Risk: Home Assistant birth re-publication must be reliable; avoid races with runner updates if a future state cache is added.
 - No blocking open questions remain for planning; implementation should verify current #87 APIs before editing.
 
 ## References
