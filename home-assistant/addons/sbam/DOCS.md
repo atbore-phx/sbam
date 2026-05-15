@@ -33,7 +33,8 @@ https://www.home-assistant.io/common-tasks/os#installing-a-third-party-app-repos
 
 4. Repositories
 
-![chrome_thaaqxEFgT](https://github.com/atbore-phx/sbam/assets/11421185/38bbcb7d-b3c7-4cbc-ba13-4d55292786ef)
+<img width="489" height="82" alt="image" src="https://github.com/user-attachments/assets/88aace46-bb21-4669-91e9-6a33488519c6" />
+
 
 5. Add
 6. Add repository URL:
