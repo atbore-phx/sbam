@@ -124,6 +124,15 @@ Implementation is complete when:
 
 - Every acceptance criterion in the TASK is satisfied.
 - Every blueprint step in the PLAN is checked off or explicitly marked deferred with rationale.
-- `make test` and `make build` both pass.
+- `make tidy`, `make vet`, `make test` and `make build` all pass.
 - All sbam conventions in `copilot-instructions.md` are upheld.
 - Documentation surfaces are in sync with the change.
+
+## Final steps
+- If the implementation was done on a feature or fix branch (actual branch start with feat/ or fix/), ask the users if they want to open a PR:
+    - with a descriptive title and summary. Link the related issue and any relevant discussions.
+    - If the users agree, open the PR and include the implementation summary in the description.
+    - always ask for the base branch to merge into; default to `main` if the users are unsure.
+    - ask if the PR is a draft or ready for review.
+
+

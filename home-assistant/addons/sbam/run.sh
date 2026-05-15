@@ -29,6 +29,26 @@ export MQTT_TOPIC_PREFIX=$(bashio::config 'mqtt_topic_prefix')
 export MQTT_HA_DISCOVERY=$(bashio::config 'mqtt_ha_discovery')
 export MQTT_HA_DISCOVERY_PREFIX=$(bashio::config 'mqtt_ha_discovery_prefix')
 
+mqtt_autofill_from_ha_service() {
+	[ "${MQTT_ENABLED}" = "true" ] || return 0
+	[ -z "${MQTT_BROKER}" ] || return 0
+	bashio::services.available 'mqtt' || return 0
+
+	local mqtt_host mqtt_port mqtt_username mqtt_password
+	mqtt_host=$(bashio::services 'mqtt' 'host')
+	mqtt_port=$(bashio::services 'mqtt' 'port')
+	mqtt_username=$(bashio::services 'mqtt' 'username')
+	mqtt_password=$(bashio::services 'mqtt' 'password')
+
+	if [ -n "${mqtt_host}" ] && [ -n "${mqtt_port}" ]; then
+		export MQTT_BROKER="tcp://${mqtt_host}:${mqtt_port}"
+	fi
+	[ -n "${MQTT_USERNAME}" ] || export MQTT_USERNAME="${mqtt_username}"
+	[ -n "${MQTT_PASSWORD}" ] || export MQTT_PASSWORD="${mqtt_password}"
+}
+
+mqtt_autofill_from_ha_service
+
 [ "$RESET" = "true" ] && sbam configure -d
 
 sbam schedule
