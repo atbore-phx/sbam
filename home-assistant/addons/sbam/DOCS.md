@@ -12,27 +12,20 @@ The recommended broker for Home Assistant users is the Mosquitto add-on.
 
 ### Home Assistant Add-on Installation
 
-Sbam is available as an add-on for HAOS (Home Assistant OS).
-HAOS must be able to reach the Fronius inverter on its LAN IP.
+Sbam is available as an App (formerly known as add-ons) for HAOS (Home Assistant OS).
 
-Quick action (recommended):
+**HAOS must be able to reach the Fronius inverter on its LAN IP.**
 
-[![Open your Home Assistant instance and show the add app repository dialog with the sbam repository pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fatbore-phx%2Fsbam)
-
-This button opens the Add repository dialog with the sbam repository URL pre-filled.
-Home Assistant still requires user confirmation to add the repository and install the add-on.
-
-Manual fallback path:
 
 Official guide:
-https://www.home-assistant.io/common-tasks/os#installing-third-party-add-ons
+https://www.home-assistant.io/common-tasks/os#installing-a-third-party-app-repository
 
 1. Settings
-2. Add-ons
+2. Apps
 
 ![chrome_icgQkIQh6J](https://github.com/atbore-phx/sbam/assets/11421185/531eeab3-9910-4fb8-bf71-22d09ec77f95)
 
-3. Add-on store
+3. Install app
 
 ![chrome_hEKXVTu6tY](https://github.com/atbore-phx/sbam/assets/11421185/eec5866d-4a5c-4ae0-bd57-05a10fc48b67)
 
@@ -52,7 +45,7 @@ Once added:
 
 ![image](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
 
-3. Click Install
+3. Click **Install**
 
 ![chrome_NT8Mrf6ls1](https://github.com/atbore-phx/sbam/assets/11421185/cb9eafe3-a274-4164-a789-1c31a87308e1)
 
@@ -64,34 +57,34 @@ Once added:
 
 Before starting, open the Configuration tab and set options as needed.
 
-- url: Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max 2), separated by comma.
-- apikey: Solcast API key.
-- fronius_ip: Fronius inverter LAN IP.
-- start_hr: Start time of the advantageous network operator rate (default 00:00).
-- end_hr: End time of the advantageous network operator rate (default 06:00).
-- crontab: Schedule to run sbam (default 00 00-05 * * *).
-- pw_consumption: Daily electrical consumption in Wh (default 11000).
-- max_charge: Maximum grid charging power in W (default 3500).
-- pw_lwt: Hysteresis lower threshold offset in Wh to stop charging (default 0).
-- pw_upt: Hysteresis upper threshold offset in Wh to start charging (default 0).
-- pw_batt_reserve: Minimum battery capacity to maintain in Wh (default 4000).
-- batt_reserve_start_hr: Start time for reserve window (empty uses start_hr).
-- batt_reserve_end_hr: End time for reserve window (empty uses end_hr).
-- defaults: At end of crontab cycle, reconfigure Fronius inverter to defaults.
-- reset: At add-on startup, reconfigure Fronius inverter to defaults.
-- debug: Increase log level.
-- log_type: Logger output mode.
-- cache_forecast: Enable forecast caching (default false).
-- cache_file_prefix: Forecast cache file prefix (default cached_forecast).
-- cache_time: Forecast cache TTL in seconds (default 7200).
-- mqtt_enabled: Enable MQTT publishing and command/discovery integration (default false).
-- mqtt_broker: MQTT broker URL, for example tcp://broker:1883.
-- mqtt_client_id: Optional MQTT client identifier.
-- mqtt_username: Optional MQTT username.
-- mqtt_password: Optional MQTT password.
-- mqtt_topic_prefix: Prefix for sbam state, availability, and command topics (default sbam).
-- mqtt_ha_discovery: Enable retained Home Assistant discovery config publishing (default true when MQTT is enabled).
-- mqtt_ha_discovery_prefix: Home Assistant discovery root topic prefix (default homeassistant).
+- **url**: Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max 2), separated by comma.
+- **apikey**: Solcast API key.
+- **fronius_ip**: Fronius inverter LAN IP.
+- **start_hr**: Start time of the advantageous network operator rate (default 00:00).
+- **end_hr**: End time of the advantageous network operator rate (default 06:00).
+- **crontab**: Schedule to run sbam (default 00 00-05 * * *).
+- **pw_consumption**: Daily electrical consumption in Wh (default 11000).
+- **max_charge**: Maximum grid charging power in W (default 3500).
+- **pw_lwt**: Hysteresis lower threshold offset in Wh to stop charging (default 0).
+- **pw_upt**: Hysteresis upper threshold offset in Wh to start charging (default 0).
+- **pw_batt_reserve**: Minimum battery capacity to maintain in Wh (default 4000).
+- **batt_reserve_start_hr**: Start time for reserve window (empty uses start_hr).
+- **batt_reserve_end_hr**: End time for reserve window (empty uses end_hr).
+- **defaults**: At end of crontab cycle, reconfigure Fronius inverter to defaults.
+- **reset**: At add-on startup, reconfigure Fronius inverter to defaults.
+- **debug**: Increase log level.
+- **log_type**: Logger output mode.
+- **cache_forecast**: Enable forecast caching (default false).
+- **cache_file_prefix**: Forecast cache file prefix (default cached_forecast).
+- **cache_time**: Forecast cache TTL in seconds (default 7200).
+- **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
+- **mqtt_broker**: MQTT broker URL, for example tcp://broker:1883.
+- **mqtt_client_id**: Optional MQTT client identifier.
+- **mqtt_username**: Optional MQTT username.
+- **mqtt_password**: Optional MQTT password.
+- **mqtt_topic_prefix**: Prefix for sbam state, availability, and command topics (default sbam).
+- **mqtt_ha_discovery**: Enable retained Home Assistant discovery config publishing (default true when MQTT is enabled).
+- **mqtt_ha_discovery_prefix**: Home Assistant discovery root topic prefix (default homeassistant).
 
 Save the configuration after editing options.
 
