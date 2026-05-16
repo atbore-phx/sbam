@@ -1,0 +1,158 @@
+name: Feature request
+description: Propose a new capability or enhancement for sbam.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature for sbam.
+
+        Clear, testable details here make implementation faster and safer.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing the requested feature.
+      placeholder: Brief one-line summary of the requested feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / User Story
+      description: Who benefits from this and why does it matter?
+      placeholder: |
+        As a ...
+        I want ...
+        So that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Define what is explicitly in scope and out of scope.
+      placeholder: |
+        In scope:
+        - ...
+
+        Out of scope:
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: functional_requirements
+    attributes:
+      label: Functional Requirements
+      description: Describe the behavior that must be implemented.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_functional_requirements
+    attributes:
+      label: Non-functional Requirements
+      description: Backward compatibility, safety, performance, operational constraints.
+      placeholder: |
+        Backward compatibility:
+        - ...
+
+        Safety / defaults:
+        - ...
+
+        Performance / reliability:
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration_impact
+    attributes:
+      label: Configuration Impact
+      description: List config surfaces touched, if any.
+      placeholder: |
+        New/changed CLI flags:
+        - ...
+
+        New/changed config.yaml keys:
+        - ...
+
+        New/changed env vars:
+        - ...
+
+        Home Assistant add-on config schema impact:
+        - ...
+
+  - type: textarea
+    id: external_integrations
+    attributes:
+      label: External Integrations Touched
+      description: Mention Solcast/Fronius/MQTT/Modbus endpoints, registers, or APIs.
+      placeholder: |
+        - Solcast:
+        - Fronius Solar API:
+        - Fronius Modbus registers:
+        - MQTT topics:
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Observable outcomes that define done.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_strategy
+    attributes:
+      label: Test Strategy
+      description: Expected, edge, and failure test coverage.
+      placeholder: |
+        Unit tests:
+        - Expected case: ...
+        - Edge case: ...
+        - Failure case: ...
+
+        Integration/validation commands:
+        - make test
+        - make build
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks_open_questions
+    attributes:
+      label: Risks / Open Questions
+      description: Unknowns, trade-offs, or concerns to resolve before implementation.
+      placeholder: |
+        - ...
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Related issues, PRs, docs, datasheets, screenshots.
+      placeholder: |
+        - ...
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I verified this does not duplicate an existing open feature request.
+          required: true
+        - label: I provided enough detail for a human and an agent to produce a testable implementation plan.
+          required: true

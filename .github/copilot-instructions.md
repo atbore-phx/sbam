@@ -53,6 +53,15 @@ The application must be:
 Use the following structure and feel free to add, modify and improve as needed:
 
 ```
+.github/
+  ISSUE_TEMPLATE/
+    bug_report.yml            - GitHub issue form for bug reports
+    feature_request.yml       - GitHub issue form for feature requests aligned with TASK/PLAN prompts
+    config.yml                - Issue template chooser policy (blank issues disabled)
+  dependabot.yml              - Dependabot updates for Go modules, GitHub Actions, and Dockerfiles
+  prompts/                    - Copilot workflow prompts (`generate-plan-*`, `implement-plan`)
+  workflows/                  - CI/CD workflow definitions
+
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
 
