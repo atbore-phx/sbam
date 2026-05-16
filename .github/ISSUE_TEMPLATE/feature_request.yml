@@ -71,8 +71,6 @@ body:
 
         Performance / reliability:
         - ...
-    validations:
-      required: true
 
   - type: textarea
     id: configuration_impact
