@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fixed schedule charge and reserve window evaluation so local-time cron ticks are not compared as UTC.
+- Added support for cross-midnight charge and reserve windows, for example 22:00-06:00.
 
 ## 2.0.0 - 2026-05-06
 

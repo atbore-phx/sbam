@@ -404,29 +404,166 @@ func TestRunner_NewCommandPayloadUsesLocalWallClockWindow(t *testing.T) {
 	}
 }
 
+func TestRunner_NewCommandPayloadUsesLocalWallClockWindowCrossMidnight(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	tests := []struct {
+		name         string
+		now          time.Time
+		wantInCharge bool
+		wantReserve  bool
+	}{
+		{
+			name:         "23:00 local inside cross-midnight windows",
+			now:          time.Date(2026, time.May, 16, 23, 0, 0, 0, loc),
+			wantInCharge: true,
+			wantReserve:  true,
+		},
+		{
+			name:         "02:00 local inside cross-midnight windows",
+			now:          time.Date(2026, time.May, 16, 2, 0, 0, 0, loc),
+			wantInCharge: true,
+			wantReserve:  true,
+		},
+		{
+			name:         "12:00 local outside cross-midnight windows",
+			now:          time.Date(2026, time.May, 16, 12, 0, 0, 0, loc),
+			wantInCharge: false,
+			wantReserve:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := NewRunner(RunnerConfig{
+				StartHR:            "22:00",
+				EndHR:              "06:00",
+				BattReserveStartHR: "23:00",
+				BattReserveEndHR:   "05:00",
+				Now: func() time.Time {
+					return tt.now
+				},
+			}, nil)
+
+			payload := runner.newCommandPayload("decision", "reason", runner.now())
+
+			require.NotNil(t, payload.ChargeWindowActive)
+			require.NotNil(t, payload.ReserveWindowActive)
+			assert.Equal(t, tt.wantInCharge, *payload.ChargeWindowActive)
+			assert.Equal(t, tt.wantReserve, *payload.ReserveWindowActive)
+		})
+	}
+}
+
 func TestCheckTimeRangeAt_BoundariesAndErrors(t *testing.T) {
 	loc := time.FixedZone("UTC+1", 1*60*60)
 
-	startBoundary := time.Date(2026, time.May, 16, 0, 0, 0, 0, loc)
-	inRange, err := checkTimeRangeAt(startBoundary, "00:00", "06:00")
-	require.NoError(t, err)
-	assert.True(t, inRange)
+	tests := []struct {
+		name      string
+		now       time.Time
+		startHR   string
+		endHR     string
+		want      bool
+		errSubstr string
+	}{
+		{
+			name:    "same-day start boundary inclusive",
+			now:     time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			startHR: "00:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:    "same-day end boundary inclusive",
+			now:     time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
+			startHR: "00:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:    "same-day after end inactive",
+			now:     time.Date(2026, time.May, 16, 6, 1, 0, 0, loc),
+			startHR: "00:00",
+			endHR:   "06:00",
+			want:    false,
+		},
+		{
+			name:    "cross-midnight before midnight active",
+			now:     time.Date(2026, time.May, 16, 23, 0, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:    "cross-midnight after midnight active",
+			now:     time.Date(2026, time.May, 16, 2, 0, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:    "cross-midnight daytime inactive",
+			now:     time.Date(2026, time.May, 16, 12, 0, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    false,
+		},
+		{
+			name:    "cross-midnight just before start inactive",
+			now:     time.Date(2026, time.May, 16, 21, 59, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    false,
+		},
+		{
+			name:    "cross-midnight exact start active",
+			now:     time.Date(2026, time.May, 16, 22, 0, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:    "cross-midnight exact end active",
+			now:     time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
+			startHR: "22:00",
+			endHR:   "06:00",
+			want:    true,
+		},
+		{
+			name:      "invalid start format",
+			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			startHR:   "bad",
+			endHR:     "06:00",
+			errSubstr: "invalid start time",
+		},
+		{
+			name:      "invalid end format",
+			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			startHR:   "00:00",
+			endHR:     "bad",
+			errSubstr: "invalid end time",
+		},
+		{
+			name:      "equal start and end rejected",
+			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			startHR:   "06:00",
+			endHR:     "06:00",
+			errSubstr: "must not be equal",
+		},
+	}
 
-	endBoundary := time.Date(2026, time.May, 16, 6, 0, 0, 0, loc)
-	inRange, err = checkTimeRangeAt(endBoundary, "00:00", "06:00")
-	require.NoError(t, err)
-	assert.True(t, inRange)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			inRange, err := checkTimeRangeAt(tt.now, tt.startHR, tt.endHR)
+			if tt.errSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+				return
+			}
 
-	afterEnd := time.Date(2026, time.May, 16, 6, 1, 0, 0, loc)
-	inRange, err = checkTimeRangeAt(afterEnd, "00:00", "06:00")
-	require.NoError(t, err)
-	assert.False(t, inRange)
-
-	_, err = checkTimeRangeAt(startBoundary, "bad", "06:00")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid start time")
-
-	_, err = checkTimeRangeAt(startBoundary, "00:00", "bad")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid end time")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, inRange)
+		})
+	}
 }
