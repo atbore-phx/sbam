@@ -346,3 +346,87 @@ func TestRunner_TickSkipsForecastAndChargeWhenPaused(t *testing.T) {
 	assert.True(t, state.Paused)
 	assert.Equal(t, "paused", state.LastDecision)
 }
+
+func TestRunner_NewCommandPayloadUsesLocalWallClockWindow(t *testing.T) {
+	loc := time.FixedZone("CEST", 2*60*60)
+
+	tests := []struct {
+		name         string
+		now          time.Time
+		wantInCharge bool
+		wantReserve  bool
+	}{
+		{
+			name:         "00:00 local inside window",
+			now:          time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			wantInCharge: true,
+			wantReserve:  true,
+		},
+		{
+			name:         "01:00 local inside window",
+			now:          time.Date(2026, time.May, 16, 1, 0, 0, 0, loc),
+			wantInCharge: true,
+			wantReserve:  true,
+		},
+		{
+			name:         "06:00 local inclusive end boundary",
+			now:          time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
+			wantInCharge: true,
+			wantReserve:  true,
+		},
+		{
+			name:         "07:00 local outside window",
+			now:          time.Date(2026, time.May, 16, 7, 0, 0, 0, loc),
+			wantInCharge: false,
+			wantReserve:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := NewRunner(RunnerConfig{
+				StartHR:            "00:00",
+				EndHR:              "06:00",
+				BattReserveStartHR: "00:00",
+				BattReserveEndHR:   "06:00",
+				Now: func() time.Time {
+					return tt.now
+				},
+			}, nil)
+
+			payload := runner.newCommandPayload("decision", "reason", runner.now())
+
+			require.NotNil(t, payload.ChargeWindowActive)
+			require.NotNil(t, payload.ReserveWindowActive)
+			assert.Equal(t, tt.wantInCharge, *payload.ChargeWindowActive)
+			assert.Equal(t, tt.wantReserve, *payload.ReserveWindowActive)
+		})
+	}
+}
+
+func TestCheckTimeRangeAt_BoundariesAndErrors(t *testing.T) {
+	loc := time.FixedZone("UTC+1", 1*60*60)
+
+	startBoundary := time.Date(2026, time.May, 16, 0, 0, 0, 0, loc)
+	inRange, err := checkTimeRangeAt(startBoundary, "00:00", "06:00")
+	require.NoError(t, err)
+	assert.True(t, inRange)
+
+	endBoundary := time.Date(2026, time.May, 16, 6, 0, 0, 0, loc)
+	inRange, err = checkTimeRangeAt(endBoundary, "00:00", "06:00")
+	require.NoError(t, err)
+	assert.True(t, inRange)
+
+	afterEnd := time.Date(2026, time.May, 16, 6, 1, 0, 0, loc)
+	inRange, err = checkTimeRangeAt(afterEnd, "00:00", "06:00")
+	require.NoError(t, err)
+	assert.False(t, inRange)
+
+	_, err = checkTimeRangeAt(startBoundary, "bad", "06:00")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid start time")
+
+	_, err = checkTimeRangeAt(startBoundary, "00:00", "bad")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid end time")
+}
