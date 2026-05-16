@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - ci
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - docker
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: "/home-assistant/addons/sbam"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - docker
+      - home-assistant
+    open-pull-requests-limit: 5

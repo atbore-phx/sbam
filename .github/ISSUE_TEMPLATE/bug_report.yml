@@ -1,0 +1,171 @@
+name: Bug report
+description: Report incorrect or unexpected behavior in sbam.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in sbam.
+
+        This form captures details that help maintainers and Copilot prompts build a precise fix plan.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Problem Summary
+      description: One-sentence description of the problem.
+      placeholder: Brief description of the observed issue or unexpected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: What happens now?
+      placeholder: |
+        Describe the observed behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+      placeholder: |
+        Describe the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps To Reproduce
+      description: Provide deterministic steps and sample inputs.
+      placeholder: |
+        1. Run `...`
+        2. Set config `...`
+        3. Observe `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Paste relevant logs, stack traces, or command output.
+      render: shell
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression?
+      description: Did this work in a previous version/commit?
+      options:
+        - "Unknown"
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: How severe is this issue?
+      options:
+        - Low (workaround exists)
+        - Medium (blocks normal usage)
+        - High (data/safety concern or major outage)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include platform and runtime details.
+      placeholder: |
+        OS:
+        sbam version/commit:
+        Go version (if running locally):
+        Deployment mode (CLI, Docker, Home Assistant add-on):
+        Fronius firmware (if relevant):
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_surfaces
+    attributes:
+      label: Affected Packages / Surfaces
+      description: List likely touched areas.
+      placeholder: |
+        - pkg/cmd:
+        - pkg/fronius:
+        - pkg/mqtt:
+        - pkg/power:
+        - pkg/storage:
+        - src/utils:
+        - Home Assistant add-on:
+
+  - type: textarea
+    id: config_inputs
+    attributes:
+      label: Relevant Configuration / Inputs
+      description: Include relevant flags, env vars, config keys, endpoints, and topic names.
+      placeholder: |
+        CLI flags:
+        config.yaml values:
+        env vars:
+        MQTT topics:
+        Solcast/Fronius endpoints:
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria For Fix
+      description: Observable criteria that define when this bug is fixed.
+      placeholder: |
+        - [ ] Reproduction no longer fails under the same conditions.
+        - [ ] Existing behavior remains backward compatible.
+        - [ ] Logs/errors are actionable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_strategy
+    attributes:
+      label: Test Strategy
+      description: Expected, edge, and failure cases to cover in tests.
+      placeholder: |
+        Unit tests:
+        - Expected case: ...
+        - Edge case: ...
+        - Failure case: ...
+
+        Validation commands:
+        - make test
+        - make build
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Related issues, PRs, docs, screenshots, or diagnostics.
+      placeholder: |
+        - ...
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I verified this issue is not already reported.
+          required: true
+        - label: I removed or redacted secrets, tokens, and private endpoints from logs and config snippets.
+          required: true
