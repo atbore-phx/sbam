@@ -372,7 +372,7 @@ func (r *Runner) publishError(ctx context.Context, source string, err error) {
 	mqtt.PublishError(opCtx, r.client, r.cfg.MQTT.TopicPrefix, mqtt.ErrorPayload{
 		Error:     err.Error(),
 		Source:    source,
-		Timestamp: r.now(),
+		Timestamp: r.now().UTC(),
 	})
 }
 
@@ -389,7 +389,7 @@ func (r *Runner) publishIntentAck(ctx context.Context, intent mqtt.Intent, parse
 }
 
 func (r *Runner) now() time.Time {
-	return r.cfg.Now().UTC()
+	return r.cfg.Now()
 }
 
 func (r *Runner) setPause(pauseUntil *time.Time) {
