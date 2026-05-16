@@ -1,5 +1,9 @@
 [sbam](https://github.com/atbore-phx/sbam/releases/latest)
 
+## Unreleased
+
+- Fixed schedule charge and reserve window evaluation so local-time cron ticks are not compared as UTC.
+
 ## 2.0.0 - 2026-05-06
 
 - Added MQTT and Home Assistant discovery options to add-on config.
