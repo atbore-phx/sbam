@@ -132,8 +132,6 @@ body:
         - [ ] Reproduction no longer fails under the same conditions.
         - [ ] Existing behavior remains backward compatible.
         - [ ] Logs/errors are actionable.
-    validations:
-      required: true
 
   - type: textarea
     id: test_strategy
@@ -149,8 +147,6 @@ body:
         Validation commands:
         - make test
         - make build
-    validations:
-      required: true
 
   - type: textarea
     id: references
