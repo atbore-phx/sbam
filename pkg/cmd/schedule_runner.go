@@ -428,19 +428,19 @@ func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 }
 
 func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
-	layout := "15:04"
-	startTime, err := time.Parse(layout, startHR)
+	startTime, endTime, err := validateScheduleWindow("start time", startHR, "end time", endHR)
 	if err != nil {
-		return false, fmt.Errorf("invalid start time %q: %w", startHR, err)
-	}
-
-	endTime, err := time.Parse(layout, endHR)
-	if err != nil {
-		return false, fmt.Errorf("invalid end time %q: %w", endHR, err)
+		return false, err
 	}
 
 	startAt := time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 	endAt := time.Date(now.Year(), now.Month(), now.Day(), endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
+
+	if isCrossMidnightWindow(startTime, endTime) {
+		inRange := (now.After(startAt) || now.Equal(startAt)) || (now.Before(endAt) || now.Equal(endAt))
+		return inRange, nil
+	}
+
 	inRange := (now.After(startAt) || now.Equal(startAt)) && (now.Before(endAt) || now.Equal(endAt))
 	return inRange, nil
 }

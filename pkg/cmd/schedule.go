@@ -41,7 +41,13 @@ const (
 	const_mqtt_topic_prefix   = "sbam"
 	const_ha_discovery_prefix = "homeassistant"
 	const_mqtt_op_timeout     = 5 * time.Second
+	scheduleClockLayout       = "15:04"
 )
+
+type clockSegment struct {
+	startMinute int
+	endMinute   int
+}
 
 // froniusClient abstracts the subset of Fronius behavior used by the
 // scheduler. It's defined here so tests can inject a fake implementation
@@ -291,6 +297,87 @@ func isStartAfterEnd(start, end string) bool {
 	return startTime.After(endTime)
 }
 
+func parseScheduleClock(value, field string) (time.Time, error) {
+	parsed, err := time.Parse(scheduleClockLayout, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid %s %q: %w", field, value, err)
+	}
+
+	return parsed, nil
+}
+
+func validateScheduleWindow(startField, startValue, endField, endValue string) (time.Time, time.Time, error) {
+	startTime, err := parseScheduleClock(startValue, startField)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	endTime, err := parseScheduleClock(endValue, endField)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	if startTime.Equal(endTime) {
+		return time.Time{}, time.Time{}, fmt.Errorf("%s %q must not be equal to %s %q", startField, startValue, endField, endValue)
+	}
+
+	return startTime, endTime, nil
+}
+
+func isCrossMidnightWindow(startTime, endTime time.Time) bool {
+	return startTime.After(endTime)
+}
+
+func clockMinute(t time.Time) int {
+	return t.Hour()*60 + t.Minute()
+}
+
+func expandClockWindow(startMinute, endMinute int) []clockSegment {
+	if startMinute < endMinute {
+		return []clockSegment{{startMinute: startMinute, endMinute: endMinute}}
+	}
+
+	return []clockSegment{
+		{startMinute: startMinute, endMinute: 1439},
+		{startMinute: 0, endMinute: endMinute},
+	}
+}
+
+func segmentContains(outer, inner clockSegment) bool {
+	return outer.startMinute <= inner.startMinute && inner.endMinute <= outer.endMinute
+}
+
+func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (bool, error) {
+	innerStartTime, innerEndTime, err := validateScheduleWindow("inner_start", innerStart, "inner_end", innerEnd)
+	if err != nil {
+		return false, err
+	}
+
+	outerStartTime, outerEndTime, err := validateScheduleWindow("outer_start", outerStart, "outer_end", outerEnd)
+	if err != nil {
+		return false, err
+	}
+
+	innerSegments := expandClockWindow(clockMinute(innerStartTime), clockMinute(innerEndTime))
+	outerSegments := expandClockWindow(clockMinute(outerStartTime), clockMinute(outerEndTime))
+
+	for _, innerSeg := range innerSegments {
+		covered := false
+		for _, outerSeg := range outerSegments {
+			if segmentContains(outerSeg, innerSeg) {
+				covered = true
+				break
+			}
+		}
+
+		if !covered {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
 // CheckTimeRange returns true when the current local time is within the
 // inclusive interval between `start_hr` and `end_hr` (both in "15:04" format).
 //
@@ -322,8 +409,7 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if !isStartBeforeEnd(start_hr, end_hr) {
-		err := errors.New("start_hr: " + start_hr + " is not before end_hr: " + end_hr)
+	} else if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
 		return err
 	} else if len(crontab) == 0 {
 		fmt.Printf("the --crontab must be set")
@@ -344,14 +430,12 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if pw_batt_reserve < 0 {
 		err := errors.New("pw_batt_reserve must to be float > 0")
 		return err
-	} else if !isStartBeforeEnd(batt_reserve_start_hr, batt_reserve_end_hr) {
-		err := errors.New("batt_reserve_start_hr: " + batt_reserve_start_hr + " is not before batt_reserve_end_hr: " + batt_reserve_end_hr)
+	} else if _, _, err := validateScheduleWindow("batt_reserve_start_hr", batt_reserve_start_hr, "batt_reserve_end_hr", batt_reserve_end_hr); err != nil {
 		return err
-	} else if isStartAfterEnd(start_hr, batt_reserve_start_hr) {
-		err := errors.New("start_hr: " + start_hr + " is not before or equal batt_reserve_start_hr: " + batt_reserve_start_hr)
+	} else if contained, err := isWindowContainedIn(batt_reserve_start_hr, batt_reserve_end_hr, start_hr, end_hr); err != nil {
 		return err
-	} else if isStartAfterEnd(batt_reserve_end_hr, end_hr) {
-		err := errors.New("batt_reserve_end_hr: " + batt_reserve_end_hr + " is not before or equal end_hr: " + end_hr)
+	} else if !contained {
+		err := errors.New("batt_reserve_start_hr/batt_reserve_end_hr must be contained within start_hr/end_hr")
 		return err
 	} else if (s_cache_time < 0) || (s_cache_time > 86400) {
 		err := errors.New("The cache_time must be between 0 and 86400 seconds")

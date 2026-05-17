@@ -65,16 +65,16 @@ Before starting, open the Configuration tab and set options as needed.
 - **url**: Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max 2), separated by comma.
 - **apikey**: Solcast API key.
 - **fronius_ip**: Fronius inverter LAN IP.
-- **start_hr**: Start time of the advantageous network operator rate (default 00:00).
-- **end_hr**: End time of the advantageous network operator rate (default 06:00).
+- **start_hr**: Start time of the advantageous network operator rate (default 00:00). Cross-midnight ranges are supported.
+- **end_hr**: End time of the advantageous network operator rate (default 06:00). Cross-midnight ranges are supported.
 - **crontab**: Schedule to run sbam (default 00 00-05 * * *).
 - **pw_consumption**: Daily electrical consumption in Wh (default 11000).
 - **max_charge**: Maximum grid charging power in W (default 3500).
 - **pw_lwt**: Hysteresis lower threshold offset in Wh to stop charging (default 0).
 - **pw_upt**: Hysteresis upper threshold offset in Wh to start charging (default 0).
 - **pw_batt_reserve**: Minimum battery capacity to maintain in Wh (default 4000).
-- **batt_reserve_start_hr**: Start time for reserve window (empty uses start_hr).
-- **batt_reserve_end_hr**: End time for reserve window (empty uses end_hr).
+- **batt_reserve_start_hr**: Start time for reserve window (empty uses start_hr). Uses the same cross-midnight behavior as the main window.
+- **batt_reserve_end_hr**: End time for reserve window (empty uses end_hr). Uses the same cross-midnight behavior as the main window.
 - **defaults**: At end of crontab cycle, reconfigure Fronius inverter to defaults.
 - **reset**: At add-on startup, reconfigure Fronius inverter to defaults.
 - **debug**: Increase log level.
@@ -92,6 +92,10 @@ Before starting, open the Configuration tab and set options as needed.
 - **mqtt_ha_discovery_prefix**: Home Assistant discovery root topic prefix (default homeassistant).
 
 Save the configuration after editing options.
+
+Example overnight configuration: `start_hr: 22:00` and `end_hr: 06:00`.
+Reserve windows can also cross midnight, for example `batt_reserve_start_hr: 23:00`
+and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
 
 ![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
 

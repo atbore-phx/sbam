@@ -159,6 +159,17 @@ Flags:
       --mqtt_ha_discovery_prefix       Home Assistant MQTT discovery prefix (default "homeassistant")
 ```
 
+Time windows can span midnight for both charge and reserve ranges. Example:
+`--start_hr 22:00 --end_hr 06:00` and optionally
+`--batt_reserve_start_hr 23:00 --batt_reserve_end_hr 05:00`.
+Equal start/end values remain invalid.
+
+Forecast selection currently uses a fixed noon threshold: before 12:00 local
+time, `schedule` evaluates the forecast for the current day; from 12:00 local
+time onward, it evaluates the forecast for the next day. This behavior is kept
+for compatibility and is independent from whether the charging window spans
+midnight.
+
 #### Debug Logs
 
 To increase the log level to debug, just set the DEBUG environment variable to true.

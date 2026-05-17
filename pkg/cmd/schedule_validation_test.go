@@ -124,9 +124,19 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 			errSubstr: "--url",
 		},
 		{
-			name:      "start must be before end",
-			prepare:   func(a *scheduleValidationArgs) { a.startHr = "12:00"; a.endHr = "11:00" },
-			errSubstr: "is not before end_hr",
+			name:      "start and end cannot be equal",
+			prepare:   func(a *scheduleValidationArgs) { a.startHr = "12:00"; a.endHr = "12:00" },
+			errSubstr: "must not be equal",
+		},
+		{
+			name:      "invalid start format",
+			prepare:   func(a *scheduleValidationArgs) { a.startHr = "bad" },
+			errSubstr: "invalid start_hr",
+		},
+		{
+			name:      "invalid end format",
+			prepare:   func(a *scheduleValidationArgs) { a.endHr = "bad" },
+			errSubstr: "invalid end_hr",
 		},
 		{
 			name:      "missing crontab",
@@ -161,22 +171,28 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 			errSubstr: "pw_batt_reserve",
 		},
 		{
-			name:      "reserve range must be increasing",
+			name:      "reserve start and end cannot be equal",
 			prepare:   func(a *scheduleValidationArgs) {},
-			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "07:00", "06:00", 0, 0, 0) },
-			errSubstr: "batt_reserve_start_hr",
+			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "06:00", "06:00", 0, 0, 0) },
+			errSubstr: "must not be equal",
 		},
 		{
-			name:      "start must be before reserve start",
-			prepare:   func(a *scheduleValidationArgs) { a.startHr = "07:00" },
-			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "05:00", "06:00", 0, 0, 0) },
-			errSubstr: "start_hr",
+			name:      "invalid reserve start format",
+			prepare:   func(a *scheduleValidationArgs) {},
+			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "bad", "06:00", 0, 0, 0) },
+			errSubstr: "invalid batt_reserve_start_hr",
 		},
 		{
-			name:      "reserve end must be before end",
-			prepare:   func(a *scheduleValidationArgs) { a.endHr = "06:30" },
-			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "05:00", "07:00", 0, 0, 0) },
-			errSubstr: "batt_reserve_end_hr",
+			name:      "invalid reserve end format",
+			prepare:   func(a *scheduleValidationArgs) {},
+			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "05:00", "bad", 0, 0, 0) },
+			errSubstr: "invalid batt_reserve_end_hr",
+		},
+		{
+			name:      "reserve window must be contained in charge window",
+			prepare:   func(a *scheduleValidationArgs) { a.startHr = "22:00"; a.endHr = "06:00" },
+			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "02:00", "08:00", 0, 0, 0) },
+			errSubstr: "must be contained",
 		},
 		{
 			name:      "cache_time upper bound",
@@ -218,6 +234,101 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.errSubstr)
+		})
+	}
+}
+
+func TestCheckScheduleScheduleCrossMidnightChargeWindowValid(t *testing.T) {
+	withScheduleValidationGlobals(t, "23:00", "05:00", 0, 0, 0)
+	args := validScheduleValidationArgs()
+	args.startHr = "22:00"
+	args.endHr = "06:00"
+
+	err := checkScheduleschedule(
+		args.crontab,
+		args.apiKey,
+		args.url,
+		args.froniusIP,
+		args.pwConsumption,
+		args.maxCharge,
+		args.pwBattReserve,
+		args.startHr,
+		args.endHr,
+	)
+
+	require.NoError(t, err)
+}
+
+func TestCheckScheduleScheduleReserveWindowContainment(t *testing.T) {
+	tests := []struct {
+		name         string
+		startHr      string
+		endHr        string
+		reserveStart string
+		reserveEnd   string
+		wantErr      bool
+	}{
+		{
+			name:         "cross-midnight reserve contained",
+			startHr:      "22:00",
+			endHr:        "06:00",
+			reserveStart: "23:00",
+			reserveEnd:   "05:00",
+			wantErr:      false,
+		},
+		{
+			name:         "same-day reserve segment contained in cross-midnight outer",
+			startHr:      "22:00",
+			endHr:        "06:00",
+			reserveStart: "02:00",
+			reserveEnd:   "05:00",
+			wantErr:      false,
+		},
+		{
+			name:         "reserve exceeds cross-midnight outer end",
+			startHr:      "22:00",
+			endHr:        "06:00",
+			reserveStart: "02:00",
+			reserveEnd:   "08:00",
+			wantErr:      true,
+		},
+		{
+			name:         "cross-midnight reserve outside same-day outer",
+			startHr:      "08:00",
+			endHr:        "18:00",
+			reserveStart: "17:00",
+			reserveEnd:   "07:00",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			withScheduleValidationGlobals(t, tt.reserveStart, tt.reserveEnd, 0, 0, 0)
+			args := validScheduleValidationArgs()
+			args.startHr = tt.startHr
+			args.endHr = tt.endHr
+
+			err := checkScheduleschedule(
+				args.crontab,
+				args.apiKey,
+				args.url,
+				args.froniusIP,
+				args.pwConsumption,
+				args.maxCharge,
+				args.pwBattReserve,
+				args.startHr,
+				args.endHr,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "must be contained")
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }
