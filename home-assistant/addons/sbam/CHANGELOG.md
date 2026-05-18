@@ -1,6 +1,10 @@
+## Release Changelog
 [sbam](https://github.com/atbore-phx/sbam/releases/latest)
 
-## 2.0.0
+### Doc v2.0.0
+[docs](https://github.com/atbore-phx/sbam/blob/main/home-assistant/addons/sbam/DOCS.md#new-features-in-v200)
+
+### Changes 2.0.0
 
 - Added opt-in MQTT support to the add-on with configuration keys for broker, credentials, topic prefix, and Home Assistant discovery controls.
 - Added MQTT runtime topics for availability, state snapshots, error reports, command intake, and per-command acknowledgement payloads.
@@ -20,6 +24,3 @@
 - Fixed schedule charge and reserve window evaluation so local-time cron ticks are not compared as UTC.
 - Fixed early-morning tick handling in non-UTC timezones so configured local windows are honored.
 - Kept malformed time strings and equal start/end values invalid with explicit validation errors.
-
-### Main Changes v2.0.0
-[link to docs](./DOCS.md#new-features-in-v200)

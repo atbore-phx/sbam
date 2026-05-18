@@ -32,6 +32,76 @@ mqtt_ha_discovery: true
 mqtt_ha_discovery_prefix: "homeassistant"
 ```
 
+## Home Assistant Discovery Behavior
+
+Set in sbam add-on configuration:
+- `mqtt_enabled: true`
+the other MQTT options can be left empty/default to auto-fill broker and credentials from Home Assistant service data when available, or they can be set manually as needed.
+
+When MQTT is enabled and `mqtt_ha_discovery=true`, sbam publishes retained Home Assistant discovery payloads under:
+
+- `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config`
+
+Current discovery set includes:
+
+- 10 sensors
+- 3 binary sensors
+- 5 buttons (`trigger_now`, `pause`, `resume`, `force_charge`, `set_defaults`)
+
+### Discovery button actions
+
+Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and sbam publishes
+an acknowledgement on `<prefix>/cmd/<name>/ack`.
+
+- `trigger_now`: requests one immediate schedule evaluation run.
+- `pause`: pauses indefinitely the automatic schedule processing.
+- `resume`: clears pause state and resumes automatic schedule processing.
+- `force_charge`: requests a manual force charge. The button sends `{"target_pct":100}` which is the maximum load percentage. NB: sbam caps the effective target by `max_charge` (see configuration) and battery capacity at runtime.
+- `set_defaults`: restores inverter defaults via the configured Modbus write path.
+
+### Command sequencing note (schedule active)
+
+> [!IMPORTANT]
+> sbam serializes incoming commands and scheduled ticks in one runner queue, so
+> write operations are not executed concurrently. If the schedule remains active,
+> later ticks can still apply new decisions after a manual command.
+
+For a manual force-charge workflow with minimal scheduler interference:
+
+1. Send `force_charge` first.
+2. Wait for an accepted ack on `<prefix>/cmd/force_charge/ack`.
+3. Send `pause` to suppress subsequent automatic runs.
+4. Send `resume` when the manual window ends.
+5. Send `trigger_now` (or wait for the next scheduled tick) to let scheduler logic re-evaluate state.
+
+Do not pause before `force_charge`: `force_charge` is rejected while paused.
+
+Device grouping uses a stable `sbam_` identifier derived from Fronius IP, client ID, or topic prefix.
+
+sbam subscribes to `homeassistant/status` and republishes discovery when Home Assistant publishes `online`.
+
+## Migration from v1.x
+
+> [!NOTE]
+> v2.0.0 remains backward compatible while `mqtt_enabled=false` (default). Existing v1.x users do not need to change configuration unless opting into MQTT.
+
+MQTT configuration keys in standalone mode (CLI flags, environment variables, and `config.yaml`):
+
+- `mqtt_enabled` (`MQTT_ENABLED`, `--mqtt_enabled`)
+- `mqtt_broker` (`MQTT_BROKER`, `--mqtt_broker`)
+- `mqtt_client_id` (`MQTT_CLIENT_ID`, `--mqtt_client_id`)
+- `mqtt_username` (`MQTT_USERNAME`, `--mqtt_username`)
+- `mqtt_password` (`MQTT_PASSWORD`, `--mqtt_password`)
+- `mqtt_tls_ca_file` (`MQTT_TLS_CA_FILE`, `--mqtt_tls_ca_file`)
+- `mqtt_tls_client_cert` (`MQTT_TLS_CLIENT_CERT`, `--mqtt_tls_client_cert`)
+- `mqtt_tls_client_cert_key` (`MQTT_TLS_CLIENT_CERT_KEY`, `--mqtt_tls_client_cert_key`)
+- `mqtt_tls_insecure_skip` (`MQTT_TLS_INSECURE_SKIP`, `--mqtt_tls_insecure_skip`)
+- `mqtt_topic_prefix` (`MQTT_TOPIC_PREFIX`, `--mqtt_topic_prefix`)
+- `mqtt_ha_discovery` (`MQTT_HA_DISCOVERY`, `--mqtt_ha_discovery`)
+- `mqtt_ha_discovery_prefix` (`MQTT_HA_DISCOVERY_PREFIX`, `--mqtt_ha_discovery_prefix`)
+
+For Home Assistant users, entities are auto-discovered when MQTT and discovery are enabled; no manual YAML is required for those entities.
+
 ## Topic Map
 
 Use `mqtt_topic_prefix` to change the default `sbam` prefix.
@@ -132,71 +202,5 @@ Command payload constraints:
 
 - Maximum payload size is 4096 bytes.
 - `force_charge.target_pct` is required and must be between 1 and 100.
-- sbam always caps `force_charge.target_pct` by `max_charge` using live battery max capacity: effective target is `min(requested_target_pct, max_charge*100/pw_batt_max)`.
+- sbam always caps `force_charge.target_pct` by `max_charge` using live battery max capacity.
 - `pause.until` is optional; when set, it must be a future RFC3339 timestamp or a positive Go duration.
-
-## Home Assistant Discovery Behavior
-
-When MQTT is enabled and `mqtt_ha_discovery=true`, sbam publishes retained Home Assistant discovery payloads under:
-
-- `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config`
-
-Current discovery set includes:
-
-- 10 sensors
-- 3 binary sensors
-- 5 buttons (`trigger_now`, `pause`, `resume`, `force_charge`, `set_defaults`)
-
-### Discovery button actions
-
-Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and sbam publishes
-an acknowledgement on `<prefix>/cmd/<name>/ack`.
-
-- `trigger_now`: requests one immediate schedule evaluation run.
-- `pause`: pauses indefinitely the automatic schedule processing.
-- `resume`: clears pause state and resumes automatic schedule processing.
-- `force_charge`: requests a manual force charge. The button sends `{"target_pct":100}` which is the maximum load percentage. NB: sbam caps the effective target by `max_charge` (see configuration) and battery capacity at runtime.
-- `set_defaults`: restores inverter defaults via the configured Modbus write path.
-
-### Command sequencing note (schedule active)
-
-> [!IMPORTANT]
-> sbam serializes incoming commands and scheduled ticks in one runner queue, so
-> write operations are not executed concurrently. If the schedule remains active,
-> later ticks can still apply new decisions after a manual command.
-
-For a manual force-charge workflow with minimal scheduler interference:
-
-1. Send `force_charge` first.
-2. Wait for an accepted ack on `<prefix>/cmd/force_charge/ack`.
-3. Send `pause` to suppress subsequent automatic runs.
-4. Send `resume` when the manual window ends.
-5. Send `trigger_now` (or wait for the next scheduled tick) to let scheduler logic re-evaluate state.
-
-Do not pause before `force_charge`: `force_charge` is rejected while paused.
-
-Device grouping uses a stable `sbam_` identifier derived from Fronius IP, client ID, or topic prefix.
-
-sbam subscribes to `homeassistant/status` and republishes discovery when Home Assistant publishes `online`.
-
-## Migration from v1.x
-
-> [!NOTE]
-> v2.0.0 remains backward compatible while `mqtt_enabled=false` (default). Existing v1.x users do not need to change configuration unless opting into MQTT.
-
-MQTT configuration keys in standalone mode (CLI flags, environment variables, and `config.yaml`):
-
-- `mqtt_enabled` (`MQTT_ENABLED`, `--mqtt_enabled`)
-- `mqtt_broker` (`MQTT_BROKER`, `--mqtt_broker`)
-- `mqtt_client_id` (`MQTT_CLIENT_ID`, `--mqtt_client_id`)
-- `mqtt_username` (`MQTT_USERNAME`, `--mqtt_username`)
-- `mqtt_password` (`MQTT_PASSWORD`, `--mqtt_password`)
-- `mqtt_tls_ca_file` (`MQTT_TLS_CA_FILE`, `--mqtt_tls_ca_file`)
-- `mqtt_tls_client_cert` (`MQTT_TLS_CLIENT_CERT`, `--mqtt_tls_client_cert`)
-- `mqtt_tls_client_cert_key` (`MQTT_TLS_CLIENT_CERT_KEY`, `--mqtt_tls_client_cert_key`)
-- `mqtt_tls_insecure_skip` (`MQTT_TLS_INSECURE_SKIP`, `--mqtt_tls_insecure_skip`)
-- `mqtt_topic_prefix` (`MQTT_TOPIC_PREFIX`, `--mqtt_topic_prefix`)
-- `mqtt_ha_discovery` (`MQTT_HA_DISCOVERY`, `--mqtt_ha_discovery`)
-- `mqtt_ha_discovery_prefix` (`MQTT_HA_DISCOVERY_PREFIX`, `--mqtt_ha_discovery_prefix`)
-
-For Home Assistant users, entities are auto-discovered when MQTT and discovery are enabled; no manual YAML is required for those entities.

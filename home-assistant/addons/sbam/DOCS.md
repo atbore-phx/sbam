@@ -3,7 +3,7 @@
 ### Prerequisites
 
 sbam requires the following prerequisites to function correctly:
-[sbam prerequisites](../../../docs/prereq.md)
+[sbam prerequisites](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
 
 For MQTT features in Home Assistant, enable MQTT support first:
 [Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/)
@@ -117,7 +117,7 @@ the other MQTT options can be left empty/default to auto-fill broker and credent
 
 For complete MQTT reference (topic map, payload schemas, command examples,
 and migration notes), see:
-[MQTT Feed and Home Assistant Discovery](../../../docs/mqtt.md)
+[MQTT Feed and Home Assistant Discovery](https://github.com/atbore-phx/sbam/blob/main/docs/mqtt.md)
 
 Add-on specific behavior:
 
