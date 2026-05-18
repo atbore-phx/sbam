@@ -433,16 +433,19 @@ func (r *Runner) setPause(pauseUntil *time.Time) {
 	if pauseUntil == nil {
 		indefinite := time.Time{}
 		r.paused.Store(&indefinite)
+		u.Log.Info("schedule paused indefinitely")
 		return
 	}
 
 	until := pauseUntil.UTC()
 	r.paused.Store(&until)
+	u.Log.Infof("schedule paused until %s", until.Format(time.RFC3339))
 }
 
 // clearPause removes any pause deadline.
 func (r *Runner) clearPause() {
 	r.paused.Store(nil)
+	u.Log.Info("schedule resumed")
 }
 
 // pauseStateAt reports whether the runner is currently paused at the
@@ -459,6 +462,7 @@ func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 
 	until := deadline.UTC()
 	if !until.After(now) {
+		u.Log.Infof("pause expired at %s; resuming", until.Format(time.RFC3339))
 		r.clearPause()
 		return false, nil
 	}
