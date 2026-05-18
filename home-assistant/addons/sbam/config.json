@@ -64,8 +64,8 @@
     "mqtt_client_id": "str?",
     "mqtt_username": "str?",
     "mqtt_password": "password?",
-    "mqtt_topic_prefix": "str?",
+    "mqtt_topic_prefix": "str",
     "mqtt_ha_discovery": "bool",
-    "mqtt_ha_discovery_prefix": "str?"
+    "mqtt_ha_discovery_prefix": "str"
   }
 }
