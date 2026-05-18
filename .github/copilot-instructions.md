@@ -62,6 +62,11 @@ Use the following structure and feel free to add, modify and improve as needed:
   prompts/                    - Copilot workflow prompts (`generate-plan-*`, `implement-plan`)
   workflows/                  - CI/CD workflow definitions
 
+docs/
+  prereq.md                   - Prerequisites required to run sbam
+  mqtt.md                     - Detailed MQTT feed and Home Assistant discovery documentation
+  vibe/                       - Contributor workflow docs for TASK/PLAN prompt usage
+
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
 
