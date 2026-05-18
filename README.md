@@ -60,6 +60,15 @@ Sbam is available as an add-on for HAOS (Home Assistant OS).
 
 follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
 
+### MQTT Feed
+----
+sbam can publish schedule telemetry and accept control commands over MQTT when
+`mqtt_enabled=true`.
+
+For full setup, topic mapping, payload schemas, command examples, and migration
+details, see [MQTT documentation](docs/mqtt.md).
+
+
 ### Stand Alone:
 ----
 **sbam** can be run via cli with the following parameters:
@@ -209,24 +218,4 @@ Configuration values are resolved with the following precedence (highest first):
 2. Environment variable (e.g. `URL=http://example/`)
 3. `config.yaml` in the working directory
 4. Built-in default
-
-#### MQTT and Home Assistant discovery
-
-When `mqtt_enabled=true`, `schedule` publishes state updates to MQTT:
-
-- `sbam/state`
-- `sbam/availability`
-- `sbam/error`
-
-Use `mqtt_topic_prefix` to change `sbam` to a site-specific path.
-
-When `mqtt_ha_discovery=true`, sbam also publishes Home Assistant discovery payloads
-under `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config`.
-Defaults:
-
-- `mqtt_topic_prefix=sbam`
-- `mqtt_ha_discovery_prefix=homeassistant`
-
-sbam subscribes to `homeassistant/status` and republishes discovery/state when
-Home Assistant comes online.
 

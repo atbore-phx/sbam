@@ -3,10 +3,10 @@
 ### Prerequisites
 
 sbam requires the following prerequisites to function correctly:
-https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md
+[sbam prerequisites](../../../docs/prereq.md)
 
 For MQTT features in Home Assistant, enable MQTT support first:
-https://www.home-assistant.io/integrations/mqtt/
+[Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/)
 
 The recommended broker for Home Assistant users is the Mosquitto add-on.
 
@@ -18,7 +18,7 @@ Sbam is available as an App (formerly known as add-ons) for HAOS (Home Assistant
 
 
 Official guide:
-https://www.home-assistant.io/common-tasks/os#installing-a-third-party-app-repository
+[Install a third-party Home Assistant app repository](https://www.home-assistant.io/common-tasks/os#installing-a-third-party-app-repository)
 
 1. Settings
 2. Apps
@@ -99,53 +99,19 @@ and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
 
 ![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
 
-### MQTT Behavior in the Add-on
+### MQTT in the Home Assistant Add-on
 
-When MQTT is enabled:
+For complete MQTT reference (topic map, payload schemas, command examples,
+and migration notes), see:
+[MQTT Feed and Home Assistant Discovery](../../../docs/mqtt.md)
 
-- If mqtt_broker is already set, sbam keeps user-provided broker and credentials.
+Add-on specific behavior:
+
+- If mqtt_broker is already set, sbam keeps the configured broker and credentials.
 - If mqtt_broker is empty, sbam tries to auto-fill broker and credentials from Home Assistant service data via bashio::services mqtt.
-- Auto-fill only applies to empty values and does not overwrite manual broker, username, or password.
-
-TLS add-on options are intentionally not exposed in the Home Assistant add-on UI for v2.0.0.
-Standalone sbam still supports TLS options via CLI, env vars, and config.yaml.
-
-### MQTT Topic Map
-
-Assuming default mqtt_topic_prefix=sbam:
-
-- State: sbam/state
-- Errors: sbam/error
-- Availability: sbam/availability (retained online/offline)
-- Commands:
-  - sbam/cmd/trigger_now
-  - sbam/cmd/force_charge
-  - sbam/cmd/set_defaults
-  - sbam/cmd/pause
-  - sbam/cmd/resume
-- Command acknowledgements: sbam/cmd/<command>/ack
-
-Discovery entities are published under mqtt_ha_discovery_prefix, for example:
-homeassistant/<component>/sbam/<object_id>/config
-
-### MQTT Examples
-
-Read state updates:
-
-```bash
-mosquitto_sub -h <broker-host> -t 'sbam/state' -v
-```
-
-Send force charge command:
-
-```bash
-mosquitto_pub -h <broker-host> -t 'sbam/cmd/force_charge' -m '{"target_pct":100,"duration_s":3600}'
-```
-
-### About Show in Sidebar and Auto Update
-
-- Show in sidebar: sbam currently has no ingress web UI. There is no sidebar panel to expose for this add-on.
-- Auto update: this toggle is managed by Home Assistant per installation. It is not controlled by sbam repository metadata.
+- Auto-fill applies only to empty values and does not overwrite manual broker, username, or password.
+- `mqtt_topic_prefix` controls state, error, availability, and command topics (default `sbam`).
+- `mqtt_ha_discovery_prefix` controls Home Assistant discovery topics (default `homeassistant`).
 
 ### Start sbam
 
