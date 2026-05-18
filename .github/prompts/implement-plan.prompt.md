@@ -94,6 +94,7 @@ If the PLAN defines additional validation gates, run those too. Do not declare s
 
 ### 5. Documentation and surface updates
 
+- For every type, function, or method added or modified in a public package (pkg/) or sources (src/), ensure the code is properly documented with GoDoc comments. The comments are inserted before the declaration and start with the name of the item and a description of its purpose, behavior, and any important details.
 - If you added/removed/renamed/moved any files, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md), while respecting the existing structure, formatting, important sections, and conventions.
 - Update [README.md](../../README.md) only if the PLAN says so or if user-visible behavior changed.
 - If the Home Assistant add-on schema or behavior changed, append an entry to [home-assistant/addons/sbam/CHANGELOG.md](../../home-assistant/addons/sbam/CHANGELOG.md) and update [home-assistant/addons/sbam/DOCS.md](../../home-assistant/addons/sbam/DOCS.md).
