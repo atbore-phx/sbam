@@ -20,3 +20,6 @@
 - Fixed schedule charge and reserve window evaluation so local-time cron ticks are not compared as UTC.
 - Fixed early-morning tick handling in non-UTC timezones so configured local windows are honored.
 - Kept malformed time strings and equal start/end values invalid with explicit validation errors.
+
+### Main Changes v2.0.0
+[link to docs](./DOCS.md#new-features-in-v200)
