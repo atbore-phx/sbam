@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -141,10 +142,15 @@ func TestRunner_HandleIntentPausePublishesStateAndAck(t *testing.T) {
 func TestRunner_ForceChargeCommandExecutesWriterAndPublishesAck(t *testing.T) {
 	client := newFakeClient()
 	fakeWriter := &fakeBatteryWriter{}
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
 	newBatteryWriter = func() batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
+
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
 
 	runner := newRunnerForTests(client)
 	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/force_charge", []byte(`{"target_pct":42}`))
@@ -153,16 +159,146 @@ func TestRunner_ForceChargeCommandExecutesWriterAndPublishesAck(t *testing.T) {
 	intent := <-runner.intents
 	runner.handleIntent(context.Background(), intent)
 
+	assert.Equal(t, 1, fakeStorage.calls)
 	assert.Equal(t, 1, fakeWriter.forceChargeCalls)
 	assert.Equal(t, "127.0.0.1", fakeWriter.lastFroniusIP)
-	assert.Equal(t, int16(42), fakeWriter.lastTargetPct)
+	assert.Equal(t, int16(35), fakeWriter.lastTargetPct)
 
 	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	require.NotNil(t, state.ChargePct)
+	assert.Equal(t, int16(35), *state.ChargePct)
+
 	ackMsg, ok := findPublishedBySuffix(msgs, "/ack")
 	require.True(t, ok, "expected ack publish")
 	ack := decodeAckPayload(t, ackMsg.payload)
 	assert.True(t, ack.Accepted)
 	assert.Equal(t, "force_charge", ack.Command)
+}
+
+func TestRunner_ForceChargeCommandBelowCapKeepsRequestedPct(t *testing.T) {
+	client := newFakeClient()
+	fakeWriter := &fakeBatteryWriter{}
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+
+	oldFactory := newBatteryWriter
+	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	defer func() { newBatteryWriter = oldFactory }()
+
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	runner := newRunnerForTests(client)
+	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/force_charge", []byte(`{"target_pct":20}`))
+	require.True(t, accepted)
+
+	intent := <-runner.intents
+	runner.handleIntent(context.Background(), intent)
+
+	assert.Equal(t, 1, fakeStorage.calls)
+	assert.Equal(t, 1, fakeWriter.forceChargeCalls)
+	assert.Equal(t, int16(20), fakeWriter.lastTargetPct)
+}
+
+func TestRunner_ForceChargeCommandWithZeroMaxChargeResolvesToZero(t *testing.T) {
+	client := newFakeClient()
+	fakeWriter := &fakeBatteryWriter{}
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+
+	oldFactory := newBatteryWriter
+	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	defer func() { newBatteryWriter = oldFactory }()
+
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.MaxCharge = 0
+
+	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/force_charge", []byte(`{"target_pct":80}`))
+	require.True(t, accepted)
+
+	intent := <-runner.intents
+	runner.handleIntent(context.Background(), intent)
+
+	assert.Equal(t, 1, fakeStorage.calls)
+	assert.Equal(t, 1, fakeWriter.forceChargeCalls)
+	assert.Equal(t, int16(0), fakeWriter.lastTargetPct)
+}
+
+func TestRunner_ForceChargeCommandAt100UsesMaxChargeCap(t *testing.T) {
+	client := newFakeClient()
+	fakeWriter := &fakeBatteryWriter{}
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+
+	oldFactory := newBatteryWriter
+	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	defer func() { newBatteryWriter = oldFactory }()
+
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	runner := newRunnerForTests(client)
+	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/force_charge", []byte(`{"target_pct":100}`))
+	require.True(t, accepted)
+
+	intent := <-runner.intents
+	runner.handleIntent(context.Background(), intent)
+
+	assert.Equal(t, 1, fakeStorage.calls)
+	assert.Equal(t, 1, fakeWriter.forceChargeCalls)
+	assert.Equal(t, "127.0.0.1", fakeWriter.lastFroniusIP)
+	assert.Equal(t, int16(35), fakeWriter.lastTargetPct)
+
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	require.NotNil(t, state.ChargePct)
+	assert.Equal(t, int16(35), *state.ChargePct)
+
+	ackMsg, ok := findPublishedBySuffix(msgs, "/ack")
+	require.True(t, ok, "expected ack publish")
+	ack := decodeAckPayload(t, ackMsg.payload)
+	assert.True(t, ack.Accepted)
+	assert.Equal(t, "force_charge", ack.Command)
+}
+
+func TestRunner_ForceChargeCommandAt100RejectedWhenCapacityUnavailable(t *testing.T) {
+	client := newFakeClient()
+	fakeWriter := &fakeBatteryWriter{}
+	fakeStorage := &fakeStorageClient{err: errors.New("storage unavailable")}
+
+	oldFactory := newBatteryWriter
+	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	defer func() { newBatteryWriter = oldFactory }()
+
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	runner := newRunnerForTests(client)
+	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/force_charge", []byte(`{"target_pct":100}`))
+	require.True(t, accepted)
+
+	intent := <-runner.intents
+	runner.handleIntent(context.Background(), intent)
+
+	assert.Equal(t, 1, fakeStorage.calls)
+	assert.Equal(t, 0, fakeWriter.forceChargeCalls)
+
+	msgs := drainPublishes(client)
+	ackMsg, ok := findPublishedBySuffix(msgs, "/ack")
+	require.True(t, ok, "expected ack publish")
+	ack := decodeAckPayload(t, ackMsg.payload)
+	assert.False(t, ack.Accepted)
+	assert.Equal(t, "force_charge", ack.Command)
+	assert.Contains(t, ack.Error, "unable to resolve force_charge target")
 }
 
 func TestRunner_SetDefaultsCommandExecutesWriterAndPublishesAck(t *testing.T) {

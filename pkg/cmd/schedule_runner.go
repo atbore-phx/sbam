@@ -329,16 +329,49 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		return err
 	}
 
-	if err := r.writer.ForceCharge(r.cfg.FroniusIP, intent.TargetPct); err != nil {
+	targetPct, err := r.resolveForceChargeTargetPct(intent.TargetPct)
+	if err != nil {
+		r.publishError(ctx, "force_charge", err)
+		return err
+	}
+
+	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
 
 	payload := r.newCommandPayload(string(mqtt.IntentForceCharge), "force charge command executed", r.now())
 	payload.Paused = false
-	payload.ChargePct = &intent.TargetPct
+	payload.ChargePct = &targetPct
 	r.publishState(payload)
 	return nil
+}
+
+// resolveForceChargeTargetPct caps any requested force charge percentage
+// by configured max_charge and current battery max capacity.
+//
+// Effective target is:
+// min(requestedPct, max_charge*100/pw_batt_max)
+//
+// When max_charge is 0 the effective target becomes 0 (no charge).
+func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) {
+	if r.cfg.MaxCharge < 0 {
+		return 0, fmt.Errorf("invalid max_charge %.2f: must be greater than or equal to 0", r.cfg.MaxCharge)
+	}
+
+	storageHandler := newStorage()
+	_, capacityMax, _, err := storageHandler.Handler(r.cfg.FroniusIP)
+	if err != nil {
+		return 0, fmt.Errorf("unable to resolve force_charge target from battery capacity: %w", err)
+	}
+	if capacityMax <= 0 {
+		return 0, fmt.Errorf("invalid battery capacity %.2f: must be greater than 0", capacityMax)
+	}
+
+	requestedLoad := capacityMax * float64(requestedPct) / 100.0
+	targetPct := fronius.SetChargePower(capacityMax, requestedLoad, r.cfg.MaxCharge)
+
+	return targetPct, nil
 }
 
 // handleSetDefaults triggers the battery writer to restore inverter

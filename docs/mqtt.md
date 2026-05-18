@@ -132,6 +132,7 @@ Command payload constraints:
 
 - Maximum payload size is 4096 bytes.
 - `force_charge.target_pct` is required and must be between 1 and 100.
+- sbam always caps `force_charge.target_pct` by `max_charge` using live battery max capacity: effective target is `min(requested_target_pct, max_charge*100/pw_batt_max)`.
 - `pause.until` is optional; when set, it must be a future RFC3339 timestamp or a positive Go duration.
 
 ## Home Assistant Discovery Behavior
@@ -154,7 +155,7 @@ an acknowledgement on `<prefix>/cmd/<name>/ack`.
 - `trigger_now`: requests one immediate schedule evaluation run.
 - `pause`: pauses indefinitely the automatic schedule processing.
 - `resume`: clears pause state and resumes automatic schedule processing.
-- `force_charge`: requests a manual force charge at 100%. The button sends `{"target_pct":100}`.
+- `force_charge`: requests a manual force charge. The button sends `{"target_pct":100}` which is the maximum load percentage. NB: sbam caps the effective target by `max_charge` (see configuration) and battery capacity at runtime.
 - `set_defaults`: restores inverter defaults via the configured Modbus write path.
 
 ### Command sequencing note (schedule active)
