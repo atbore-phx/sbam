@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,31 +54,6 @@ func withScheduleValidationGlobals(t *testing.T, reserveStart, reserveEnd string
 		pw_upt = oldUpt
 		s_cache_time = oldCacheTime
 	})
-}
-
-func TestStartEndHelpers(t *testing.T) {
-	assert.True(t, isStartBeforeEnd("01:00", "02:00"))
-	assert.False(t, isStartBeforeEnd("02:00", "02:00"))
-	assert.True(t, isStartAfterEnd("03:00", "02:00"))
-	assert.False(t, isStartAfterEnd("01:00", "02:00"))
-}
-
-func TestStartEndHelpersPanicOnInvalidTime(t *testing.T) {
-	assert.Panics(t, func() { _ = isStartBeforeEnd("bad", "02:00") })
-	assert.Panics(t, func() { _ = isStartAfterEnd("01:00", "bad") })
-}
-
-func TestCheckTimeRangeBranchesAndPanic(t *testing.T) {
-	now := time.Now()
-	startInside := now.Add(-1 * time.Minute).Format("15:04")
-	endInside := now.Add(1 * time.Minute).Format("15:04")
-	assert.True(t, CheckTimeRange(startInside, endInside))
-
-	startOutside := now.Add(-3 * time.Hour).Format("15:04")
-	endOutside := now.Add(-2 * time.Hour).Format("15:04")
-	assert.False(t, CheckTimeRange(startOutside, endOutside))
-
-	assert.Panics(t, func() { _ = CheckTimeRange("xx", "yy") })
 }
 
 func TestCheckScheduleScheduleValid(t *testing.T) {

@@ -247,56 +247,11 @@ func registerScdCmd() {
 	rootCmd.AddCommand(scdCmd)
 }
 
-// isStartBeforeEnd parses the given `start` and `end` time strings (layout "15:04")
-// and returns true when `start` is strictly before `end`.
-//
-// It panics on parse errors; callers should validate input beforehand.
-func isStartBeforeEnd(start, end string) bool {
-	// Define a layout for parsing time strings
-	layout := "15:04"
-
-	// Parse the time strings
-	startTime, err := time.Parse(layout, start)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing start time")
-		panic(err)
-	}
-
-	endTime, err := time.Parse(layout, end)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing end time")
-		panic(err)
-	}
-
-	// Compare the times
-	return startTime.Before(endTime)
-}
-
-// isStartAfterEnd parses `start` and `end` (layout "15:04") and returns true
-// when `start` is strictly after `end`.
-//
-// It panics on parse errors similarly to isStartBeforeEnd.
-func isStartAfterEnd(start, end string) bool {
-	// Define a layout for parsing time strings
-	layout := "15:04"
-
-	// Parse the time strings
-	startTime, err := time.Parse(layout, start)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing start time")
-		panic(err)
-	}
-
-	endTime, err := time.Parse(layout, end)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing end time")
-		panic(err)
-	}
-
-	// Compare the times
-	return startTime.After(endTime)
-}
-
+// parseScheduleClock parses a clock string in the `scheduleClockLayout`
+// ("15:04") and returns a `time.Time` representing that wall-clock
+// time. The returned value has the date portion set by Go's parser and
+// is intended only for clock comparisons (hours/minutes), not absolute
+// timestamps.
 func parseScheduleClock(value, field string) (time.Time, error) {
 	parsed, err := time.Parse(scheduleClockLayout, value)
 	if err != nil {
@@ -306,6 +261,10 @@ func parseScheduleClock(value, field string) (time.Time, error) {
 	return parsed, nil
 }
 
+// validateScheduleWindow parses and validates a start/end clock window
+// provided as strings in `scheduleClockLayout` ("15:04"). It returns the
+// parsed start and end times (date portion zeroed) or an error when
+// parsing fails or when the two times are equal.
 func validateScheduleWindow(startField, startValue, endField, endValue string) (time.Time, time.Time, error) {
 	startTime, err := parseScheduleClock(startValue, startField)
 	if err != nil {
@@ -324,14 +283,19 @@ func validateScheduleWindow(startField, startValue, endField, endValue string) (
 	return startTime, endTime, nil
 }
 
-func isCrossMidnightWindow(startTime, endTime time.Time) bool {
-	return startTime.After(endTime)
-}
-
+// clockMinute returns the minute-of-day for the provided time (0..1439).
+// This helper is used when converting parsed clock times into integer
+// minute positions for window expansion and containment checks.
 func clockMinute(t time.Time) int {
 	return t.Hour()*60 + t.Minute()
 }
 
+// expandClockWindow converts a start and end minute into one or two
+// `clockSegment` entries. When `startMinute < endMinute` the window is
+// continuous and a single segment is returned. When the window crosses
+// midnight the function returns two segments: one from `startMinute`
+// through 23:59 and another from 00:00 through `endMinute`.
+// This is used to reason about containment for cross-midnight windows.
 func expandClockWindow(startMinute, endMinute int) []clockSegment {
 	if startMinute < endMinute {
 		return []clockSegment{{startMinute: startMinute, endMinute: endMinute}}
@@ -343,10 +307,18 @@ func expandClockWindow(startMinute, endMinute int) []clockSegment {
 	}
 }
 
+// segmentContains returns true when the `inner` segment lies entirely within
+// the `outer` segment (inclusive bounds). It's used by window containment
+// checks after windows have been expanded into one or two segments.
 func segmentContains(outer, inner clockSegment) bool {
 	return outer.startMinute <= inner.startMinute && inner.endMinute <= outer.endMinute
 }
 
+// isWindowContainedIn reports whether the inner time window (innerStart..innerEnd)
+// is fully covered by the outer time window (outerStart..outerEnd). Both inputs
+// are clock strings in "15:04" layout. The function expands windows that span
+// midnight into segments and verifies each inner segment is contained in at
+// least one outer segment.
 func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (bool, error) {
 	innerStartTime, innerEndTime, err := validateScheduleWindow("inner_start", innerStart, "inner_end", innerEnd)
 	if err != nil {
@@ -376,21 +348,6 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 	}
 
 	return true, nil
-}
-
-// CheckTimeRange returns true when the current local time is within the
-// inclusive interval between `start_hr` and `end_hr` (both in "15:04" format).
-//
-// This helper is used by the scheduler to determine whether charging window
-// and reserve windows are active at runtime.
-func CheckTimeRange(start_hr, end_hr string) bool {
-	inRange, err := checkTimeRangeAt(time.Now(), start_hr, end_hr)
-	if err != nil {
-		u.Log.Error("Something goes wrong parsing time range")
-		panic(err)
-	}
-
-	return inRange
 }
 
 // checkScheduleschedule validates the provided scheduling and runtime
@@ -445,10 +402,6 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	return nil
 }
 
-// NOTE: the single-shot `schedule` compatibility wrapper was moved to
-// package tests (pkg/cmd/schedule_test.go). Tests should call the
-// wrapper or directly call `NewRunner(...).Tick(...)`.
-
 // publishStateSnapshot publishes the provided `payload` using the MQTT client.
 func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload mqtt.StatePayload) {
 	// Use a short-lived context so the publish operation cannot block
@@ -459,9 +412,11 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload m
 	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
 }
 
-// publishLatestState re-publishes the cached latest state snapshot, if one exists.
-// latest-state republish was removed; discovery publish remains in mqtt.InitWithCleanup
-
+// subscribeScheduleCommands subscribes to the scheduler command topic and
+// forwards incoming MQTT commands to the provided `runner` via its
+// `HandleCommand` method. Subscription is a no-op when MQTT is disabled or
+// the client is not connected. The function uses a short-lived context for
+// the subscribe operation to avoid blocking indefinitely.
 func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqttCfg mqtt.Config, runner *Runner) error {
 	if !mqttCfg.Enabled || mqttClient == nil {
 		return nil
@@ -510,6 +465,10 @@ func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWin
 	}
 }
 
+// finalizeRunnerMode stops the runner immediately when MQTT is disabled
+// (non-interactive mode) or blocks until the runner completes when MQTT
+// is enabled (interactive mode). When stopping the runner it submits a
+// shutdown intent and waits for the runner goroutine to finish.
 func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, stop context.CancelFunc) error {
 	if !mqttEnabled {
 		u.Log.Info("MQTT integration disabled, stopping runner")
@@ -524,6 +483,9 @@ func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, 
 	return waitForRunnerDone(runDone)
 }
 
+// waitForRunnerDone waits for the runner goroutine to finish and returns
+// any non-cancellation error observed. It validates the channel is not
+// nil and unwraps context cancellation from the returned error path.
 func waitForRunnerDone(runDone <-chan error) error {
 	if runDone == nil {
 		return errors.New("runner completion channel is required")

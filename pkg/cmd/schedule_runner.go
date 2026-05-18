@@ -75,6 +75,9 @@ type Runner struct {
 	paused  atomic.Pointer[time.Time]
 }
 
+// NewRunner constructs a Runner with the provided configuration and MQTT
+// client. If `cfg.Now` is nil it defaults to `time.Now`. The runner is
+// initialized with a buffered intent queue and a battery writer.
 func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -88,6 +91,9 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 	}
 }
 
+// Submit enqueues an intent for the runner to process. It returns true on
+// success or false if the internal intent queue is full, in which case an
+// error is logged and published to MQTT.
 func (r *Runner) Submit(intent mqtt.Intent) bool {
 	select {
 	case r.intents <- intent:
@@ -100,6 +106,9 @@ func (r *Runner) Submit(intent mqtt.Intent) bool {
 	}
 }
 
+// Run is the runner's main event loop. It consumes intents from the
+// internal queue and dispatches them to handlers until a shutdown intent
+// is processed or the provided context is cancelled.
 func (r *Runner) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -118,6 +127,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 }
 
+// HandleCommand parses an MQTT command payload into an Intent and submits
+// it to the runner. It returns false when parsing fails or when the intent
+// queue is full; in both cases an MQTT ack is published with the error.
 func (r *Runner) HandleCommand(ctx context.Context, topic string, payload []byte) bool {
 	intent, err := mqtt.ParseIntent(topic, payload)
 	if err != nil {
@@ -138,6 +150,10 @@ func (r *Runner) HandleCommand(ctx context.Context, topic string, payload []byte
 	return true
 }
 
+// Tick performs one scheduling cycle: it checks windows, reads storage
+// state, optionally retrieves the forecast, invokes the Fronius decision
+// classifier, and publishes the resulting state payload. It is safe to
+// call concurrently but the runner serializes Modbus writes.
 func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if now.IsZero() {
 		now = r.now()
@@ -240,6 +256,9 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	return nil
 }
 
+// handleIntent processes a single Intent from the queue and dispatches to
+// the appropriate handler. It also acknowledges MQTT commands where
+// required.
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 	switch intent.Kind {
 	case mqtt.IntentShutdown:
@@ -294,6 +313,9 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 	}
 }
 
+// handleForceCharge executes a forced charge command by validating the
+// payload and writing the requested target via the battery writer. It
+// respects pause state and returns an error on failure.
 func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) error {
 	paused, _ := r.pauseStateAt(r.now())
 	if paused {
@@ -319,6 +341,8 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 	return nil
 }
 
+// handleSetDefaults triggers the battery writer to restore inverter
+// defaults. It respects pause state and publishes the resulting state.
 func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) error {
 	paused, _ := r.pauseStateAt(r.now())
 	if paused {
@@ -338,6 +362,9 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 	return nil
 }
 
+// newCommandPayload builds a basic StatePayload for command responses,
+// computing current window flags and returning a payload ready for
+// callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
 	inChargeWindow, inChargeErr := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
 	if inChargeErr != nil {
@@ -354,10 +381,14 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 	return makeBasePayload(lastDecision, reason, inChargeWindow, reserveWindowActive)
 }
 
+// publishState publishes the provided state payload via MQTT using the
+// configured MQTT client and topic prefix.
 func (r *Runner) publishState(payload mqtt.StatePayload) {
 	publishStateSnapshot(r.client, r.cfg.MQTT, payload)
 }
 
+// publishError sends an error payload to the MQTT error topic when MQTT
+// is enabled. It returns immediately when err is nil or MQTT is disabled.
 func (r *Runner) publishError(ctx context.Context, source string, err error) {
 	if err == nil || !r.cfg.MQTT.Enabled {
 		return
@@ -376,6 +407,8 @@ func (r *Runner) publishError(ctx context.Context, source string, err error) {
 	})
 }
 
+// publishIntentAck publishes an acknowledgement for a parsed MQTT command
+// intent, including any parse error.
 func (r *Runner) publishIntentAck(ctx context.Context, intent mqtt.Intent, parseErr error) {
 	if strings.TrimSpace(intent.CommandTopic) == "" {
 		return
@@ -388,10 +421,14 @@ func (r *Runner) publishIntentAck(ctx context.Context, intent mqtt.Intent, parse
 	}
 }
 
+// now returns the configured clock function for the runner (used for
+// testing/time injection).
 func (r *Runner) now() time.Time {
 	return r.cfg.Now()
 }
 
+// setPause sets the runner pause deadline. A nil pointer clears the pause
+// (indefinite); a zero Time value represents an indefinite pause.
 func (r *Runner) setPause(pauseUntil *time.Time) {
 	if pauseUntil == nil {
 		indefinite := time.Time{}
@@ -403,10 +440,13 @@ func (r *Runner) setPause(pauseUntil *time.Time) {
 	r.paused.Store(&until)
 }
 
+// clearPause removes any pause deadline.
 func (r *Runner) clearPause() {
 	r.paused.Store(nil)
 }
 
+// pauseStateAt reports whether the runner is currently paused at the
+// provided time and returns the pause-until timestamp when paused.
 func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 	deadline := r.paused.Load()
 	if deadline == nil {
@@ -427,6 +467,15 @@ func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 	return true, &copyUntil
 }
 
+// isCrossMidnightWindow returns true when the start clock time is strictly
+// after the end clock time indicating a window that spans midnight.
+func isCrossMidnightWindow(startTime, endTime time.Time) bool {
+	return startTime.After(endTime)
+}
+
+// checkTimeRangeAt determines whether the provided `now` falls inside the
+// inclusive time range defined by startHR and endHR. It supports windows
+// that cross midnight.
 func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 	startTime, endTime, err := validateScheduleWindow("start time", startHR, "end time", endHR)
 	if err != nil {
