@@ -7,11 +7,11 @@
 
 ## Task Analysis
 
-Issue #128 asks sbam to improve the Home Assistant MQTT discovery UX for manual `force_charge` and `pause` commands. Users should be able to choose a force-charge target percentage and pause duration with sliders, then press explicit send buttons that publish to the existing `PREFIX/cmd/force_charge` and `PREFIX/cmd/pause` topics.
+Issue #128 asks sbam to improve the Home Assistant MQTT discovery UX for manual `force_charge` and `pause` commands. Users should be able to choose a force-charge target percentage with a slider and a pause duration via a numeric input (box) with steppers, then press explicit send buttons that publish to the existing `PREFIX/cmd/force_charge` and `PREFIX/cmd/pause` topics.
 
 Goals:
 
-- Add Home Assistant MQTT `number` entities rendered as sliders for force-charge target percent and pause duration seconds.
+- Add Home Assistant MQTT `number` entities: a slider for force-charge target percent and a numeric box (mode: box) for pause duration seconds.
 - Keep explicit button presses as the only way to publish to sbam command topics.
 - Keep ordinary force-charge requests subject to the existing `max_charge` cap.
 - Add an explicit full-charge override path for the slider's `>100` value.
@@ -25,7 +25,7 @@ Non-goals:
 - Do not change Fronius Modbus register addresses or unrelated charging algorithm behavior.
 - Do not modify Solcast or Fronius Solar API integrations.
 
-Acceptance criteria from the TASK are covered by adding two slider entities, templated send buttons, strict command parsing for ordinary and override requests, runner tests for capped and uncapped paths, docs updates, and validation with `go test ./...`, `make test`, and `make build`.
+Acceptance criteria from the TASK are covered by adding two number selector entities (force-charge slider and pause numeric box), templated send buttons, strict command parsing for ordinary and override requests, runner tests for capped and uncapped paths, docs updates, and validation with `go test ./...`, `make test`, and `make build`.
 
 ## Current State
 
@@ -43,7 +43,7 @@ Acceptance criteria from the TASK are covered by adding two slider entities, tem
 External Home Assistant facts checked on 2026-05-19:
 
 - MQTT button supports `command_template`, which generates the payload sent to `command_topic`: https://www.home-assistant.io/integrations/button.mqtt/
-- MQTT number supports `min`, `max`, `step`, `mode: slider`, `command_topic`, `state_topic`, `retain`, `qos`, and `command_template`: https://www.home-assistant.io/integrations/number.mqtt/
+- MQTT number supports `min`, `max`, `step`, `mode` (for example `slider` or `box`), `command_topic`, `state_topic`, `retain`, `qos`, and `command_template`: https://www.home-assistant.io/integrations/number.mqtt/
 - MQTT discovery accepts retained single-component discovery payloads and ignores unknown keys for compatibility: https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery
 
 ## Target Architecture
@@ -65,7 +65,7 @@ flowchart LR
 Discovery design:
 
 - Add `number` entity `force_charge_target_pct` with default entity ID `number.sbam_force_charge_target_pct`, `min=0`, `max=101`, `step=1`, `mode=slider`, `unit_of_measurement="%"`, and command/state topic `<prefix>/control/force_charge_target_pct`.
-- Add `number` entity `pause_duration_s` with default entity ID `number.sbam_pause_duration_s`, `min=0`, `max=86400`, `step=60`, `mode=slider`, `unit_of_measurement="s"`, and command/state topic `<prefix>/control/pause_duration_s`.
+   - Add `number` entity `pause_duration_s` with default entity ID `number.sbam_pause_duration_s`, `min=0`, `max=86400`, `step=60`, `mode=box`, `unit_of_measurement="s"`, and command/state topic `<prefix>/control/pause_duration_s`.
 - Use the same topic for each selector's `command_topic` and `state_topic`, with `retain=true`, so the selected value is harmlessly retained by the broker and can be restored. sbam must not subscribe to these selector topics.
 - Update the existing Home Assistant `force_charge` button discovery payload to use `command_template` instead of a fixed payload. The button keeps `command_topic=<prefix>/cmd/force_charge` and defaults unknown selector state to `100` for backward-compatible behavior.
 - Update the existing Home Assistant `pause` button discovery payload to use `command_template`. It keeps `command_topic=<prefix>/cmd/pause` and defaults unknown selector state to `0`, which publishes `{}` for existing indefinite pause behavior.
@@ -115,7 +115,7 @@ MQTT discovery changes are data-only and controlled by existing `mqtt_enabled`, 
    - Add small pointer helpers such as `floatPtr(value float64) *float64` and `boolPtr(value bool) *bool`.
    - Add `numberPayload(base discoveryPayload, deviceID, objectID, name, defaultEntityID, commandTopic string, min, max, step float64, unit, icon string) discoveryPayload`.
    - Add `templatedButtonPayload(base discoveryPayload, deviceID, objectID, name, commandTopic, commandTemplate string) discoveryPayload` or extend `buttonPayload` with an optional command-template argument.
-   - For number payloads, clear inherited `ValueTemplate` unless intentionally used, set `StateTopic` to the selector topic, set `CommandTopic` to the same selector topic, set `Retain=true`, set `Mode="slider"`, and set `QoS=1` through the existing base value.
+   - For number payloads, clear inherited `ValueTemplate` unless intentionally used, set `StateTopic` to the selector topic, set `CommandTopic` to the same selector topic, set `Retain=true`, set `Mode` to the requested value (e.g., `slider` for force target, `box` for pause), and set `QoS=1` through the existing base value.
 
 3. Add selector discovery entities in `BuildDiscovery` in [pkg/mqtt/discovery.go](../../../pkg/mqtt/discovery.go).
    - Increase the entity slice capacity from `18` to `20`.
@@ -166,7 +166,7 @@ MQTT discovery changes are data-only and controlled by existing `mqtt_enabled`, 
    - Extend `discoveryPayloadView` with `DefaultEntityID`, `CommandTemplate`, `Min`, `Max`, `Step`, `Mode`, `Retain`, `Unit`, and `Icon` fields. Use pointer types for `Min`, `Max`, `Step`, and `Retain` where zero or false must be asserted.
    - Update expected entity count to at least `20`.
    - Assert the new `number/force_charge_target_pct` payload has `min=0`, `max=101`, `step=1`, `mode=slider`, `unit_of_measurement="%"`, `default_entity_id="number.sbam_force_charge_target_pct"`, retained selector topic, QoS 1, and shared device identifier.
-   - Assert the new `number/pause_duration_s` payload has `min=0`, `max=86400`, `mode=slider`, `unit_of_measurement="s"`, `default_entity_id="number.sbam_pause_duration_s"`, retained selector topic, QoS 1, and shared device identifier.
+   - Assert the new `number/pause_duration_s` payload has `min=0`, `max=86400`, `mode=box`, `unit_of_measurement="s"`, `default_entity_id="number.sbam_pause_duration_s"`, retained selector topic, QoS 1, and shared device identifier.
    - Replace the fixed force-charge button payload assertion with assertions for `CommandTopic`, `CommandTemplate`, `retain=false`, and template substrings `number.sbam_force_charge_target_pct` and `ignore_max_charge`.
    - Assert the pause button template references `number.sbam_pause_duration_s`, emits `{}` for zero/unknown values, and emits an `until` seconds duration for positive values.
    - Add selector `controlTopic` normalization tests if the helper is exported only inside the package tests.
@@ -354,8 +354,8 @@ Manual Home Assistant validation after unit tests:
 ## Open Questions / Risks
 
 - RESOLVED: Home Assistant MQTT supports `number` slider mode and MQTT button `command_template`, so the preferred slider plus explicit send-button UX is viable.
-- RESOLVED: Pause slider value `0` maps to `{}` for existing indefinite pause behavior.
-- RESOLVED: Pause slider maximum is `86400` seconds.
+- RESOLVED: Pause selector value `0` maps to `{}` for existing indefinite pause behavior.
+- RESOLVED: Pause selector maximum is `86400` seconds.
 - RESOLVED: Force selector value `101` maps to `target_pct=100` with `ignore_max_charge=true`, an explicit payload convention for uncapped full charge.
 - RESOLVED: Force selector value `0` maps to `target_pct=0`, using existing Fronius defaults behavior.
 - DEFERRED: Manual Home Assistant validation is still required because discovery payloads can be syntactically valid while entity IDs, templates, or retained selector behavior are awkward in the UI.

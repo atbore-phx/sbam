@@ -6,13 +6,13 @@
 > Slug: `128-issue-feature-home-assistant-slider-controls-for-force-charge-and-pause` · Created: 2026-05-19
 
 ## Summary
-Home Assistant MQTT discovery should expose slider-style controls for `force_charge` and `pause`, paired with explicit send buttons so users can choose a target charge percent or pause duration before publishing the command. The feature replaces the awkward fixed 100% force-charge button behavior with precise values that still respect server-side safety limits unless the user intentionally requests an uncapped full charge.
+Home Assistant MQTT discovery should expose a slider control for `force_charge` and a numeric `box` input for `pause`, paired with explicit send buttons so users can choose a target charge percent or pause duration before publishing the command. The feature replaces the awkward fixed 100% force-charge button behavior with precise values that still respect server-side safety limits unless the user intentionally requests an uncapped full charge.
 
 ## Motivation / User Story
 As a Home Assistant user, I want to pick a charge target and pause duration with sliders and then press a button to send the command, so I can set precise values quickly without repeatedly pressing buttons or accidentally sending incorrect 100% force-charge commands that ignore `max_charge`.
 
 ## Scope
-- In scope: add or update Home Assistant MQTT discovery payloads for slider controls related to `force_charge` target percent and `pause` duration.
+- In scope: add or update Home Assistant MQTT discovery payloads for a slider control for `force_charge` target percent and a numeric box control for `pause` duration.
 - In scope: keep an explicit send action so changing a slider does not itself execute the command when the Home Assistant MQTT platform can support that behavior.
 - In scope: publish or cause publication of payloads compatible with the existing `PREFIX/cmd/force_charge` and `PREFIX/cmd/pause` command behavior.
 - In scope: preserve existing command topics and existing button-based integrations for backward compatibility.
@@ -28,7 +28,7 @@ As a Home Assistant user, I want to pick a charge target and pause duration with
 - When a selected force-charge value is between `1` and `100`, the command payload must request `{"target_pct": <n>}` and the server must continue applying the configured `max_charge` cap as it does today.
 - When a selected force-charge value is greater than `100`, the value must be treated as a generic `max`/override request meaning `charge_pct=100` without applying the `max_charge` cap.
 - The override request must be explicit in the payload contract, using either a special field or a clearly documented convention chosen during implementation.
-- Home Assistant discovery must include a slider-like control for selecting pause duration in seconds.
+- Home Assistant discovery must include a numeric box control (`mode: box`) for selecting pause duration in seconds.
 - The pause duration control must use `0..86400` seconds by default.
 - A pause duration value of `0` must publish `{}` to request the existing indefinite pause behavior.
 - Pause duration values from `1` through `86400` must publish a payload compatible with `parsePauseUntil`, such as `{"until":"3600s"}`.
@@ -62,7 +62,7 @@ As a Home Assistant user, I want to pick a charge target and pause duration with
 - Fronius Modbus registers: no new registers expected; existing force-charge write behavior may be reused.
 
 ## Acceptance Criteria
-- [ ] Home Assistant discovers slider-style controls for force-charge target percent and pause duration.
+- [ ] Home Assistant discovers a slider for force-charge target percent and a numeric box for pause duration.
 - [ ] Home Assistant discovers explicit send actions for force charge and pause, or the PLAN documents why pure MQTT discovery cannot provide that UX and selects the smallest compatible fallback.
 - [ ] Moving a slider alone does not execute the command when the selected Home Assistant MQTT approach supports a separate send action.
 - [ ] Pressing the force-charge send action publishes or causes handling of a valid payload compatible with existing `force_charge` command behavior.
@@ -97,7 +97,7 @@ As a Home Assistant user, I want to pick a charge target and pause duration with
 
 ## Clarifications
 - 2026-05-19: Use slug `128-issue-feature-home-assistant-slider-controls-for-force-charge-and-pause`.
-- 2026-05-19: Pause slider value `0` should publish `{}` for the existing indefinite pause behavior.
-- 2026-05-19: Pause slider maximum should be `86400` seconds.
+-- 2026-05-19: Pause selector value `0` should publish `{}` for the existing indefinite pause behavior.
+-- 2026-05-19: Pause selector maximum should be `86400` seconds.
 - 2026-05-19: Force-charge values greater than `100` should be treated as a generic `max` value meaning `charge_pct=100` without applying the configured cap.
 - 2026-05-19: Prefer Home Assistant MQTT `command_template` for the slider plus explicit send-button UX if viable.
