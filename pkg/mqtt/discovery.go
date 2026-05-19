@@ -32,11 +32,22 @@ type discoveryPayload struct {
 	PayloadOn         string          `json:"payload_on,omitempty"`
 	PayloadOff        string          `json:"payload_off,omitempty"`
 	CommandTopic      string          `json:"command_topic,omitempty"`
+	CommandTemplate   string          `json:"command_template,omitempty"`
 	PayloadPress      string          `json:"payload_press,omitempty"`
+	DefaultEntityID   string          `json:"default_entity_id,omitempty"`
+	Min               *float64        `json:"min,omitempty"`
+	Max               *float64        `json:"max,omitempty"`
+	Step              *float64        `json:"step,omitempty"`
+	Mode              string          `json:"mode,omitempty"`
 	Retain            *bool           `json:"retain,omitempty"`
 	QoS               int             `json:"qos,omitempty"`
 }
 
+// BuildDiscovery returns Home Assistant MQTT discovery entities for sbam.
+//
+// BuildDiscovery publishes sensor state entities plus command controls and
+// selector entities used by templated buttons. It normalizes prefixes and
+// falls back to "dev" when the version string is empty.
 func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
@@ -63,7 +74,12 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 		QoS:               int(qosAtLeastOnce),
 	}
 
-	entities := make([]DiscoveryEntity, 0, 18)
+	forceChargeControlTopic := controlTopic(prefix, "force_charge_target_pct")
+	pauseDurationControlTopic := controlTopic(prefix, "pause_duration_s")
+	forceChargeCommandTemplate := `{% set target = states('number.sbam_force_charge_target_pct') | int(100) %}{% if target > 100 %}{"target_pct":100,"ignore_max_charge":true}{% elif target < 0 %}{"target_pct":0}{% else %}{"target_pct":{{ target }}}{% endif %}`
+	pauseCommandTemplate := `{% set seconds = states('number.sbam_pause_duration_s') | int(0) %}{% if seconds <= 0 %}{}{% else %}{"until":"{{ seconds }}s"}{% endif %}`
+
+	entities := make([]DiscoveryEntity, 0, 20)
 
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "battery_soc_pct", sensorPayload(base, deviceID, "battery_soc_pct", "Battery SoC", "{{ value_json.battery_soc_pct }}", "%", "battery", "measurement", ""))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "battery_capacity_wh", sensorPayload(base, deviceID, "battery_capacity_wh", "Battery Capacity", "{{ value_json.battery_capacity_wh }}", "Wh", "", "measurement", ""))
@@ -91,10 +107,13 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	reserveWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "batt_reserve_window_active", reserveWindowBinary)
 
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "pause_duration_s", numberPayload(base, deviceID, "pause_duration_s", "Pause Duration", "number.sbam_pause_duration_s", pauseDurationControlTopic, 0, 86400, 60, "s", "mdi:timer-outline"))
+
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "trigger_now", buttonPayload(base, deviceID, "trigger_now", "Trigger Now", commandTopic(prefix, "trigger_now"), "{}"))
-	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "pause", buttonPayload(base, deviceID, "pause", "Pause", commandTopic(prefix, "pause"), "{}"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "pause", templatedButtonPayload(base, deviceID, "pause", "Pause", commandTopic(prefix, "pause"), pauseCommandTemplate))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "resume", buttonPayload(base, deviceID, "resume", "Resume", commandTopic(prefix, "resume"), "{}"))
-	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "force_charge", buttonPayload(base, deviceID, "force_charge", "Force Charge", commandTopic(prefix, "force_charge"), `{"target_pct":100,"duration_s":3600}`))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "force_charge", templatedButtonPayload(base, deviceID, "force_charge", "Force Charge", commandTopic(prefix, "force_charge"), forceChargeCommandTemplate))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "set_defaults", buttonPayload(base, deviceID, "set_defaults", "Set Defaults", commandTopic(prefix, "set_defaults"), "{}"))
 
 	return entities
@@ -113,19 +132,58 @@ func sensorPayload(base discoveryPayload, deviceID, objectID, name, valueTemplat
 }
 
 func buttonPayload(base discoveryPayload, deviceID, objectID, name, commandTopic, payloadPress string) discoveryPayload {
-	retained := false
-
 	payload := base
 	payload.Name = name
 	payload.UniqueID = uniqueEntityID(deviceID, objectID)
 	payload.CommandTopic = commandTopic
+	payload.CommandTemplate = ""
 	payload.PayloadPress = payloadPress
-	payload.Retain = &retained
+	payload.DefaultEntityID = ""
+	payload.Min = nil
+	payload.Max = nil
+	payload.Step = nil
+	payload.Mode = ""
+	payload.Retain = boolPtr(false)
 	payload.StateTopic = ""
 	payload.ValueTemplate = ""
 	payload.Unit = ""
 	payload.DeviceClass = ""
 	payload.StateClass = ""
+	payload.EntityCategory = ""
+	payload.Icon = ""
+	payload.PayloadOn = ""
+	payload.PayloadOff = ""
+	return payload
+}
+
+func templatedButtonPayload(base discoveryPayload, deviceID, objectID, name, commandTopic, commandTemplate string) discoveryPayload {
+	payload := buttonPayload(base, deviceID, objectID, name, commandTopic, "")
+	payload.CommandTemplate = commandTemplate
+	return payload
+}
+
+func numberPayload(base discoveryPayload, deviceID, objectID, name, defaultEntityID, selectorTopic string, min, max, step float64, unit, icon string) discoveryPayload {
+	payload := base
+	payload.Name = name
+	payload.UniqueID = uniqueEntityID(deviceID, objectID)
+	payload.DefaultEntityID = defaultEntityID
+	payload.CommandTopic = selectorTopic
+	payload.CommandTemplate = ""
+	payload.PayloadPress = ""
+	payload.StateTopic = selectorTopic
+	payload.ValueTemplate = ""
+	payload.Unit = unit
+	payload.DeviceClass = ""
+	payload.StateClass = ""
+	payload.EntityCategory = "config"
+	payload.Icon = icon
+	payload.PayloadOn = ""
+	payload.PayloadOff = ""
+	payload.Min = floatPtr(min)
+	payload.Max = floatPtr(max)
+	payload.Step = floatPtr(step)
+	payload.Mode = "slider"
+	payload.Retain = boolPtr(true)
 	return payload
 }
 
@@ -145,6 +203,18 @@ func appendDiscoveryEntity(current []DiscoveryEntity, discoveryPrefix, component
 
 func commandTopic(prefix, name string) string {
 	return normalizePrefix(prefix) + "/cmd/" + strings.Trim(strings.TrimSpace(name), "/")
+}
+
+func controlTopic(prefix, name string) string {
+	return normalizePrefix(prefix) + "/control/" + strings.Trim(strings.TrimSpace(name), "/")
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func floatPtr(value float64) *float64 {
+	return &value
 }
 
 func uniqueEntityID(baseID, objectID string) string {

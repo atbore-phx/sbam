@@ -69,13 +69,19 @@ const (
 	IntentTriggerNow  IntentKind = "trigger_now"
 )
 
+// Intent describes a validated command request routed through the schedule runner.
+//
+// Intent carries normalized command kind and optional command-specific fields
+// (for example force-charge target and pause deadline) plus the originating
+// MQTT command topic used for acknowledgement publication.
 type Intent struct {
-	Kind          IntentKind `json:"kind"`
-	TargetPct     int16      `json:"target_pct,omitempty"`
-	DurationS     int        `json:"duration_s,omitempty"`
-	PauseUntil    *time.Time `json:"pause_until,omitempty"`
-	PwBattReserve float64    `json:"pw_batt_reserve,omitempty"`
-	CommandTopic  string     `json:"-"`
+	Kind            IntentKind `json:"kind"`
+	TargetPct       int16      `json:"target_pct,omitempty"`
+	IgnoreMaxCharge bool       `json:"ignore_max_charge,omitempty"`
+	DurationS       int        `json:"duration_s,omitempty"`
+	PauseUntil      *time.Time `json:"pause_until,omitempty"`
+	PwBattReserve   float64    `json:"pw_batt_reserve,omitempty"`
+	CommandTopic    string     `json:"-"`
 }
 
 type DiscoveryEntity struct {

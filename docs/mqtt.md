@@ -46,7 +46,17 @@ Current discovery set includes:
 
 - 10 sensors
 - 3 binary sensors
+- 2 numbers (`force_charge_target_pct`, `pause_duration_s`)
 - 5 buttons (`trigger_now`, `pause`, `resume`, `force_charge`, `set_defaults`)
+
+### Discovery selector entities
+
+When discovery is enabled, Home Assistant receives two slider-backed MQTT number entities:
+
+- `force_charge_target_pct`: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`.
+- `pause_duration_s`: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds.
+
+These selector topics store user selection state only. sbam command execution still happens only through the command buttons.
 
 ### Discovery button actions
 
@@ -54,9 +64,14 @@ Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and sbam publishe
 an acknowledgement on `<prefix>/cmd/<name>/ack`.
 
 - `trigger_now`: requests one immediate schedule evaluation run.
-- `pause`: pauses indefinitely the automatic schedule processing.
+- `pause`: reads the `pause_duration_s` selector and sends:
+  - `{}` when selector value is `0` (existing indefinite pause behavior)
+  - `{"until":"<seconds>s"}` when selector value is `1..86400`
 - `resume`: clears pause state and resumes automatic schedule processing.
-- `force_charge`: requests a manual force charge. The button sends `{"target_pct":100}` which is the maximum load percentage. NB: sbam caps the effective target by `max_charge` (see configuration) and battery capacity at runtime.
+- `force_charge`: reads the `force_charge_target_pct` selector and sends:
+  - `{"target_pct":0}` when selector value is `0` (stop force charge / restore defaults)
+  - `{"target_pct":<n>}` when selector value is `1..100` (still capped by `max_charge` and battery capacity)
+  - `{"target_pct":100,"ignore_max_charge":true}` when selector value is `101` (explicit uncapped full-charge override)
 - `set_defaults`: restores inverter defaults via the configured Modbus write path.
 
 ### Command sequencing note (schedule active)
@@ -113,6 +128,7 @@ Use `mqtt_topic_prefix` to change the default `sbam` prefix.
 | `<prefix>/error` (default `sbam/error`) | sbam publishes | not retained, qos 1 | `ErrorPayload` JSON |
 | `<prefix>/cmd/+` (default `sbam/cmd/+`) | sbam subscribes | qos 1 | command payload JSON |
 | `<prefix>/cmd/<name>/ack` | sbam publishes | not retained, qos 1 | `AckPayload` JSON |
+| `<prefix>/control/+` | Home Assistant publishes selector values | retained, qos 1 | slider state used by discovery button templates |
 | `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config` | sbam publishes | retained, qos 1 | Home Assistant discovery config |
 
 Defaults:
@@ -145,7 +161,7 @@ Error payload (`<prefix>/error`):
 
 ```json
 {
-  "error": "invalid payload: target_pct must be between 1 and 100",
+  "error": "invalid payload: target_pct must be between 0 and 100",
   "source": "force_charge",
   "ts": "2026-05-18T21:01:00Z"
 }
@@ -168,7 +184,7 @@ Rejected ack payload (`<prefix>/cmd/force_charge/ack`):
   "ts": "2026-05-18T21:01:10Z",
   "command": "force_charge",
   "accepted": false,
-  "error": "invalid payload: target_pct must be between 1 and 100"
+  "error": "invalid payload: target_pct must be between 0 and 100"
 }
 ```
 
@@ -194,6 +210,12 @@ mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/resume" -
 # force_charge
 mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/force_charge" -m '{"target_pct":80}'
 
+# force_charge explicit uncapped full-charge override
+mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/force_charge" -m '{"target_pct":100,"ignore_max_charge":true}'
+
+# force_charge stop/reset (restores defaults)
+mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/force_charge" -m '{"target_pct":0}'
+
 # set_defaults
 mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/set_defaults" -m '{}'
 ```
@@ -201,6 +223,9 @@ mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/set_defau
 Command payload constraints:
 
 - Maximum payload size is 4096 bytes.
-- `force_charge.target_pct` is required and must be between 1 and 100.
-- sbam always caps `force_charge.target_pct` by `max_charge` using live battery max capacity.
+- `force_charge.target_pct` is required and must be between 0 and 100.
+- `force_charge.target_pct=0` stops forced charge and restores defaults through the existing Fronius defaults path.
+- `force_charge.target_pct=1..100` remains capped by `max_charge` using live battery max capacity.
+- `force_charge.ignore_max_charge=true` is accepted only when `target_pct=100`; it requests an explicit uncapped full-charge write.
+- Raw `target_pct=101` is invalid for direct command payloads.
 - `pause.until` is optional; when set, it must be a future RFC3339 timestamp or a positive Go duration.

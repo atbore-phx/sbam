@@ -323,16 +323,33 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
-	if intent.TargetPct < 1 || intent.TargetPct > 100 {
-		err := fmt.Errorf("%w: target_pct must be between 1 and 100", mqtt.ErrInvalidPayload)
+	if intent.TargetPct < 0 || intent.TargetPct > 100 {
+		err := fmt.Errorf("%w: target_pct must be between 0 and 100", mqtt.ErrInvalidPayload)
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
 
-	targetPct, err := r.resolveForceChargeTargetPct(intent.TargetPct)
-	if err != nil {
-		r.publishError(ctx, "force_charge", err)
-		return err
+	var (
+		targetPct int16
+		err       error
+	)
+
+	switch {
+	case intent.IgnoreMaxCharge:
+		if intent.TargetPct != 100 {
+			err = fmt.Errorf("%w: ignore_max_charge requires target_pct 100", mqtt.ErrInvalidPayload)
+			r.publishError(ctx, "force_charge", err)
+			return err
+		}
+		targetPct = 100
+	case intent.TargetPct == 0:
+		targetPct = 0
+	default:
+		targetPct, err = r.resolveForceChargeTargetPct(intent.TargetPct)
+		if err != nil {
+			r.publishError(ctx, "force_charge", err)
+			return err
+		}
 	}
 
 	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
