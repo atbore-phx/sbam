@@ -107,6 +107,7 @@ jobs:
             ${{ needs.determine-release.outputs.release == 'latest' && 'latest' || 'dev' }}
           version: ${{ env.VERSION }}
           context: home-assistant/addons/sbam
+          cosign: "false"
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           push: "true"
           build-args: |

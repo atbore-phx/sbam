@@ -51,10 +51,10 @@ Current discovery set includes:
 
 ### Discovery selector entities
 
-When discovery is enabled, Home Assistant receives two slider-backed MQTT number entities:
+When discovery is enabled, Home Assistant receives two numeric selector MQTT `number` entities (mode: box):
 
-- `force_charge_target_pct`: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`.
-- `pause_duration_s`: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds.
+- `force_charge_target_pct`: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`, mode `box`, step `1`, unit `%`.
+- `pause_duration_s`: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds, mode `box`, step `60`.
 
 These selector topics store user selection state only. sbam command execution still happens only through the command buttons.
 
