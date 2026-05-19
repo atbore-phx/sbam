@@ -323,16 +323,33 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
-	if intent.TargetPct < 1 || intent.TargetPct > 100 {
-		err := fmt.Errorf("%w: target_pct must be between 1 and 100", mqtt.ErrInvalidPayload)
+	if intent.TargetPct < 0 || intent.TargetPct > 100 {
+		err := fmt.Errorf("%w: target_pct must be between 0 and 100", mqtt.ErrInvalidPayload)
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
 
-	targetPct, err := r.resolveForceChargeTargetPct(intent.TargetPct)
-	if err != nil {
-		r.publishError(ctx, "force_charge", err)
-		return err
+	var (
+		targetPct int16
+		err       error
+	)
+
+	switch {
+	case intent.IgnoreMaxCharge:
+		if intent.TargetPct != 100 {
+			err = fmt.Errorf("%w: ignore_max_charge requires target_pct 100", mqtt.ErrInvalidPayload)
+			r.publishError(ctx, "force_charge", err)
+			return err
+		}
+		targetPct = 100
+	case intent.TargetPct == 0:
+		targetPct = 0
+	default:
+		targetPct, err = r.resolveForceChargeTargetPct(intent.TargetPct)
+		if err != nil {
+			r.publishError(ctx, "force_charge", err)
+			return err
+		}
 	}
 
 	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
@@ -469,10 +486,10 @@ func (r *Runner) setPause(pauseUntil *time.Time) {
 		u.Log.Info("schedule paused indefinitely")
 		return
 	}
-
-	until := pauseUntil.UTC()
-	r.paused.Store(&until)
-	u.Log.Infof("schedule paused until %s", until.Format(time.RFC3339))
+	untilUTC := pauseUntil.UTC()
+	r.paused.Store(&untilUTC)
+	localUntil := pauseUntil.In(r.now().Location())
+	u.Log.Infof("schedule paused until %s", localUntil.Format(time.RFC3339))
 }
 
 // clearPause removes any pause deadline.
@@ -495,7 +512,8 @@ func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 
 	until := deadline.UTC()
 	if !until.After(now) {
-		u.Log.Infof("pause expired at %s; resuming", until.Format(time.RFC3339))
+		localUntil := until.In(r.now().Location())
+		u.Log.Infof("pause expired at %s; resuming", localUntil.Format(time.RFC3339))
 		r.clearPause()
 		return false, nil
 	}

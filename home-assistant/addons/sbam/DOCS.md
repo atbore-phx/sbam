@@ -126,6 +126,8 @@ Add-on specific behavior:
 - Auto-fill applies only to empty values and does not overwrite manual broker, username, or password.
 - `mqtt_topic_prefix` controls state, error, availability, and command topics (default `sbam`).
 - `mqtt_ha_discovery_prefix` controls Home Assistant discovery topics (default `homeassistant`).
+- Home Assistant discovery includes numeric box selectors for `force_charge_target_pct` and `pause_duration_s` (box mode), plus explicit send buttons for force charge and pause.
+- Force-charge selector value `101` is treated as an explicit full-charge override and sends `{"target_pct":100,"ignore_max_charge":true}`.
 
 #### Cross-midnight time window configuration
 

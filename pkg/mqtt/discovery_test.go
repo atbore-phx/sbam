@@ -11,15 +11,26 @@ import (
 )
 
 type discoveryPayloadView struct {
-	UniqueID          string `json:"unique_id"`
-	AvailabilityTopic string `json:"availability_topic"`
-	StateTopic        string `json:"state_topic"`
-	ValueTemplate     string `json:"value_template"`
-	CommandTopic      string `json:"command_topic"`
-	PayloadPress      string `json:"payload_press"`
-	PayloadOn         string `json:"payload_on"`
-	PayloadOff        string `json:"payload_off"`
-	SWVersion         string `json:"sw_version"`
+	UniqueID          string   `json:"unique_id"`
+	AvailabilityTopic string   `json:"availability_topic"`
+	StateTopic        string   `json:"state_topic"`
+	ValueTemplate     string   `json:"value_template"`
+	CommandTopic      string   `json:"command_topic"`
+	CommandTemplate   string   `json:"command_template"`
+	PayloadPress      string   `json:"payload_press"`
+	DefaultEntityID   string   `json:"default_entity_id"`
+	Min               *float64 `json:"min"`
+	Max               *float64 `json:"max"`
+	Step              *float64 `json:"step"`
+	Mode              string   `json:"mode"`
+	Retain            *bool    `json:"retain"`
+	Unit              string   `json:"unit_of_measurement"`
+	Icon              string   `json:"icon"`
+	EntityCategory    string   `json:"entity_category"`
+	QoS               int      `json:"qos"`
+	PayloadOn         string   `json:"payload_on"`
+	PayloadOff        string   `json:"payload_off"`
+	SWVersion         string   `json:"sw_version"`
 	Device            struct {
 		Identifiers  []string `json:"identifiers"`
 		Manufacturer string   `json:"manufacturer"`
@@ -40,7 +51,7 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 
 	entities := BuildDiscovery(cfg, "2.0.0")
 	require.NotEmpty(t, entities)
-	assert.GreaterOrEqual(t, len(entities), 18)
+	assert.GreaterOrEqual(t, len(entities), 20)
 
 	battery := requireEntity(t, entities, "sensor", "battery_soc_pct")
 	assert.Equal(t, "homeassistant/sensor/sbam/battery_soc_pct/config", battery.Topic)
@@ -58,7 +69,58 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 	button := requireEntity(t, entities, "button", "force_charge")
 	buttonPayload := decodeDiscoveryPayload(t, button.Payload)
 	assert.Equal(t, "sbam/cmd/force_charge", buttonPayload.CommandTopic)
-	assert.Equal(t, `{"target_pct":100,"duration_s":3600}`, buttonPayload.PayloadPress)
+	assert.Empty(t, buttonPayload.PayloadPress)
+	assert.Contains(t, buttonPayload.CommandTemplate, "number.sbam_force_charge_target_pct")
+	assert.Contains(t, buttonPayload.CommandTemplate, "ignore_max_charge")
+	require.NotNil(t, buttonPayload.Retain)
+	assert.False(t, *buttonPayload.Retain)
+
+	pauseButton := requireEntity(t, entities, "button", "pause")
+	pauseButtonPayload := decodeDiscoveryPayload(t, pauseButton.Payload)
+	assert.Equal(t, "sbam/cmd/pause", pauseButtonPayload.CommandTopic)
+	assert.Empty(t, pauseButtonPayload.PayloadPress)
+	assert.Contains(t, pauseButtonPayload.CommandTemplate, "number.sbam_pause_duration_s")
+	assert.Contains(t, pauseButtonPayload.CommandTemplate, `{"until":"{{ seconds }}s"}`)
+	require.NotNil(t, pauseButtonPayload.Retain)
+	assert.False(t, *pauseButtonPayload.Retain)
+
+	forceSelector := requireEntity(t, entities, "number", "force_charge_target_pct")
+	forceSelectorPayload := decodeDiscoveryPayload(t, forceSelector.Payload)
+	assert.Equal(t, "number.sbam_force_charge_target_pct", forceSelectorPayload.DefaultEntityID)
+	assert.Equal(t, "sbam/control/force_charge_target_pct", forceSelectorPayload.CommandTopic)
+	assert.Equal(t, "sbam/control/force_charge_target_pct", forceSelectorPayload.StateTopic)
+	assert.Equal(t, "%", forceSelectorPayload.Unit)
+	assert.Equal(t, "box", forceSelectorPayload.Mode)
+	assert.Equal(t, "config", forceSelectorPayload.EntityCategory)
+	assert.Equal(t, "mdi:battery-charging-60", forceSelectorPayload.Icon)
+	assert.Equal(t, int(qosAtLeastOnce), forceSelectorPayload.QoS)
+	require.NotNil(t, forceSelectorPayload.Min)
+	require.NotNil(t, forceSelectorPayload.Max)
+	require.NotNil(t, forceSelectorPayload.Step)
+	require.NotNil(t, forceSelectorPayload.Retain)
+	assert.Equal(t, 0.0, *forceSelectorPayload.Min)
+	assert.Equal(t, 101.0, *forceSelectorPayload.Max)
+	assert.Equal(t, 1.0, *forceSelectorPayload.Step)
+	assert.True(t, *forceSelectorPayload.Retain)
+
+	pauseSelector := requireEntity(t, entities, "number", "pause_duration_s")
+	pauseSelectorPayload := decodeDiscoveryPayload(t, pauseSelector.Payload)
+	assert.Equal(t, "number.sbam_pause_duration_s", pauseSelectorPayload.DefaultEntityID)
+	assert.Equal(t, "sbam/control/pause_duration_s", pauseSelectorPayload.CommandTopic)
+	assert.Equal(t, "sbam/control/pause_duration_s", pauseSelectorPayload.StateTopic)
+	assert.Equal(t, "s", pauseSelectorPayload.Unit)
+	assert.Equal(t, "box", pauseSelectorPayload.Mode)
+	assert.Equal(t, "config", pauseSelectorPayload.EntityCategory)
+	assert.Equal(t, "mdi:timer-outline", pauseSelectorPayload.Icon)
+	assert.Equal(t, int(qosAtLeastOnce), pauseSelectorPayload.QoS)
+	require.NotNil(t, pauseSelectorPayload.Min)
+	require.NotNil(t, pauseSelectorPayload.Max)
+	require.NotNil(t, pauseSelectorPayload.Step)
+	require.NotNil(t, pauseSelectorPayload.Retain)
+	assert.Equal(t, 0.0, *pauseSelectorPayload.Min)
+	assert.Equal(t, 86400.0, *pauseSelectorPayload.Max)
+	assert.Equal(t, 60.0, *pauseSelectorPayload.Step)
+	assert.True(t, *pauseSelectorPayload.Retain)
 
 	paused := requireEntity(t, entities, "binary_sensor", "paused")
 	pausedPayload := decodeDiscoveryPayload(t, paused.Payload)
@@ -197,5 +259,17 @@ func TestDiscoveryConfigTopicDefaults(t *testing.T) {
 		t,
 		"ha/button/sbam/trigger_now/config",
 		discoveryConfigTopic(" /ha/ ", " /button/ ", " /trigger_now/ "),
+	)
+
+	assert.Equal(
+		t,
+		"sbam/control/force_charge_target_pct",
+		controlTopic(" /sbam/ ", " /force_charge_target_pct/ "),
+	)
+
+	assert.Equal(
+		t,
+		"sbam/control/pause_duration_s",
+		controlTopic(" ", "pause_duration_s"),
 	)
 }

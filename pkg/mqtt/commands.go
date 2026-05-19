@@ -28,8 +28,9 @@ type commandTopicInfo struct {
 }
 
 type forceChargePayload struct {
-	TargetPct *int `json:"target_pct"`
-	DurationS *int `json:"duration_s,omitempty"`
+	TargetPct       *int  `json:"target_pct"`
+	DurationS       *int  `json:"duration_s,omitempty"`
+	IgnoreMaxCharge *bool `json:"ignore_max_charge,omitempty"`
 }
 
 type pausePayload struct {
@@ -38,6 +39,11 @@ type pausePayload struct {
 
 var jsonMarshal = json.Marshal
 
+// ParseIntent parses an MQTT command topic and payload into a validated Intent.
+//
+// ParseIntent enforces payload size limits and strict JSON decoding rules,
+// normalizes supported command names, and returns ErrInvalidPayload or
+// ErrUnknownCommand when the request cannot be accepted.
 func ParseIntent(topic string, payload []byte) (Intent, error) {
 	return parseIntentAt(topic, payload, time.Now().UTC())
 }
@@ -66,6 +72,7 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 			TargetPct:    int16(*forcePayload.TargetPct),
 			CommandTopic: topic,
 		}
+		intent.IgnoreMaxCharge = forcePayload.IgnoreMaxCharge != nil && *forcePayload.IgnoreMaxCharge
 		if forcePayload.DurationS != nil {
 			intent.DurationS = *forcePayload.DurationS
 		}
@@ -180,8 +187,12 @@ func parseForceChargePayload(payload []byte) (forceChargePayload, error) {
 	if parsed.TargetPct == nil {
 		return forceChargePayload{}, fmt.Errorf("%w: target_pct is required", ErrInvalidPayload)
 	}
-	if *parsed.TargetPct < 1 || *parsed.TargetPct > 100 {
-		return forceChargePayload{}, fmt.Errorf("%w: target_pct must be between 1 and 100", ErrInvalidPayload)
+	if *parsed.TargetPct < 0 || *parsed.TargetPct > 100 {
+		return forceChargePayload{}, fmt.Errorf("%w: target_pct must be between 0 and 100", ErrInvalidPayload)
+	}
+
+	if parsed.IgnoreMaxCharge != nil && *parsed.IgnoreMaxCharge && *parsed.TargetPct != 100 {
+		return forceChargePayload{}, fmt.Errorf("%w: ignore_max_charge requires target_pct 100", ErrInvalidPayload)
 	}
 
 	if parsed.DurationS != nil {

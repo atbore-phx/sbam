@@ -24,6 +24,7 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 		expectedKind     IntentKind
 		expectedTarget   int16
 		expectedDuration int
+		expectedIgnore   bool
 		checkPause       bool
 		expectPauseNil   bool
 	}{
@@ -32,6 +33,7 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 		{name: "set_defaults empty", topic: "sbam/cmd/set_defaults", payload: nil, expectedKind: IntentSetDefaults},
 		{name: "resume empty object", topic: "sbam/cmd/resume", payload: []byte("{}"), expectedKind: IntentResume},
 		{name: "force_charge full payload", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":50,"duration_s":3600}`), expectedKind: IntentForceCharge, expectedTarget: 50, expectedDuration: 3600},
+		{name: "force_charge explicit override", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":100,"ignore_max_charge":true}`), expectedKind: IntentForceCharge, expectedTarget: 100, expectedIgnore: true},
 		{name: "pause empty payload is indefinite", topic: "sbam/cmd/pause", payload: nil, expectedKind: IntentPause, expectPauseNil: true},
 		{name: "pause empty object is indefinite", topic: "sbam/cmd/pause", payload: []byte("{}"), expectedKind: IntentPause, expectPauseNil: true},
 		{name: "pause rfc3339 future", topic: "sbam/cmd/pause", payload: []byte(fmt.Sprintf(`{"until":%q}`, future)), expectedKind: IntentPause, checkPause: true},
@@ -49,6 +51,7 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 			if tc.expectedKind == IntentForceCharge {
 				assert.Equal(t, tc.expectedTarget, intent.TargetPct)
 				assert.Equal(t, tc.expectedDuration, intent.DurationS)
+				assert.Equal(t, tc.expectedIgnore, intent.IgnoreMaxCharge)
 			}
 
 			if tc.expectPauseNil {
@@ -92,8 +95,10 @@ func TestParseIntentForceChargeValidation(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 
 	valid := []string{
+		`{"target_pct":0}`,
 		`{"target_pct":1}`,
 		`{"target_pct":100}`,
+		`{"target_pct":100,"ignore_max_charge":true}`,
 		`{"target_pct":50,"duration_s":0}`,
 		`{"target_pct":50,"duration_s":86400}`,
 	}
@@ -102,12 +107,19 @@ func TestParseIntentForceChargeValidation(t *testing.T) {
 		intent, err := parseIntentAt("sbam/cmd/force_charge", []byte(payload), now)
 		require.NoError(t, err)
 		assert.Equal(t, IntentForceCharge, intent.Kind)
+		if strings.Contains(payload, "ignore_max_charge") {
+			assert.True(t, intent.IgnoreMaxCharge)
+		} else {
+			assert.False(t, intent.IgnoreMaxCharge)
+		}
 	}
 
 	invalid := []string{
 		`{}`,
-		`{"target_pct":0}`,
+		`{"target_pct":-1}`,
 		`{"target_pct":101}`,
+		`{"target_pct":50,"ignore_max_charge":true}`,
+		`{"target_pct":100,"ignore_max_charge":"true"}`,
 		`{"target_pct":50,"duration_s":-1}`,
 		`{"target_pct":50,"duration_s":86401}`,
 		`{"target_pct":"50"}`,
