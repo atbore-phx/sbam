@@ -1,5 +1,5 @@
 ## What's New in v2.0.0
-[docs](https://github.com/atbore-phx/sbam/blob/main/home-assistant/addons/sbam/DOCS.md#new-features-in-v200)
+[link to news for v2.0.0](https://github.com/atbore-phx/sbam/blob/main/home-assistant/addons/sbam/DOCS.md#new-features-in-v200)
 
 ## Changes 2.0.0
 
@@ -19,4 +19,4 @@
 - Clarified release scope: set_reserve remains intentionally unsupported in v2.0.0.
 
 ## Full Release Changelog
-[sbam](https://github.com/atbore-phx/sbam/releases/latest)
+[link to sbam latest release](https://github.com/atbore-phx/sbam/releases/latest)
