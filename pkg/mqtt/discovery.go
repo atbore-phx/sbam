@@ -107,7 +107,7 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	reserveWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "batt_reserve_window_active", reserveWindowBinary)
 
-	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60", "slider"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60", "box"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "pause_duration_s", numberPayload(base, deviceID, "pause_duration_s", "Pause Duration", "number.sbam_pause_duration_s", pauseDurationControlTopic, 0, 86400, 60, "s", "mdi:timer-outline", "box"))
 
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "trigger_now", buttonPayload(base, deviceID, "trigger_now", "Trigger Now", commandTopic(prefix, "trigger_now"), "{}"))

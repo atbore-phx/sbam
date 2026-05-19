@@ -90,7 +90,7 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 	assert.Equal(t, "sbam/control/force_charge_target_pct", forceSelectorPayload.CommandTopic)
 	assert.Equal(t, "sbam/control/force_charge_target_pct", forceSelectorPayload.StateTopic)
 	assert.Equal(t, "%", forceSelectorPayload.Unit)
-	assert.Equal(t, "slider", forceSelectorPayload.Mode)
+	assert.Equal(t, "box", forceSelectorPayload.Mode)
 	assert.Equal(t, "config", forceSelectorPayload.EntityCategory)
 	assert.Equal(t, "mdi:battery-charging-60", forceSelectorPayload.Icon)
 	assert.Equal(t, int(qosAtLeastOnce), forceSelectorPayload.QoS)
