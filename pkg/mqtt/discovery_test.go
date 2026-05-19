@@ -109,7 +109,7 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 	assert.Equal(t, "sbam/control/pause_duration_s", pauseSelectorPayload.CommandTopic)
 	assert.Equal(t, "sbam/control/pause_duration_s", pauseSelectorPayload.StateTopic)
 	assert.Equal(t, "s", pauseSelectorPayload.Unit)
-	assert.Equal(t, "slider", pauseSelectorPayload.Mode)
+	assert.Equal(t, "box", pauseSelectorPayload.Mode)
 	assert.Equal(t, "config", pauseSelectorPayload.EntityCategory)
 	assert.Equal(t, "mdi:timer-outline", pauseSelectorPayload.Icon)
 	assert.Equal(t, int(qosAtLeastOnce), pauseSelectorPayload.QoS)

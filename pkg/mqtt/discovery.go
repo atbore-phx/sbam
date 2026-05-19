@@ -107,8 +107,8 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	reserveWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "batt_reserve_window_active", reserveWindowBinary)
 
-	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60"))
-	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "pause_duration_s", numberPayload(base, deviceID, "pause_duration_s", "Pause Duration", "number.sbam_pause_duration_s", pauseDurationControlTopic, 0, 86400, 60, "s", "mdi:timer-outline"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60", "slider"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "pause_duration_s", numberPayload(base, deviceID, "pause_duration_s", "Pause Duration", "number.sbam_pause_duration_s", pauseDurationControlTopic, 0, 86400, 60, "s", "mdi:timer-outline", "box"))
 
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "trigger_now", buttonPayload(base, deviceID, "trigger_now", "Trigger Now", commandTopic(prefix, "trigger_now"), "{}"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "pause", templatedButtonPayload(base, deviceID, "pause", "Pause", commandTopic(prefix, "pause"), pauseCommandTemplate))
@@ -162,7 +162,7 @@ func templatedButtonPayload(base discoveryPayload, deviceID, objectID, name, com
 	return payload
 }
 
-func numberPayload(base discoveryPayload, deviceID, objectID, name, defaultEntityID, selectorTopic string, min, max, step float64, unit, icon string) discoveryPayload {
+func numberPayload(base discoveryPayload, deviceID, objectID, name, defaultEntityID, selectorTopic string, min, max, step float64, unit, icon, mode string) discoveryPayload {
 	payload := base
 	payload.Name = name
 	payload.UniqueID = uniqueEntityID(deviceID, objectID)
@@ -182,7 +182,7 @@ func numberPayload(base discoveryPayload, deviceID, objectID, name, defaultEntit
 	payload.Min = floatPtr(min)
 	payload.Max = floatPtr(max)
 	payload.Step = floatPtr(step)
-	payload.Mode = "slider"
+	payload.Mode = mode
 	payload.Retain = boolPtr(true)
 	return payload
 }
