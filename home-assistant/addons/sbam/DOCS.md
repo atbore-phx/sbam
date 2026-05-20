@@ -1,81 +1,107 @@
-## Installation and How to Use:
+## Home Assistant App Installation and How to Use
+
+This document provides instructions for installing and configuring the SBAM app (add-on) for Home Assistant OS (HAOS). It covers prerequisites, installation steps and configuration options.
 
 ### Prerequisites
+----
+SBAM requires the following prerequisites to function correctly:
+[SBAM prerequisites](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
 
-sbam requires the following prerequisites to function correctly: [link](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
+For MQTT features in Home Assistant, enable MQTT support first:
+[Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/)
 
-### Home Assistant:
+The recommended broker for Home Assistant users is the Mosquitto add-on.
 
-Sbam is available as an add-on for HAOS (Home Assistant OS).
-**N.B. HAOS must be able to reach the Fronius inverter on its LAN IP.**
+### Home Assistant Add-on Installation
+----
+SBAM is available as an App (formerly known as add-ons) for HAOS (Home Assistant OS).
 
-**Add the git repository**
+**HAOS must be able to reach the Fronius inverter on its LAN IP.**
 
-official guide: https://www.home-assistant.io/common-tasks/os#installing-third-party-add-ons
+
+Official guide:
+[Install a third-party Home Assistant app repository](https://www.home-assistant.io/common-tasks/os#installing-a-third-party-app-repository)
 
 1. Settings
-2. Add-ons
+2. Apps
 
-![chrome_icgQkIQh6J](https://github.com/atbore-phx/sbam/assets/11421185/531eeab3-9910-4fb8-bf71-22d09ec77f95)
+<img width="430" height="332" alt="chrome_ChiVwNM3hN" src="https://github.com/user-attachments/assets/c83e60ba-fbd1-4138-a161-01353ca55eaa" />
 
-3. ADD-ON STORE
 
-![chrome_hEKXVTu6tY](https://github.com/atbore-phx/sbam/assets/11421185/eec5866d-4a5c-4ae0-bd57-05a10fc48b67)
+3. Install app
+
+<img width="175" height="76" alt="image" src="https://github.com/user-attachments/assets/f9a9a799-465d-45bf-9241-0ce35587fb4f" />
+
 
 4. Repositories
 
-![chrome_thaaqxEFgT](https://github.com/atbore-phx/sbam/assets/11421185/38bbcb7d-b3c7-4cbc-ba13-4d55292786ef)
+<img width="489" height="82" alt="image" src="https://github.com/user-attachments/assets/88aace46-bb21-4669-91e9-6a33488519c6" />
 
-5. Add -> https://github.com/atbore-phx/sbam
 
-![chrome_oAyxTDCxUK](https://github.com/atbore-phx/sbam/assets/11421185/bdefb7c5-04d1-4d20-892a-bc864907da31)
+5. Add
+6. Add repository URL:
+https://github.com/atbore-phx/sbam
 
-Once added, it can be installed:
+<img width="449" height="220" alt="image" src="https://github.com/user-attachments/assets/ed59cc24-dd50-4e0d-a84d-708643c0994c" />
 
-1. If the add-on is not visible, refresh the page with F5
-2. Click the sbam add-on
+
+Once added:
+
+1. If the add-on is not visible, refresh the page
+2. Click the SBAM add-on
 
 ![image](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
 
-3. **Install**
+3. Click **Install**
 
 ![chrome_NT8Mrf6ls1](https://github.com/atbore-phx/sbam/assets/11421185/cb9eafe3-a274-4164-a789-1c31a87308e1)
 
-4. Enable **Start on boot** and **Watchdog**
+4. Enable Start on boot and Watchdog
 
 ![chrome_JsiS3CyShs](https://github.com/atbore-phx/sbam/assets/11421185/413e2d3d-638b-417c-b906-34d46aee62c0)
 
-Do not start yet but configure it:
+### Configuration
 
-1. Click on the configuration tab
-2. Modify Options:  
-- **url:** Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max. 2); separate them with a comma (,); Solcast has a limit of 10 API calls per **UTC** day. If there are **two URLs**, the API calls are split evenly, with a maximum of 5 calls per array per **UTC** day.
-- **apikey:** Solcast API key.
-- **fronius_ip:** Fronius inverter LAN IP.
-- **start_hr:** Start time of the advantageous network operator rate (default 00:00).
--**end_hr:** End time of the advantageous network operator rate (default 06:00).
-- **crontab:** Crontab to run sbam (default: 00 00-05 \* \* \* so At minute 0 past every hour from 0 through 5.); with **two** URLs: **CET**: 10 00,03,05,06 \* \* \* (At minute 10 past hour 0, 3, 5, and 6), **UTC**: Add 1 additional hour per API call (e.g., 10 00,03,05,06,07 \* \* \*). Frequent calls are scheduled near the end time to improve forecast accuracy and allow time for charging.
-- **pw_consumption:** Daily electrical consumption in Wh (Default: 11000, means 11kWh).
-- **max_charge:** Maximum amount of power required from the electricity network to charge the battery in W (Default: 3500).
-- **pw_lwt:** The hysteresis logic lower threshold **offset** in Wh to stop charging (Default: 0).
-- **pw_upt:** The hysteresis logic upper threshold **offset** in Wh to start charging (Default: 0).
-- **pw_batt_reserve:** Minimum battery capacity to maintain in Wh (Default: 4000, means 4kWh).
-- **batt_reserve_start_hr:** The start time to activate battery reserve charging (if empty default **start_hr**).
-- **batt_reserve_end_hr:** The end time to activate battery reserve charging (if empty default **end_hr**).
-- **defaults:** At the end of the crontab cycle, reconfigure the Fronius inverter to default (automatic management).
-- **reset:** At the add-on boot, reconfigure the Fronius inverter to its default settings.
-- **debug:** Increase the log level to debug, for example, printing Modbus read/write operations.
-- **cache_forecast:** Enabling the cache forcast to reduce the number of times we query the forecast URL (Default: false).
-- **cache_file_prefix:** When caching is enabled, the forecast will be saved locally to files with this prefix. (Default: cached_forecast).
-- **cache_time:**  The length of time to cache the forecast (Default: 7200, means 7200 seconds).
-3. Click on **save** to apply the configuration
+Before starting, open the Configuration tab and set options as needed.
 
-![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
+- **url**: Solcast forecast site address (replace <YOUR-SITE> with your identifier). Multiple addresses are supported (max 2), separated by comma.
+- **apikey**: Solcast API key.
+- **fronius_ip**: Fronius inverter LAN IP.
+- **start_hr**: Start time of the advantageous network operator rate (default 00:00). Cross-midnight ranges are supported.
+- **end_hr**: End time of the advantageous network operator rate (default 06:00). Cross-midnight ranges are supported.
+- **crontab**: Schedule to run SBAM (default 00 00-05 * * *). To disable scheduled execution, set to `0 0 0 0 0` (runs once at startup waiting mqtt commands if mqtt is enabled).
+- **pw_consumption**: Daily electrical consumption in Wh (default 11000).
+- **max_charge**: Maximum grid charging power in W (default 3500).
+- **pw_lwt**: Hysteresis lower threshold offset in Wh to stop charging (default 0).
+- **pw_upt**: Hysteresis upper threshold offset in Wh to start charging (default 0).
+- **pw_batt_reserve**: Minimum battery capacity to maintain in Wh (default 4000).
+- **batt_reserve_start_hr**: Start time for reserve window (empty uses start_hr). Uses the same cross-midnight behavior as the main window.
+- **batt_reserve_end_hr**: End time for reserve window (empty uses end_hr). Uses the same cross-midnight behavior as the main window.
+- **defaults**: At end of crontab cycle, reconfigure Fronius inverter to defaults.
+- **reset**: At add-on startup, reconfigure Fronius inverter to defaults.
+- **debug**: Increase log level.
+- **log_type**: Logger output mode.
+- **cache_forecast**: Enable forecast caching (default false).
+- **cache_file_prefix**: Forecast cache file prefix (default cached_forecast).
+- **cache_time**: Forecast cache TTL in seconds (default 7200).
+- **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
+- **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_client_id**: Optional MQTT client identifier. if empty and MQTT is enabled, SBAM generates a random client ID at runtime.
+- **mqtt_username**: Optional MQTT username. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_password**: Optional MQTT password. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_topic_prefix**: Prefix for SBAM state, availability, and command topics (default SBAM).
+- **mqtt_ha_discovery**: Enable retained Home Assistant discovery config publishing (default true when MQTT is enabled).
+- **mqtt_ha_discovery_prefix**: Home Assistant discovery root topic prefix (default homeassistant).
 
+Save the configuration after editing options.
 
+![SBAM-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
 
-Finally Start **sbam**!
+### Start SBAM
+
+Start SBAM after configuration is complete.
 
 ![chrome_5OngSH5IRc](https://github.com/atbore-phx/sbam/assets/11421185/9575b453-5132-4a24-9166-bc6d385690f1)
 
-Check the logs for any other further info.
+Check add-on logs for startup and runtime details.
+

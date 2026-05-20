@@ -3,7 +3,7 @@ package utils
 // HandleError logs non-fatal errors and returns them.
 func HandleError(err error, msg string) error {
 	if err != nil {
-		Log.Errorf(msg+" %s", err)
+		Log.Warnf(msg+" %s", err)
 		return err
 	}
 	return nil

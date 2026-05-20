@@ -26,6 +26,7 @@ Where `<feature-name>` matches the directory under `docs/implementations/` (e.g.
 
 Before changing any code:
 
+- ask the user an open question to add any additional information or context that they think is relevant to the feature being implemented. Do not proceed until the user confirms they have provided all relevant information.
 - Read the PLAN end-to-end. Read the TASK. Re-read [.github/copilot-instructions.md](../copilot-instructions.md).
 - Build a todo list mirroring the PLAN's "Implementation Blueprint" — one todo per blueprint step. Mark exactly one as `in-progress` at a time.
 - Confirm the working tree is clean enough to proceed (warn the user if there are unrelated modified files; do not stash without permission).
@@ -93,6 +94,7 @@ If the PLAN defines additional validation gates, run those too. Do not declare s
 
 ### 5. Documentation and surface updates
 
+- For every type, function, or method added or modified in a public package (pkg/) or sources (src/), ensure the code is properly documented with GoDoc comments. The comments are inserted before the declaration and start with the name of the item and a description of its purpose, behavior, and any important details.
 - If you added/removed/renamed/moved any files, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md), while respecting the existing structure, formatting, important sections, and conventions.
 - Update [README.md](../../README.md) only if the PLAN says so or if user-visible behavior changed.
 - If the Home Assistant add-on schema or behavior changed, append an entry to [home-assistant/addons/sbam/CHANGELOG.md](../../home-assistant/addons/sbam/CHANGELOG.md) and update [home-assistant/addons/sbam/DOCS.md](../../home-assistant/addons/sbam/DOCS.md).
@@ -123,6 +125,15 @@ Implementation is complete when:
 
 - Every acceptance criterion in the TASK is satisfied.
 - Every blueprint step in the PLAN is checked off or explicitly marked deferred with rationale.
-- `make test` and `make build` both pass.
+- `make tidy`, `make vet`, `make test` and `make build` all pass.
 - All sbam conventions in `copilot-instructions.md` are upheld.
 - Documentation surfaces are in sync with the change.
+
+## Final steps
+- If the implementation was done on a feature or fix branch (actual branch start with feat/ or fix/), ask the users if they want to open a PR:
+    - with a descriptive title and summary. Link the related issue and any relevant discussions.
+    - If the users agree, open the PR and include the implementation summary in the description.
+    - always ask for the base branch to merge into; default to `main` if the users are unsure.
+    - ask if the PR is a draft or ready for review.
+
+

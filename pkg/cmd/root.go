@@ -12,6 +12,7 @@ import (
 )
 
 var fronius_ip string
+var appVersion = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
@@ -63,6 +64,9 @@ func init() {
 }
 
 func SetVersionInfo(version, commit, date string) error {
+	if len(version) > 0 {
+		appVersion = version
+	}
 	rootCmd.Version = fmt.Sprintf("%s (Built on %s from Git SHA %s)", version, date, commit)
 	return nil
 }

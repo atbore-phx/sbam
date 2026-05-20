@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -170,4 +171,119 @@ func TestBindFlags_RealScheduleCmd(t *testing.T) {
 	assert.Equal(t, "02:00", viper.GetString("end_hr"),
 		"yaml must beat default when no flag is set")
 	assert.Equal(t, "0 0 * * *", viper.GetString("crontab"))
+}
+
+func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
+	setScheduleFlag := func(t *testing.T, key, value string) {
+		t.Helper()
+		flag := scdCmd.Flags().Lookup(key)
+		require.NotNilf(t, flag, "flag %q must exist on schedule command", key)
+		require.NoError(t, scdCmd.Flags().Set(key, value))
+		t.Cleanup(func() {
+			_ = scdCmd.Flags().Set(key, flag.DefValue)
+			flag.Changed = false
+		})
+	}
+
+	t.Run("string keys", func(t *testing.T) {
+		cases := []struct {
+			key     string
+			env     string
+			def     string
+			yamlVal string
+			envVal  string
+			flagVal string
+		}{
+			{key: "mqtt_broker", env: "MQTT_BROKER", def: "", yamlVal: "yaml-broker", envVal: "env-broker", flagVal: "flag-broker"},
+			{key: "mqtt_client_id", env: "MQTT_CLIENT_ID", def: "", yamlVal: "yaml-client", envVal: "env-client", flagVal: "flag-client"},
+			{key: "mqtt_username", env: "MQTT_USERNAME", def: "", yamlVal: "yaml-user", envVal: "env-user", flagVal: "flag-user"},
+			{key: "mqtt_password", env: "MQTT_PASSWORD", def: "", yamlVal: "yaml-pass", envVal: "env-pass", flagVal: "flag-pass"},
+			{key: "mqtt_tls_ca_file", env: "MQTT_TLS_CA_FILE", def: "", yamlVal: "yaml-ca", envVal: "env-ca", flagVal: "flag-ca"},
+			{key: "mqtt_tls_client_cert", env: "MQTT_TLS_CLIENT_CERT", def: "", yamlVal: "yaml-cert", envVal: "env-cert", flagVal: "flag-cert"},
+			{key: "mqtt_tls_client_cert_key", env: "MQTT_TLS_CLIENT_CERT_KEY", def: "", yamlVal: "yaml-key", envVal: "env-key", flagVal: "flag-key"},
+			{key: "mqtt_topic_prefix", env: "MQTT_TOPIC_PREFIX", def: const_mqtt_topic_prefix, yamlVal: "yaml-prefix", envVal: "env-prefix", flagVal: "flag-prefix"},
+			{key: "mqtt_ha_discovery_prefix", env: "MQTT_HA_DISCOVERY_PREFIX", def: const_ha_discovery_prefix, yamlVal: "yaml-ha-prefix", envVal: "env-ha-prefix", flagVal: "flag-ha-prefix"},
+		}
+
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.key+" default", func(t *testing.T) {
+				resetViper(t)
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.def, viper.GetString(tc.key))
+			})
+
+			t.Run(tc.key+" yaml", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": \""+tc.yamlVal+"\"\n")
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.yamlVal, viper.GetString(tc.key))
+			})
+
+			t.Run(tc.key+" env", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": \""+tc.yamlVal+"\"\n")
+				t.Setenv(tc.env, tc.envVal)
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.envVal, viper.GetString(tc.key))
+			})
+
+			t.Run(tc.key+" flag", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": \""+tc.yamlVal+"\"\n")
+				t.Setenv(tc.env, tc.envVal)
+				setScheduleFlag(t, tc.key, tc.flagVal)
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.flagVal, viper.GetString(tc.key))
+			})
+		}
+	})
+
+	t.Run("bool keys", func(t *testing.T) {
+		cases := []struct {
+			key     string
+			env     string
+			def     bool
+			yamlVal bool
+			envVal  bool
+			flagVal bool
+		}{
+			{key: "mqtt_enabled", env: "MQTT_ENABLED", def: false, yamlVal: true, envVal: false, flagVal: true},
+			{key: "mqtt_tls_insecure_skip", env: "MQTT_TLS_INSECURE_SKIP", def: false, yamlVal: true, envVal: false, flagVal: true},
+			{key: "mqtt_ha_discovery", env: "MQTT_HA_DISCOVERY", def: true, yamlVal: false, envVal: true, flagVal: false},
+		}
+
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.key+" default", func(t *testing.T) {
+				resetViper(t)
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.def, viper.GetBool(tc.key))
+			})
+
+			t.Run(tc.key+" yaml", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": "+strconv.FormatBool(tc.yamlVal)+"\n")
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.yamlVal, viper.GetBool(tc.key))
+			})
+
+			t.Run(tc.key+" env", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": "+strconv.FormatBool(tc.yamlVal)+"\n")
+				t.Setenv(tc.env, strconv.FormatBool(tc.envVal))
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.envVal, viper.GetBool(tc.key))
+			})
+
+			t.Run(tc.key+" flag", func(t *testing.T) {
+				resetViper(t)
+				writeConfig(t, tc.key+": "+strconv.FormatBool(tc.yamlVal)+"\n")
+				t.Setenv(tc.env, strconv.FormatBool(tc.envVal))
+				setScheduleFlag(t, tc.key, strconv.FormatBool(tc.flagVal))
+				require.NoError(t, bindFlags(scdCmd))
+				assert.Equal(t, tc.flagVal, viper.GetBool(tc.key))
+			})
+		}
+	})
 }

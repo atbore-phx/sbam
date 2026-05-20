@@ -62,6 +62,11 @@ Use the following structure and feel free to add, modify and improve as needed:
   prompts/                    - Copilot workflow prompts (`generate-plan-*`, `implement-plan`)
   workflows/                  - CI/CD workflow definitions
 
+docs/
+  prereq.md                   - Prerequisites required to run sbam
+  mqtt.md                     - Detailed MQTT feed and Home Assistant discovery documentation
+  vibe/                       - Contributor workflow docs for TASK/PLAN prompt usage
+
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
 
@@ -71,6 +76,10 @@ pkg/
     configure.go              - `configure` command: battery defaults & force charge
     estimate.go               - `estimate` command: display forecast & battery state
     schedule.go               - `schedule` command: main intelligent charging workflow
+    schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
+    schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
+    schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
+    schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
   fronius/
     types.go                  - Fronius struct definitions
@@ -81,6 +90,20 @@ pkg/
     error.go                  - Error handling utilities
     fronius_test.go           - Unit tests with mock Modbus server
     error_test.go             - Error handling tests
+  mqtt/
+    types.go                  - MQTT config and payload carrier types
+    client.go                 - MQTT client interface, factory, and topic helpers
+    commands.go               - MQTT command topic parser, payload validation, and ack publisher
+    discovery.go              - Home Assistant MQTT discovery payload builder
+    noop.go                   - Disabled MQTT client implementation
+    paho.go                   - Paho-backed MQTT client with reconnect and TLS
+    reconnect.go              - Reconnect strategy normalization and manager selection
+    reconnect_custom.go       - Custom jittered reconnect manager
+    reconnect_paho.go         - Paho auto-reconnect manager
+    publisher.go              - Typed state, error, and availability publishers
+    mqtt_test.go              - In-process MQTT broker tests
+    commands_test.go          - Unit tests for command parsing and ack publishing
+    discovery_test.go         - Unit tests for Home Assistant discovery generation
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
@@ -156,7 +179,7 @@ Rules:
 ### Configuration
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`
+- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`
 
 ### Build
 - Binary built with `CGO_ENABLED=0` for portability

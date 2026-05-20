@@ -54,11 +54,20 @@ sbam requires the following prerequisites to function correctly: [link](docs/pre
 
 ### Home Assistant:
 ----
-Sbam is available as an add-on for HAOS (Home Assistant OS).
+Sbam is available as an App (formerly known as add-on) for HAOS (Home Assistant OS).
 
 **N.B. HAOS must be able to reach the Fronius inverter on its LAN IP.**
 
 follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
+
+### MQTT Feed
+----
+sbam can publish schedule telemetry and accept control commands over MQTT when
+`mqtt_enabled=true`.
+
+For full setup, topic mapping, payload schemas, command examples, and migration
+details, see [MQTT documentation](docs/mqtt.md).
+
 
 ### Stand Alone:
 ----
@@ -95,11 +104,11 @@ Usage:
   sbam configure [flags]
 
 Flags:
-  -d, --defaults            Set defaults
-  -f, --force-charge        Force charge
-  -H, --fronius_ip string   FRONIUS_IP
+  -d, --defaults            set DEFAULTS
+  -f, --force_charge        set FORCE_CHARGE
+  -H, --fronius_ip string   set FRONIUS_IP
   -h, --help                help for configure
-  -p, --power int16         Power (percent of nominal power)
+  -p, --power int           set percent of nominal POWER
 ```
 
 #### Estimate
@@ -111,13 +120,13 @@ Usage:
   sbam estimate [flags]
 
 Flags:
-  -k, --apikey string       set APIKEY
-  -H, --fronius_ip string   set FRONIUS_IP
-  -h, --help                help for estimate
-  -u, --url string          Set the forecast URL. For multiple URLs, use a comma (,) to separate them
-  -n, --cache_forecast bool Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
-  -f, --cache_file_prefix   When caching is enabled, the forecast will be saved locally to files with this prefix. Defaults to cached_forecast
-  -l, --cache_time          The length of time to cache the forecast. Defaults to 7200 seconds
+  -k, --apikey string              set APIKEY
+  -f, --cache_file_prefix string   CACHE_FILE_NAME (default 'cached_forecast') (default "cached_forecast")
+  -n, --cache_forecast             CACHE_FORECAST (default false)
+  -l, --cache_time int32           CACHE_TIME (default 7200) (default 7200)
+  -H, --fronius_ip string          set FRONIUS_IP
+  -h, --help                       help for estimate
+  -u, --url string                 Set the forecast URL. For multiple URLs, use a comma (,) to separate them
 ```
 
 #### Schedule
@@ -129,23 +138,51 @@ Usage:
   sbam schedule [flags]
 
 Flags:
-  -k, --apikey string                  APIKEY
-  -E, --batt_reserve_end_hr string     BATT_RESERVE_END_HR (default END_HR)
-  -S, --batt_reserve_start_hr string   BATT_RESERVE_START_HR (default START_HR)
-  -t, --crontab string                 CRONTAB (default "0 0 0 0 0")
-  -d, --defaults                       DEFAULTS (default true)
-  -e, --end_hr string                  END_HR (default "00:55")
-  -H, --fronius_ip string              FRONIUS_IP
-  -h, --help                           help for schedule
-  -m, --max_charge float               MAX_CHARGE (default 3500)
-  -r, --pw_batt_reserve float          PW_BATT_RESERVE
-  -c, --pw_consumption float           PW_CONSUMPTION
-  -s, --start_hr string                START_HR (default "00:00")
-  -u, --url string                     Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
-  -n, --cache_forecast bool            Enabling the cache forcast to reduce the number of times we query the forecast URL. Defaults to false
-  -f, --cache_file_prefix              When caching is enabled, the forecast will be saved locally to files with this prefix. Defaults to cached_forecast
-  -l, --cache_time                     The length of time to cache the forecast. Defaults to 7200 seconds
+  -k, --apikey string                     APIKEY
+  -E, --batt_reserve_end_hr string        BATT_RESERVE_END_HR (default END_HR)
+  -S, --batt_reserve_start_hr string      BATT_RESERVE_START_HR (default START_HR)
+  -f, --cache_file_prefix string          CACHE_FILE_PREFIX (default 'cached_forecast') (default "cached_forecast")
+  -n, --cache_forecast                    CACHE_FORECAST (default false)
+  -l, --cache_time int32                  CACHE_TIME (default 7200) (default 7200)
+  -t, --crontab string                    CRONTAB (default "0 0 0 0 0")
+  -d, --defaults                          DEFAULTS (default true)
+  -e, --end_hr string                     END_HR (default "00:55")
+  -H, --fronius_ip string                 FRONIUS_IP
+  -h, --help                              help for schedule
+  -m, --max_charge float                  MAX_CHARGE (default 3500)
+      --mqtt_broker string                MQTT broker URL
+      --mqtt_client_id string             MQTT client identifier
+      --mqtt_enabled                      Enable MQTT integration
+      --mqtt_ha_discovery                 Enable Home Assistant MQTT discovery (default true)
+      --mqtt_ha_discovery_prefix string   Home Assistant MQTT discovery prefix (default "homeassistant")
+      --mqtt_password string              MQTT password
+      --mqtt_tls_ca_file string           MQTT TLS CA certificate file
+      --mqtt_tls_client_cert string       MQTT TLS client certificate file
+      --mqtt_tls_client_cert_key string   MQTT TLS client key file
+      --mqtt_tls_insecure_skip            Skip MQTT TLS certificate verification
+      --mqtt_topic_prefix string          MQTT topic prefix (default "sbam")
+      --mqtt_username string              MQTT username
+  -r, --pw_batt_reserve float             PW_BATT_RESERVE
+  -c, --pw_consumption float              PW_CONSUMPTION
+  -L, --pw_lwt float                      PW_LWT
+  -U, --pw_upt float                      PW_UPT
+  -s, --start_hr string                   START_HR (default "00:00")
+  -u, --url string                        Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
 ```
+
+Time windows can span midnight for both charge (`--start_hr`,`--end_hr`) and reserve (`--batt_reserve_start_hr`,`--batt_reserve_end_hr`) ranges.\
+Example:\
+`--start_hr 22:00 --end_hr 06:00` and optionally:\
+`--batt_reserve_start_hr 23:00 --batt_reserve_end_hr 05:00` (if omitted defaults to the same as `start_hr`/`end_hr`).\
+Equal start/end values remain invalid.
+
+Crontab syntax is supported to repeat programmatically the execution of the `schedule` command. By default, it is set to `0 0 0 0 0` which means that the command will be executed once at startup without any repetition or action waiting for mqtt commands (if mqtt is enabled).\
+For eg. to run it every hour, set it to `0 * * * *`. For more information on crontab syntax, see [crontab.guru](https://crontab.guru/).
+
+Forecast selection currently uses a fixed noon threshold: before 12:00 local
+time, `schedule` evaluates the forecast for the current day; from 12:00 local
+time onward, it evaluates the forecast for the next day. This behavior 
+is independent from whether the charging window spans midnight.
 
 #### Debug Logs
 
