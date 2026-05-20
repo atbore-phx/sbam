@@ -1,10 +1,13 @@
 # MQTT Feed and Home Assistant Discovery
 
-This document contains the detailed MQTT integration guide for sbam.
+This document contains the detailed MQTT integration guide for SBAM.
 
 ## Quick Start
 
-MQTT is opt-in. Set `mqtt_enabled=true` and provide a broker URL.
+MQTT is opt-in.\
+Set `mqtt_enabled=true`.\
+If the broker is installed as [Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/), the other MQTT options can be left empty/default to auto-fill broker URL and credentials automatically from Home Assistant service data when available.\
+For external broker or custom configuration, they can be set manually as needed.
 
 Environment variables example:
 
@@ -34,33 +37,61 @@ mqtt_ha_discovery_prefix: "homeassistant"
 
 ## Home Assistant Discovery Behavior
 
-Set in sbam add-on configuration:
-- `mqtt_enabled: true`
-the other MQTT options can be left empty/default to auto-fill broker and credentials from Home Assistant service data when available, or they can be set manually as needed.
-
-When MQTT is enabled and `mqtt_ha_discovery=true`, sbam publishes retained Home Assistant discovery payloads under:
+When MQTT is enabled and `mqtt_ha_discovery=true`, SBAM publishes retained Home Assistant discovery payloads under:
 
 - `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config`
 
+SBAM subscribes to `homeassistant/status` and republishes discovery when Home Assistant publishes `online`.
+
 Current discovery set includes:
 
-- 10 sensors
-- 3 binary sensors
-- 2 numbers (`force_charge_target_pct`, `pause_duration_s`)
-- 5 buttons (`trigger_now`, `pause`, `resume`, `force_charge`, `set_defaults`)
+- 3 Main sensors (`Battery Capacity`, `State of Charge`, and `Forecast Today`)
+- 10 Diagnostic sensors (`Charge Percent`, `Charge Window`, `Decision`, `Last Decision`, `Last Update`, `Net Energy`, `Next Run`, `Paused`, `Paused State`, `Reserve Window`)
+- 2 Configuration selector (`force_charge_target_pct`, `pause_duration_s`)
+- 5 Control buttons (`trigger_now`, `pause`, `resume`, `force_charge`, `set_defaults`)
 
-### Discovery selector entities
+### Main sensors
+
+These three primary sensors are intended for quick at-a-glance state and are used by the scheduler and UI. All discovery sensors read their value from the state topic (`<prefix>/state`) using JSON templates (for example `{{ value_json.battery_soc_pct }}`).
+
+- **Battery Capacity**: `battery_capacity_wh` — unit: Wh. Measured total battery capacity (watt‑hours).
+- **State of Charge**: `battery_soc_pct` — unit: %; device_class: `battery`. Current battery state of charge as a percentage.
+- **Forecast Today**: `forecast_today_wh` — unit: Wh. Estimated solar production for the remainder of the day used to plan grid charging.
+
+### Diagnostic sensors
+
+Diagnostics expose extra scheduler and operating details. Most are published on the same state topic and extracted with `value_json.<field>`. Several diagnostics are exposed as binary sensors (payload `"true"` / `"false"`) for easy automation rules.
+
+- **Net Energy**: `pw_net_wh` — unit: Wh. Day net energy (solar − consumption). Positive = export, negative = import.
+- **Charge Percent**: `charge_pct` — unit: %. Current charge target percentage (scheduler or force-charge target).
+- **Last Decision**: `last_decision` — string. Last high-level scheduler decision (e.g., `force_charge`, `set_defaults`, `pause`).
+- **Decision Reason**: `last_decision_reason` — string. Human-readable reason or context for the last decision.
+- **Next Run**: `next_run` — timestamp. Show countdown to `pause` expiration or `null`.
+- **Paused State**: `paused_state` — mirrors `paused` as a sensor value and can be used in templates.
+- **Paused**: `paused` — binary_sensor (`true`/`false`). Whether automatic scheduling is currently paused.
+- **Charge Window**: `charge_window_active` — binary_sensor (`true`/`false`). Whether the configured charge window is currently active.
+- **Reserve Window**: `batt_reserve_window_active` — binary_sensor (`true`/`false`). Whether the battery reserve window is active.
+- **Last Update**: `last_update` — timestamp (`ts`). Time of the last published state update.
+
+Home Assistant discovery uses `value_template` like `{{ value_json.pw_net_wh }}` for numeric sensors and lowercased string templates for binary sensors (for example `{{ value_json.paused | string | lower }}`).
+
+### Configuration selectors
+
+These selector topics store user selection state only so no command is sent until the corresponding button is pressed.\
+SBAM command execution still happens only through the control buttons.
 
 When discovery is enabled, Home Assistant receives two numeric selector MQTT `number` entities (mode: box):
 
-- `force_charge_target_pct`: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`, mode `box`, step `1`, unit `%`.
-- `pause_duration_s`: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds, mode `box`, step `60`.
+- **Force Charge Target**: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`, mode `box`, step `1`, unit `%`.\
+Force charge selector value `0..100` sends `{"target_pct":<value>,"ignore_max_charge":false}` so the scheduler respects the configured maximum charge limits capped by the configured `maximum_charge`.\
+Force-charge selector value `101` is treated as an explicit full-charge override and sends `{"target_pct":100,"ignore_max_charge":true}`. This allows an uncapped full charge that ignores `max_charge` limits using the existing force charge path without needing a separate explicit override command. The scheduler still respects battery capacity and will not overcharge beyond 100% SoC or the physical battery capacity.
 
-These selector topics store user selection state only. sbam command execution still happens only through the command buttons.
+- **Pause Duration**: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds, mode `box`, step `60`.\
+Pause selector value sends `{"duration_s":<value>}` to pause for the selected duration in seconds, or indefinitely if set to `0`.
 
-### Discovery button actions
+### Control buttons
 
-Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and sbam publishes
+Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and SBAM publishes
 an acknowledgement on `<prefix>/cmd/<name>/ack`.
 
 - `trigger_now`: requests one immediate schedule evaluation run.
@@ -74,26 +105,23 @@ an acknowledgement on `<prefix>/cmd/<name>/ack`.
   - `{"target_pct":100,"ignore_max_charge":true}` when selector value is `101` (explicit uncapped full-charge override)
 - `set_defaults`: restores inverter defaults via the configured Modbus write path.
 
-### Command sequencing note (schedule active)
+### Command sequencing note (schedule crontab active)
 
 > [!IMPORTANT]
-> sbam serializes incoming commands and scheduled ticks in one runner queue, so
-> write operations are not executed concurrently. If the schedule remains active,
-> later ticks can still apply new decisions after a manual command.
+> SBAM serializes incoming commands and scheduled ticks in one runner queue, so
+> write operations are not executed concurrently. If the schedule remains active via the configured crontab it can still apply new decisions after a manual command.
 
-For a manual force-charge workflow with minimal scheduler interference:
+For eg. if you want a manual force-charge workflow with minimal crontab scheduler interference you can use pause to suppress scheduled runs between the manual `force_charge` and the subsequent `resume`:
 
-1. Send `force_charge` first.
-2. Wait for an accepted ack on `<prefix>/cmd/force_charge/ack`.
-3. Send `pause` to suppress subsequent automatic runs.
-4. Send `resume` when the manual window ends.
-5. Send `trigger_now` (or wait for the next scheduled tick) to let scheduler logic re-evaluate state.
+1. Configure `Force Charge Target` selector to the desired percentage (for example `80` or `101` for uncapped full charge).
+2. Configure `Pause Duration` selector to a non-zero value (for example `3600` for one hour or `0` for indefinite).
+3. Send `force_charge`.
+4. Send `pause` to suppress subsequent automatic crontab runs so force charge can run without interference.
+5. Send `resume` when the indefinite pause ends or wait for pause expiration.
+6. Send `set_defaults` to stop force charge, restore defaults, or re-apply a new manual override as needed.
+7. Send `trigger_now` (or wait for the next scheduled tick) to let scheduler logic.
 
 Do not pause before `force_charge`: `force_charge` is rejected while paused.
-
-Device grouping uses a stable `sbam_` identifier derived from Fronius IP, client ID, or topic prefix.
-
-sbam subscribes to `homeassistant/status` and republishes discovery when Home Assistant publishes `online`.
 
 ## Migration from v1.x
 
@@ -123,13 +151,13 @@ Use `mqtt_topic_prefix` to change the default `sbam` prefix.
 
 | Topic | Direction | Retained / QoS | Payload |
 | --- | --- | --- | --- |
-| `<prefix>/availability` (default `sbam/availability`) | sbam publishes | retained, qos 1 | `online` or `offline` |
-| `<prefix>/state` (default `sbam/state`) | sbam publishes | retained, qos 1 | `StatePayload` JSON |
-| `<prefix>/error` (default `sbam/error`) | sbam publishes | not retained, qos 1 | `ErrorPayload` JSON |
-| `<prefix>/cmd/+` (default `sbam/cmd/+`) | sbam subscribes | qos 1 | command payload JSON |
-| `<prefix>/cmd/<name>/ack` | sbam publishes | not retained, qos 1 | `AckPayload` JSON |
+| `<prefix>/availability` (default `sbam/availability`) | SBAM publishes | retained, qos 1 | `online` or `offline` |
+| `<prefix>/state` (default `sbam/state`) | SBAM publishes | retained, qos 1 | `StatePayload` JSON |
+| `<prefix>/error` (default `sbam/error`) | SBAM publishes | not retained, qos 1 | `ErrorPayload` JSON |
+| `<prefix>/cmd/+` (default `sbam/cmd/+`) | SBAM subscribes | qos 1 | command payload JSON |
+| `<prefix>/cmd/<name>/ack` | SBAM publishes | not retained, qos 1 | `AckPayload` JSON |
 | `<prefix>/control/+` | Home Assistant publishes selector values | retained, qos 1 | slider state used by discovery button templates |
-| `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config` | sbam publishes | retained, qos 1 | Home Assistant discovery config |
+| `<mqtt_ha_discovery_prefix>/<component>/sbam/<object_id>/config` | SBAM publishes | retained, qos 1 | Home Assistant discovery config |
 
 Defaults:
 

@@ -1,9 +1,11 @@
-## Installation and How to Use
+## Home Assistant App Installation and How to Use
+
+This document provides instructions for installing and configuring the SBAM app (add-on) for Home Assistant OS (HAOS). It covers prerequisites, installation steps and configuration options.
 
 ### Prerequisites
-
-sbam requires the following prerequisites to function correctly:
-[sbam prerequisites](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
+----
+SBAM requires the following prerequisites to function correctly:
+[SBAM prerequisites](https://github.com/atbore-phx/sbam/blob/main/docs/prereq.md)
 
 For MQTT features in Home Assistant, enable MQTT support first:
 [Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/)
@@ -11,8 +13,8 @@ For MQTT features in Home Assistant, enable MQTT support first:
 The recommended broker for Home Assistant users is the Mosquitto add-on.
 
 ### Home Assistant Add-on Installation
-
-Sbam is available as an App (formerly known as add-ons) for HAOS (Home Assistant OS).
+----
+SBAM is available as an App (formerly known as add-ons) for HAOS (Home Assistant OS).
 
 **HAOS must be able to reach the Fronius inverter on its LAN IP.**
 
@@ -46,7 +48,7 @@ https://github.com/atbore-phx/sbam
 Once added:
 
 1. If the add-on is not visible, refresh the page
-2. Click the sbam add-on
+2. Click the SBAM add-on
 
 ![image](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
 
@@ -67,7 +69,7 @@ Before starting, open the Configuration tab and set options as needed.
 - **fronius_ip**: Fronius inverter LAN IP.
 - **start_hr**: Start time of the advantageous network operator rate (default 00:00). Cross-midnight ranges are supported.
 - **end_hr**: End time of the advantageous network operator rate (default 06:00). Cross-midnight ranges are supported.
-- **crontab**: Schedule to run sbam (default 00 00-05 * * *).
+- **crontab**: Schedule to run SBAM (default 00 00-05 * * *). To disable scheduled execution, set to `0 0 0 0 0` (runs once at startup waiting mqtt commands if mqtt is enabled).
 - **pw_consumption**: Daily electrical consumption in Wh (default 11000).
 - **max_charge**: Maximum grid charging power in W (default 3500).
 - **pw_lwt**: Hysteresis lower threshold offset in Wh to stop charging (default 0).
@@ -83,54 +85,23 @@ Before starting, open the Configuration tab and set options as needed.
 - **cache_file_prefix**: Forecast cache file prefix (default cached_forecast).
 - **cache_time**: Forecast cache TTL in seconds (default 7200).
 - **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
-- **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, sbam tries to auto-fill from Home Assistant service data.
-- **mqtt_client_id**: Optional MQTT client identifier. if empty and MQTT is enabled, sbam generates a random client ID at runtime.
-- **mqtt_username**: Optional MQTT username. if empty and MQTT is enabled, sbam tries to auto-fill from Home Assistant service data.
-- **mqtt_password**: Optional MQTT password. if empty and MQTT is enabled, sbam tries to auto-fill from Home Assistant service data.
-- **mqtt_topic_prefix**: Prefix for sbam state, availability, and command topics (default sbam).
+- **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_client_id**: Optional MQTT client identifier. if empty and MQTT is enabled, SBAM generates a random client ID at runtime.
+- **mqtt_username**: Optional MQTT username. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_password**: Optional MQTT password. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
+- **mqtt_topic_prefix**: Prefix for SBAM state, availability, and command topics (default SBAM).
 - **mqtt_ha_discovery**: Enable retained Home Assistant discovery config publishing (default true when MQTT is enabled).
 - **mqtt_ha_discovery_prefix**: Home Assistant discovery root topic prefix (default homeassistant).
 
 Save the configuration after editing options.
 
-![sbam-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
+![SBAM-conf](https://github.com/user-attachments/assets/d0eab452-7b77-4d2c-9b24-7ac44fd50b7a)
 
-### Start sbam
+### Start SBAM
 
-Start sbam after configuration is complete.
+Start SBAM after configuration is complete.
 
 ![chrome_5OngSH5IRc](https://github.com/atbore-phx/sbam/assets/11421185/9575b453-5132-4a24-9166-bc6d385690f1)
 
 Check add-on logs for startup and runtime details.
 
-### New Features in v2.0.0
-
-#### MQTT in the Home Assistant Add-on
-
-Quick start MQTT configuration example:
-
-Install first the [Home Assistant MQTT integration](https://www.home-assistant.io/integrations/mqtt/)
-
-Set in sbam add-on configuration:
-- `mqtt_enabled: true`
-the other MQTT options can be left empty/default to auto-fill broker and credentials from Home Assistant service data when available, or they can be set manually as needed.
-
-For complete MQTT reference (topic map, payload schemas, command examples,
-and migration notes), see:
-[MQTT Feed and Home Assistant Discovery](https://github.com/atbore-phx/sbam/blob/main/docs/mqtt.md)
-
-Add-on specific behavior:
-
-- If mqtt_broker is already set, sbam keeps the configured broker and credentials.
-- If mqtt_broker is empty, sbam tries to auto-fill broker and credentials from Home Assistant service data via bashio::services mqtt.
-- Auto-fill applies only to empty values and does not overwrite manual broker, username, or password.
-- `mqtt_topic_prefix` controls state, error, availability, and command topics (default `sbam`).
-- `mqtt_ha_discovery_prefix` controls Home Assistant discovery topics (default `homeassistant`).
-- Home Assistant discovery includes numeric box selectors for `force_charge_target_pct` and `pause_duration_s` (box mode), plus explicit send buttons for force charge and pause.
-- Force-charge selector value `101` is treated as an explicit full-charge override and sends `{"target_pct":100,"ignore_max_charge":true}`.
-
-#### Cross-midnight time window configuration
-
-Example overnight configuration: `start_hr: 22:00` and `end_hr: 06:00`.
-Reserve windows can also cross midnight, for example `batt_reserve_start_hr: 23:00`
-and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
