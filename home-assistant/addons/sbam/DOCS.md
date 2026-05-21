@@ -105,3 +105,10 @@ Start SBAM after configuration is complete.
 
 Check add-on logs for startup and runtime details.
 
+### MQTT Integration
+
+When MQTT is enabled, SBAM publishes state and availability topics and subscribes to command topics for Home Assistant integration.\
+If MQTT broker details are not provided in the configuration, SBAM attempts to auto-fill them from Home Assistant service data.
+For full setup, topic mapping, payload schemas, command examples, and migration
+details, see [MQTT documentation](https://github.com/atbore-phx/sbam/blob/main/docs/mqtt.md).
+
