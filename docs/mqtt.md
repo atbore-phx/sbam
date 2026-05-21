@@ -121,6 +121,11 @@ For eg. if you want a manual force-charge workflow with minimal crontab schedule
 6. Send `set_defaults` to stop force charge, restore defaults, or re-apply a new manual override as needed.
 7. Send `trigger_now` (or wait for the next scheduled tick) to let scheduler logic.
 
+#### Alternatives
+
+- Disable the crontab so SBAM only responds to MQTT commands by setting the `crontab` configuration to `0 0 0 0 0`. This makes MQTT the sole trigger for scheduler actions.
+- Execute your manual command in a different time window than the crontab, run `force_charge` outside scheduled charge windows to avoid overlap and reduce the need for `pause`/`resume`.
+
 Do not pause before `force_charge`: `force_charge` is rejected while paused.
 
 ## Migration from v1.x
