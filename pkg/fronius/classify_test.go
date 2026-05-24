@@ -45,7 +45,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: false,
 			expectedDecision:         fronius.DecisionForecastCharge,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is not enough: -1900.000000 Wh",
+			expectedReason:           "Net Power (actual battery power + Net solar power) is not enough",
 		},
 		{
 			name:                     "reserve charge fires when battery is below reserve and reserve charge enabled",
@@ -71,7 +71,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: true,
 			expectedDecision:         fronius.DecisionIdle,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is enough: 9400.000000 Wh",
+			expectedReason:           "Net Power (actual battery power + Net solar power) is enough",
 		},
 	}
 
