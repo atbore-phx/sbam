@@ -198,7 +198,9 @@ This project uses a prompt-driven workflow for feature development. Features are
 - `<feature-name>-TASK.md` — human-facing feature request and requirements
 - `<feature-name>-PLAN.md` — agent-facing implementation plan
 
-### Available Commands
+### Available Prompts
+
+some prompts are available in `.github/prompts/` for reference and iteration. The main ones are:
 
 - `/generate-plan-local <feature-name>` — interactive authoring of TASK + PLAN from scratch (or refinement of an existing TASK)
 - `/generate-plan-from-issue <issue-ref>` — same as above but seeded from a GitHub issue
@@ -211,7 +213,7 @@ This project uses a prompt-driven workflow for feature development. Features are
 3. Answer clarifications added by the agent, update the TASK if needed
 4. Implement changes locally on a feature branch
 5. Add or update unit and integration tests as appropriate
-6. Run validation: `make test`, `make build`
+6. Run validation: `make test`, `make build`, `make all` to ensure everything works locally.
 7. Open a **draft PR** referencing the issue and the generated PLAN
 8. Request at least one human reviewer and ensure CI passes before converting from draft
 

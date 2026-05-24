@@ -5,7 +5,7 @@ description: "Interactively author a TASK and produce a comprehensive PLAN for a
 
 # Generate Plan (Local)
 
-You are generating an implementation plan for the **sbam** project (Smart Battery Advanced Manager — see [.github/copilot-instructions.md](../copilot-instructions.md)). The user invokes this prompt as:
+You are generating an implementation plan for the **sbam** project (Smart Battery Advanced Manager — see [.github/copilot-instructions.md](../copilot-instructions.md) or [CLAUDE.md](../../CLAUDE.md)). The user invokes this prompt as:
 
 ```
 /generate-plan-local <feature-name>
@@ -36,7 +36,7 @@ Follow these phases **in order**. Use the todo list tool to track progress and k
    - Read also any sibling files (existing PLAN, notes, diagrams).
    - Summarize back to the user what the TASK currently says (3–6 bullets).
    - Identify gaps, ambiguities, missing acceptance criteria, missing non-goals, missing config/env impacts, missing test strategy.
-   - Ask **only the necessary clarifying questions** (use the questions tool; batch them; prefer fixed-choice options when possible). Do not ask questions whose answers are already in the TASK or in `copilot-instructions.md`.
+   - Ask **only the necessary clarifying questions** (use the questions tool; batch them; prefer fixed-choice options when possible). Do not ask questions whose answers are already in the TASK or in `copilot-instructions.md` / `CLAUDE.md`.
    - Always include a final open question for the user to add any additional information or context that they think is relevant to the feature being implemented.
    - Apply the answers by editing the TASK file in place. Preserve any human-written sections; add a "Clarifications" section at the bottom if useful.
 3. **If it does not exist:**
@@ -46,7 +46,7 @@ Follow these phases **in order**. Use the todo list tool to track progress and k
      - **User story / motivation** (who benefits and why).
      - **Scope / non-scope** (what is explicitly out).
      - **Inputs/outputs**: new CLI flags, config keys, env vars, Modbus registers, Solcast/Fronius endpoints touched.
-     - **Affected packages** (`pkg/cmd`, `pkg/fronius`, `pkg/power`, `pkg/storage`, `src/utils`, Home Assistant add-on, Dockerfile, Makefile, CI workflows).
+     - **Affected packages** (`pkg/*`, `src/utils`, Home Assistant add-on, Dockerfile, Makefile, CI workflows).
      - **Acceptance criteria** (observable, testable).
      - **Constraints**: backward compatibility, default behavior, safety (e.g. must never write Modbus registers in dry-run).
      - **Risks / unknowns** worth flagging.
@@ -121,14 +121,7 @@ Why this matters and for whom.
 
 Now perform the research needed to write a high-confidence PLAN. Reuse `runSubagent` (Explore agent) for read-only sweeps when helpful.
 
-1. **Codebase analysis** — find and cite existing patterns to mirror:
-   - CLI command shape: see [pkg/cmd/root.go](../../pkg/cmd/root.go), [pkg/cmd/schedule.go](../../pkg/cmd/schedule.go).
-   - Modbus access: see [pkg/fronius/modbus.go](../../pkg/fronius/modbus.go), [pkg/fronius/configure.go](../../pkg/fronius/configure.go).
-   - HTTP client + caching: see [pkg/power/estimate.go](../../pkg/power/estimate.go).
-   - Test patterns (httptest, mbserver): see [pkg/fronius/fronius_test.go](../../pkg/fronius/fronius_test.go), [pkg/power/power_test.go](../../pkg/power/power_test.go), [pkg/storage/storage_test.go](../../pkg/storage/storage_test.go).
-   - Logging: see [src/utils/log.go](../../src/utils/log.go).
-   - Build / CI: see [Makefile](../../Makefile), [.github/workflows/test.yml](../workflows/test.yml), [.github/workflows/release.yml](../workflows/release.yml).
-   - Home Assistant add-on: see [home-assistant/addons/sbam/](../../home-assistant/addons/sbam/).
+1. **Codebase analysis** — find and cite existing patterns to mirror. Consult [.github/copilot-instructions.md](../copilot-instructions.md) and [CLAUDE.md](../../CLAUDE.md) (Project Structure sections) for file locations, and read the specific files relevant to the feature.
 2. **External research** — capture concrete URLs (vendor docs, library godoc, register maps, RFCs). Note any Fronius firmware quirks, Modbus register addresses, Solcast quotas, or `simonvetter/modbus` API specifics.
 3. **Conventions** — confirm naming, error handling (`handleError` / `handleErrorPanic`), constructor pattern (`New() *T`), config hierarchy (flag > env > yaml).
 
@@ -167,7 +160,7 @@ Create `docs/implementations/<feature-name>/<feature-name>-PLAN.md` using the st
 - Print a short summary with workspace-relative links to the TASK and PLAN.
 - Remind the user the next step is `/implement-plan <feature-name>`.
 - **Do not** modify any files outside `docs/implementations/<feature-name>/` during this prompt.
-- Files added or removed under `docs/implementations/<feature-name>/` do **not** require updates to the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md). If you notice unrelated non-`docs/implementations/**` file additions/removals that would require a `Project Structure` update, mention that as a follow-up only; do **not** edit `.github/copilot-instructions.md` in this prompt.
+- Files added or removed under `docs/implementations/<feature-name>/` do **not** require updates to the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md) or [CLAUDE.md](../../CLAUDE.md). If you notice unrelated non-`docs/implementations/**` file additions/removals that would require a `Project Structure` update, mention that as a follow-up only; do **not** edit `.github/copilot-instructions.md` or `CLAUDE.md` in this prompt.
 
 ## Operating Rules
 
