@@ -190,7 +190,7 @@ func TestSchedule_FroniusModbusFailurePublishesSkip(t *testing.T) {
 // non-skip payload.
 type fakeFroniusClient struct{}
 
-func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error) {
+func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	ps := fronius.PowerState{PvNet: 0.0, Batt: 0.0, Net: 0.0, BattReserveNet: 0.0}
 	return int16(10), fronius.DecisionIdle, "fake-handler", ps, nil
 }
@@ -286,7 +286,7 @@ func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool
 type trackingFroniusClient struct {
 	err                  error
 	decision             fronius.Decision
-	reason               string
+	reason               fronius.Reason
 	chargePct            int16
 	powerState           fronius.PowerState
 	calls                int
@@ -295,7 +295,7 @@ type trackingFroniusClient struct {
 	lastReserveWindowArg bool
 }
 
-func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error) {
+func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	_ = pw_batt2charge
 	_ = pw_batt_max
 	_ = pw_consumption
