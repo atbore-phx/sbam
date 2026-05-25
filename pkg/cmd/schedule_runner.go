@@ -263,7 +263,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return froniusErr
 	}
 
-	payload := makeBasePayload(decision.String(), reason, inChargeWindow, reserveWindowActive)
+	payload := makeBasePayload(decision.String(), reason.String(), inChargeWindow, reserveWindowActive)
 	payload.BatterySOCPct = &socPct
 	payload.BatteryCapacityWh = &capacityMax
 	payload.ForecastTodayWh = &solarPowerProduction

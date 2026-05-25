@@ -19,7 +19,7 @@ func TestClassifyDecision(t *testing.T) {
 		forecastChargeEnabled    bool
 		battReserveChargeEnabled bool
 		expectedDecision         fronius.Decision
-		expectedReason           string
+		expectedReason           fronius.Reason
 	}{
 		{
 			name:                     "battery full short-circuits regardless of other inputs",
@@ -32,7 +32,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: true,
 			expectedDecision:         fronius.DecisionBatteryFull,
-			expectedReason:           "Battery is full charged",
+			expectedReason:           fronius.ReasonBatteryFull,
 		},
 		{
 			name:                     "forecast charge fires when net power is below -lwt and forecast enabled",
@@ -45,7 +45,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: false,
 			expectedDecision:         fronius.DecisionForecastCharge,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is not enough",
+			expectedReason:           fronius.ReasonForecastCharge,
 		},
 		{
 			name:                     "reserve charge fires when battery is below reserve and reserve charge enabled",
@@ -58,7 +58,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    false,
 			battReserveChargeEnabled: true,
 			expectedDecision:         fronius.DecisionReserveCharge,
-			expectedReason:           "Battery charge is below reserve threshold",
+			expectedReason:           fronius.ReasonReserveCharge,
 		},
 		{
 			name:                     "idle when net power is fine and reserve is satisfied",
@@ -71,7 +71,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: true,
 			expectedDecision:         fronius.DecisionIdle,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is enough",
+			expectedReason:           fronius.ReasonIdle,
 		},
 	}
 
