@@ -234,3 +234,4 @@ some prompts are available in `.github/prompts/` for reference and iteration. Th
 - Avoid hyperbole and excitement, stick to the task at hand and complete it pragmatically.
 - Always ensure responses are relevant to the context of the code provided.
 - Avoid unnecessary detail not related to the task.
+- when you use gh tool --repo flag, use "atbore-phx/sbam".
