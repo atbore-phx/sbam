@@ -4,13 +4,6 @@ import (
 	"time"
 )
 
-type ReconnectStrategy string
-
-const (
-	ReconnectStrategyCustom ReconnectStrategy = "custom"
-	ReconnectStrategyPaho   ReconnectStrategy = "paho"
-)
-
 type Config struct {
 	Enabled           bool
 	Broker            string
@@ -25,7 +18,6 @@ type Config struct {
 	HADiscoveryPrefix string
 	FroniusIP         string
 	HADiscovery       bool
-	ReconnectStrategy ReconnectStrategy
 }
 
 type StatePayload struct {

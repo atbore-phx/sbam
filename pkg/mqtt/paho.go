@@ -27,9 +27,7 @@ var (
 
 const (
 	defaultOperationTimeout = 5 * time.Second
-	reconnectBaseDelay      = 1 * time.Second
 	reconnectMaxDelay       = 60 * time.Second
-	reconnectJitterFactor   = 0.2
 	reconnectProbeInterval  = 200 * time.Millisecond
 	keepAliveInterval       = 30 * time.Second
 	pingTimeout             = 10 * time.Second
@@ -42,7 +40,6 @@ type Paho struct {
 	discoveryVersion string
 	closeOnce        sync.Once
 	closed           atomic.Bool
-	reconnecter      reconnectManager
 }
 
 func NewPaho(cfg Config) (*Paho, error) {
@@ -62,12 +59,6 @@ func NewPaho(cfg Config) (*Paho, error) {
 	if strings.TrimSpace(cfg.ClientID) == "" {
 		cfg.ClientID = defaultClientID()
 	}
-
-	strategy, err := normalizeReconnectStrategy(cfg.ReconnectStrategy)
-	if err != nil {
-		return nil, err
-	}
-	cfg.ReconnectStrategy = strategy
 
 	p := &Paho{
 		cfg:              cfg,
@@ -112,9 +103,21 @@ func NewPaho(cfg Config) (*Paho, error) {
 		PublishDiscovery(context.Background(), p, p.cfg, p.discoveryVersion)
 	})
 
-	manager := newReconnectManager(cfg.ReconnectStrategy)
-	manager.configure(opts, p)
-	p.reconnecter = manager
+	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(false)
+	opts.SetMaxReconnectInterval(reconnectMaxDelay)
+	opts.SetConnectionLostHandler(func(_ paho.Client, err error) {
+		if p.closed.Load() {
+			return
+		}
+		utils.Log.Warnw("mqtt connection lost", "broker", sanitizeBroker(p.cfg.Broker), "error", err)
+	})
+	opts.SetReconnectingHandler(func(_ paho.Client, _ *paho.ClientOptions) {
+		if p.closed.Load() {
+			return
+		}
+		utils.Log.Warnw("mqtt reconnecting", "broker", sanitizeBroker(p.cfg.Broker))
+	})
 
 	p.client = paho.NewClient(opts)
 
@@ -145,9 +148,6 @@ func (p *Paho) Disconnect(ctx context.Context) error {
 	p.closeOnce.Do(func() {
 		called = true
 		p.closed.Store(true)
-		if p.reconnecter != nil {
-			p.reconnecter.stop()
-		}
 		go func() {
 			if p.client != nil {
 				utils.Log.Debugw("mqtt client performing disconnect", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
@@ -313,14 +313,6 @@ func defaultClientID() string {
 		return defaultTopicPrefix
 	}
 	return defaultTopicPrefix + "-" + hostname
-}
-
-func nextReconnectDelay(current time.Duration) time.Duration {
-	next := current * 2
-	if next > reconnectMaxDelay {
-		return reconnectMaxDelay
-	}
-	return next
 }
 
 func requiresTLS(scheme string) bool {

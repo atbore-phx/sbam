@@ -96,14 +96,13 @@ pkg/
     commands.go               - MQTT command topic parser, payload validation, and ack publisher
     discovery.go              - Home Assistant MQTT discovery payload builder
     noop.go                   - Disabled MQTT client implementation
-    paho.go                   - Paho-backed MQTT client with reconnect and TLS
-    reconnect.go              - Reconnect strategy normalization and manager selection
-    reconnect_custom.go       - Custom jittered reconnect manager
-    reconnect_paho.go         - Paho auto-reconnect manager
+    paho.go                   - Paho-backed MQTT client with reconnect, TLS, and helpers
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
     commands_test.go          - Unit tests for command parsing and ack publishing
     discovery_test.go         - Unit tests for Home Assistant discovery generation
+    race_disabled_test.go     - Build-tag-gated race detector flag for non-race builds
+    race_enabled_test.go      - Build-tag-gated race detector flag for race builds
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
