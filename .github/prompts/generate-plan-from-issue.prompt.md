@@ -107,7 +107,7 @@ Follow Phases 3–4 of [generate-plan-local.prompt.md](generate-plan-local.promp
 - Print a summary with workspace-relative links to the TASK and PLAN, plus the issue URL.
 - Remind the user the next step is `/implement-plan <feature-slug>`.
 - **Do not** comment on or close the GitHub issue. **Do not** push branches. Surface those as suggestions only.
-- If you added or removed files anywhere in the repo, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md).
+- If you added or removed files anywhere in the repo, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md) **and** [CLAUDE.md](../../CLAUDE.md).
 
 ## Operating Rules
 
