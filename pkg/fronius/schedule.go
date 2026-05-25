@@ -16,6 +16,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	)
 	u.Log.Infof("Decision: %s - %s", decision.String(), reason)
 	u.Log.Infof("Net Power: %.2f Wh", pw.Net)
+	u.Log.Infof("Battery: %.2f Wh, Reserve: %.2f Wh", pw.Batt, pw_batt_reserve)
 
 	if cerr != nil {
 		u.Log.Errorf("Classifier error: %s - resetting Fronius to defaults (stop forced charge)", cerr)
