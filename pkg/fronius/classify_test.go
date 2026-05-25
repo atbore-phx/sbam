@@ -58,7 +58,7 @@ func TestClassifyDecision(t *testing.T) {
 			forecastChargeEnabled:    false,
 			battReserveChargeEnabled: true,
 			expectedDecision:         fronius.DecisionReserveCharge,
-			expectedReason:           "battery 1000.000000 Wh < reserve 3000.000000 Wh",
+			expectedReason:           "Battery charge is below reserve threshold",
 		},
 		{
 			name:                     "idle when net power is fine and reserve is satisfied",
