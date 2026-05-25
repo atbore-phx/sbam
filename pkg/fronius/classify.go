@@ -47,7 +47,7 @@ func ClassifyDecision(
 	case pw.Net < -1*pwLwt && forecastChargeEnabled:
 		return DecisionForecastCharge, "Net Power (actual battery power + Net solar power) is not enough", pw, nil
 	case pw.BattReserveNet < -1*pwLwt && battReserveChargeEnabled:
-		return DecisionReserveCharge, fmt.Sprintf("battery %2f Wh < reserve %2f Wh", pw.Batt, pwBattReserve), pw, nil
+		return DecisionReserveCharge, "Battery charge is below reserve threshold", pw, nil
 	case pw.Net >= -1*pwLwt:
 		return DecisionIdle, "Net Power (actual battery power + Net solar power) is enough", pw, nil
 	default:
