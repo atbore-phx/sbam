@@ -47,25 +47,23 @@ jobs:
   release-ha:
     needs: determine-release
     if: ${{ needs.determine-release.outputs.release != 'skip' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       matrix:
         goarch:
           - amd64
-          - 386
           - arm64
-          - arm
         goos:
           - linux
         include:
           - goarch: amd64
             haarch: amd64
-          - goarch: 386
-            haarch: i386
+            platform: linux/amd64
+            runs-on: ubuntu-24.04
           - goarch: arm64
             haarch: aarch64
-          - goarch: arm
-            haarch: armv7
+            platform: linux/arm64
+            runs-on: ubuntu-24.04-arm
     env:
       VERSION: ${{ needs.determine-release.outputs.version }}
 
@@ -94,13 +92,12 @@ jobs:
         env:
           GOOS: ${{matrix.goos}}
           GOARCH: ${{matrix.goarch}}
-          GOARM: 7
           CGO_ENABLED: 0
 
       - name: Build add-on image ${{ matrix.haarch }}
         uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
-          arch: ${{ matrix.haarch }}
+          arch: ${{ matrix.goarch }}
           image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
           image-tags: |
             ${{ env.VERSION }}
@@ -112,7 +109,7 @@ jobs:
           push: "true"
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/${{ matrix.haarch }}-base
-            PLATFORM=${{ matrix.goarch }}
+            PLATFORM=${{ matrix.platform }}
 
   release-os:
     needs: determine-release
