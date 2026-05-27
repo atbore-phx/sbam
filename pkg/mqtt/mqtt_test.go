@@ -156,10 +156,6 @@ func TestPublishAvailabilityRetained(t *testing.T) {
 }
 
 func TestReconnectAfterBrokerRestart(t *testing.T) {
-	if raceDetectorEnabled {
-		t.Skip("paho reconnect restart path is racy under -race in upstream client")
-	}
-
 	address := reserveTCPAddress(t)
 	broker := newTestBroker(t, address, nil)
 	defer broker.Close()
@@ -231,6 +227,9 @@ func TestConnectFailsWithBadCredentials(t *testing.T) {
 
 	err = client.Connect(ctx)
 	assert.Error(t, err)
+
+	// Disconnect to stop Paho's internal ConnectRetry loop before checking IsConnected.
+	_ = client.Disconnect(context.Background())
 	assert.False(t, client.IsConnected())
 }
 
@@ -251,7 +250,7 @@ func TestNewPahoReconnectOptions(t *testing.T) {
 
 	opts := client.client.OptionsReader()
 	assert.True(t, opts.AutoReconnect())
-	assert.False(t, opts.ConnectRetry())
+	assert.True(t, opts.ConnectRetry())
 	assert.Equal(t, reconnectMaxDelay, opts.MaxReconnectInterval())
 }
 
@@ -896,6 +895,8 @@ func (c *fakeMQTTClient) Subscribe(ctx context.Context, topic string, qos byte, 
 }
 
 func (c *fakeMQTTClient) IsConnected() bool { return true }
+
+func (c *fakeMQTTClient) OnConnect(cb func()) {}
 
 func withObservedLogger(t *testing.T) *observer.ObservedLogs {
 	t.Helper()

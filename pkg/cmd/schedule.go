@@ -140,10 +140,10 @@ var scdCmd = &cobra.Command{
 			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
 			FroniusIP:         fronius_ip,
 		}
-		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion, 3, 250*time.Millisecond)
+		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion)
 		defer mqttCleanup()
 		if err != nil {
-			u.HandleError(err, "mqtt homeassistant/status subscription failed")
+			u.HandleError(err, "mqtt client setup failed")
 		}
 
 		u.LogStartupParams(cmd)
@@ -184,8 +184,13 @@ var scdCmd = &cobra.Command{
 			runDone <- runner.Run(runCtx)
 		}()
 
-		if err := subscribeScheduleCommands(runCtx, mqttClient, mqttCfg, runner); err != nil {
-			u.HandleError(err, "mqtt command subscription failed")
+		if mqttCfg.Enabled && mqttClient != nil {
+			mqttClient.OnConnect(func() {
+				u.Log.Debug("mqtt onConnect: subscribing to command topics")
+				if err := subscribeScheduleCommands(runCtx, mqttClient, mqttCfg, runner); err != nil {
+					u.HandleError(err, "mqtt command subscription failed")
+				}
+			})
 		}
 
 		if crontab != const_ct {
@@ -414,18 +419,14 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload m
 
 // subscribeScheduleCommands subscribes to the scheduler command topic and
 // forwards incoming MQTT commands to the provided `runner` via its
-// `HandleCommand` method. Subscription is a no-op when MQTT is disabled or
-// the client is not connected. The function uses a short-lived context for
-// the subscribe operation to avoid blocking indefinitely.
+// `HandleCommand` method. It is invoked from the OnConnect callback so the
+// client is guaranteed to be connected.
 func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqttCfg mqtt.Config, runner *Runner) error {
 	if !mqttCfg.Enabled || mqttClient == nil {
 		return nil
 	}
 	if runner == nil {
 		return errors.New("runner must not be nil")
-	}
-	if !mqttClient.IsConnected() {
-		return nil
 	}
 
 	if ctx == nil {

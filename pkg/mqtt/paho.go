@@ -35,11 +35,12 @@ const (
 )
 
 type Paho struct {
-	cfg              Config
-	client           paho.Client
-	discoveryVersion string
-	closeOnce        sync.Once
-	closed           atomic.Bool
+	cfg                Config
+	client             paho.Client
+	discoveryVersion   string
+	closeOnce          sync.Once
+	closed             atomic.Bool
+	onConnectCallbacks []func()
 }
 
 func NewPaho(cfg Config) (*Paho, error) {
@@ -93,18 +94,48 @@ func NewPaho(cfg Config) (*Paho, error) {
 	}
 
 	opts.SetOnConnectHandler(func(client paho.Client) {
-		utils.Log.Debugw("mqtt onConnect handler", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
+		utils.Log.Infow("mqtt connection established", "broker", sanitizeBroker(p.cfg.Broker), "client_id", p.cfg.ClientID)
+
 		if err := waitToken(context.Background(), client.Publish(availabilityTopic(p.cfg.TopicPrefix), qosAtLeastOnce, true, []byte("online"))); err != nil {
-			utils.Log.Warnw("mqtt availability publish failed", "topic", availabilityTopic(p.cfg.TopicPrefix), "retained", true, "qos", qosAtLeastOnce, "error", err)
+			utils.Log.Errorw("mqtt availability publish failed", "topic", availabilityTopic(p.cfg.TopicPrefix), "retained", true, "qos", qosAtLeastOnce, "error", err)
 		} else {
-			utils.Log.Debugw("mqtt availability published", "topic", availabilityTopic(p.cfg.TopicPrefix), "status", "online")
+			utils.Log.Infow("mqtt availability published", "topic", availabilityTopic(p.cfg.TopicPrefix), "status", "online")
 		}
 
+		utils.Log.Debugw("mqtt publishing HA discovery", "broker", sanitizeBroker(p.cfg.Broker))
 		PublishDiscovery(context.Background(), p, p.cfg, p.discoveryVersion)
+
+		if p.cfg.HADiscovery {
+			utils.Log.Debugw("mqtt subscribing to HA status topic", "topic", haStatusTopic())
+			haHandler := func(client paho.Client, message paho.Message) {
+				payload := append([]byte(nil), message.Payload()...)
+				payloadStr := strings.TrimSpace(string(payload))
+				utils.Log.Debugw("mqtt HA status received", "topic", message.Topic(), "payload", payloadStr)
+				if payloadStr != "online" {
+					return
+				}
+				utils.Log.Infow("mqtt HA online detected, re-publishing discovery", "topic", message.Topic())
+				ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
+				PublishDiscovery(ctx, p, p.cfg, p.discoveryVersion)
+				cancel()
+			}
+			if err := waitToken(context.Background(), client.Subscribe(haStatusTopic(), byte(1), haHandler)); err != nil {
+				utils.Log.Errorw("mqtt subscribe homeassistant/status failed", "topic", haStatusTopic(), "error", err)
+			} else {
+				utils.Log.Debugw("mqtt subscribed to HA status topic", "topic", haStatusTopic())
+			}
+		}
+
+		if len(p.onConnectCallbacks) > 0 {
+			utils.Log.Debugw("mqtt invoking onConnect callbacks", "count", len(p.onConnectCallbacks))
+			for _, cb := range p.onConnectCallbacks {
+				cb()
+			}
+		}
 	})
 
 	opts.SetAutoReconnect(true)
-	opts.SetConnectRetry(false)
+	opts.SetConnectRetry(true)
 	opts.SetMaxReconnectInterval(reconnectMaxDelay)
 	opts.SetConnectionLostHandler(func(_ paho.Client, err error) {
 		if p.closed.Load() {
@@ -212,6 +243,10 @@ func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler Me
 
 func (p *Paho) IsConnected() bool {
 	return p.client != nil && p.client.IsConnected()
+}
+
+func (p *Paho) OnConnect(cb func()) {
+	p.onConnectCallbacks = append(p.onConnectCallbacks, cb)
 }
 
 func waitToken(ctx context.Context, token paho.Token) error {

@@ -13,6 +13,7 @@ type Client interface {
 	Publish(ctx context.Context, topic string, qos byte, retained bool, payload []byte) error
 	Subscribe(ctx context.Context, topic string, qos byte, handler MessageHandler) error
 	IsConnected() bool
+	OnConnect(cb func())
 }
 
 const (

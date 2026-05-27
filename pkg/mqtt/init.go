@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	u "sbam/src/utils"
-	"strings"
 	"time"
 )
 
@@ -18,42 +17,16 @@ var (
 	newNoopFactory   = func() Client { return NewNoop() }
 )
 
-// connectWithRetries performs a small number of Connect attempts with
-// exponential backoff and returns the last error if all attempts fail.
-// It uses a short per-attempt timeout governed by defaultOpTimeout.
-func connectWithRetries(client Client, maxAttempts int, baseBackoff time.Duration) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		attemptCtx, attemptCancel := context.WithTimeout(context.Background(), defaultOpTimeout)
-		err := client.Connect(attemptCtx)
-		attemptCancel()
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-		u.Log.Warnw("mqtt connect attempt failed", "attempt", attempt, "error", err)
-
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			u.Log.Warnw("mqtt connect aborted, disconnecting client due to context timeout", "error", err)
-			dctx, dcancel := context.WithTimeout(context.Background(), defaultOpTimeout)
-			_ = client.Disconnect(dctx)
-			dcancel()
-		}
-
-		if attempt < maxAttempts {
-			sleep := time.Duration(1<<uint(attempt-1)) * baseBackoff
-			time.Sleep(sleep)
-		}
-	}
-	return lastErr
-}
-
-// InitWithCleanup encapsulates client creation, initial connect (with
-// retries) and returns a cleanup function that attempts a graceful
-// disconnect. On Home Assistant discovery it subscribes to the status
-// topic and publishes discovery when HA comes online. Optional handlers
-// are invoked after discovery publish in the same callback.
-func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff time.Duration) (Client, func(), error) {
+// InitWithCleanup creates an MQTT client and initiates a non-blocking
+// connection attempt. If client setup fails (e.g. bad TLS config) a noop
+// client is returned instead. The returned cleanup function attempts a
+// graceful disconnect and should be deferred by the caller.
+//
+// The initial connection is handled by Paho's ConnectRetry mechanism in a
+// background goroutine, so this function returns immediately without waiting
+// for the broker to become available. OnConnectHandler in paho.go handles
+// subscriptions and discovery once the connection succeeds.
+func InitWithCleanup(cfg Config, version string) (Client, func(), error) {
 	client, newErr := newClientFactory(cfg, version)
 	var accErr error
 	if newErr != nil {
@@ -63,28 +36,12 @@ func InitWithCleanup(cfg Config, version string, maxAttempts int, baseBackoff ti
 	}
 
 	if cfg.Enabled {
-		if connErr := connectWithRetries(client, maxAttempts, baseBackoff); connErr != nil {
-			accErr = errors.Join(accErr, fmt.Errorf("mqtt connect failed after retries: %w", connErr))
-			u.Log.Warnw("mqtt connect failed after retries, using noop", "error", connErr)
-			client = newNoopFactory()
-		} else if client.IsConnected() && cfg.HADiscovery {
-			subCtx, subCancel := context.WithTimeout(context.Background(), defaultOpTimeout)
-			subErr := client.Subscribe(subCtx, haStatusTopic(), byte(1), func(topic string, payload []byte) {
-				_ = topic
-				payloadCopy := append([]byte(nil), payload...)
-				if strings.TrimSpace(string(payloadCopy)) != "online" {
-					return
-				}
-
-				ctx, cancel := context.WithTimeout(context.Background(), defaultOpTimeout)
-				PublishDiscovery(ctx, client, cfg, version)
-				cancel()
-			})
-			subCancel()
-			if subErr != nil {
-				accErr = errors.Join(accErr, fmt.Errorf("mqtt subscribe homeassistant/status failed: %w", subErr))
+		go func() {
+			u.Log.Infow("mqtt starting background connect", "broker", cfg.Broker)
+			if err := client.Connect(context.Background()); err != nil {
+				u.Log.Errorw("mqtt background connect failed", "error", err)
 			}
-		}
+		}()
 	}
 
 	cleanup := func() {}

@@ -95,12 +95,12 @@ pkg/
     discovery.go              - Home Assistant MQTT discovery payload builder
     noop.go                   - Disabled MQTT client implementation
     paho.go                   - Paho-backed MQTT client with reconnect, TLS, and helpers
+    init.go                   - Client initialization, non-blocking connect, cleanup
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
     commands_test.go          - Unit tests for command parsing and ack publishing
     discovery_test.go         - Unit tests for Home Assistant discovery generation
-    race_disabled_test.go     - Build-tag-gated race detector flag for non-race builds
-    race_enabled_test.go      - Build-tag-gated race detector flag for race builds
+    init_test.go              - Unit tests for client initialization and async connect
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
