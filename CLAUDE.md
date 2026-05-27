@@ -76,6 +76,7 @@ pkg/
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
+    schedule_test.go           - Unit tests for the schedule command
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
@@ -94,14 +95,13 @@ pkg/
     commands.go               - MQTT command topic parser, payload validation, and ack publisher
     discovery.go              - Home Assistant MQTT discovery payload builder
     noop.go                   - Disabled MQTT client implementation
-    paho.go                   - Paho-backed MQTT client with reconnect and TLS
-    reconnect.go              - Reconnect strategy normalization and manager selection
-    reconnect_custom.go       - Custom jittered reconnect manager
-    reconnect_paho.go         - Paho auto-reconnect manager
+    paho.go                   - Paho-backed MQTT client with reconnect, TLS, and helpers
+    init.go                   - Client initialization, non-blocking connect, cleanup
     publisher.go              - Typed state, error, and availability publishers
     mqtt_test.go              - In-process MQTT broker tests
     commands_test.go          - Unit tests for command parsing and ack publishing
     discovery_test.go         - Unit tests for Home Assistant discovery generation
+    init_test.go              - Unit tests for client initialization and async connect
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
