@@ -5,7 +5,7 @@ description: "Implement an sbam feature from its PLAN file under docs/implementa
 
 # Implement Plan
 
-Implement a feature for the **sbam** project (see [.github/copilot-instructions.md](../copilot-instructions.md) or [CLAUDE.md](../../CLAUDE.md)) using a previously generated PLAN file. The user invokes this prompt as:
+Implement a feature for the **sbam** project (see [CLAUDE.md](../../CLAUDE.md)) using a previously generated PLAN file. The user invokes this prompt as:
 
 ```
 /implement-plan <feature-name>
@@ -27,7 +27,7 @@ Where `<feature-name>` matches the directory under `docs/implementations/` (e.g.
 Before changing any code:
 
 - ask the user an open question to add any additional information or context that they think is relevant to the feature being implemented. Do not proceed until the user confirms they have provided all relevant information.
-- Read the PLAN end-to-end. Read the TASK. Re-read [.github/copilot-instructions.md](../copilot-instructions.md) and/or [CLAUDE.md](../../CLAUDE.md).
+- Read the PLAN end-to-end. Read the TASK. Re-read [CLAUDE.md](../../CLAUDE.md).
 - Build a todo list mirroring the PLAN's "Implementation Blueprint" — one todo per blueprint step. Mark exactly one as `in-progress` at a time.
 - Confirm the working tree is clean enough to proceed (warn the user if there are unrelated modified files; do not stash without permission).
 
@@ -93,7 +93,7 @@ If the PLAN defines additional validation gates, run those too. Do not declare s
 ### 5. Documentation and surface updates
 
 - For every type, function, or method added or modified in a public package (pkg/) or sources (src/), ensure the code is properly documented with GoDoc comments. The comments are inserted before the declaration and start with the name of the item and a description of its purpose, behavior, and any important details.
-- If you added/removed/renamed/moved any files, update the `Project Structure` section in [.github/copilot-instructions.md](../copilot-instructions.md) **and** [CLAUDE.md](../../CLAUDE.md), while respecting the existing structure, formatting, important sections, and conventions.
+- If you added/removed/renamed/moved any files, update the `Project Structure` section in [CLAUDE.md](../../CLAUDE.md), while respecting the existing structure, formatting, important sections, and conventions.
 - Update [README.md](../../README.md) only if the PLAN says so or if user-visible behavior changed.
 - If the Home Assistant add-on schema or behavior changed, append an entry to [home-assistant/addons/sbam/CHANGELOG.md](../../home-assistant/addons/sbam/CHANGELOG.md) and update [home-assistant/addons/sbam/DOCS.md](../../home-assistant/addons/sbam/DOCS.md).
 - If new config keys, env vars, or flags were added, update [config.yaml](../../config.yaml) (commented example) and [home-assistant/addons/sbam/config.json](../../home-assistant/addons/sbam/config.json) schema.
@@ -110,7 +110,7 @@ Produce a final message containing:
 
 ## Operating Rules
 
-- **Stop and ask** if the PLAN is internally inconsistent, contradicts `copilot-instructions.md` or `CLAUDE.md`, or requires destructive operations.
+- **Stop and ask** if the PLAN is internally inconsistent, contradicts `CLAUDE.md`, or requires destructive operations.
 - Never bypass safety: do not push, force-push, amend pushed commits, delete branches, or run `--no-verify`.
 - Never commit secrets. Never write real Solcast API keys or Fronius IPs into committed files; use placeholders that match the existing examples.
 - Never edit Modbus write logic to skip safety checks (e.g. removing reserve thresholds) unless the PLAN explicitly requires it.
@@ -124,7 +124,7 @@ Implementation is complete when:
 - Every acceptance criterion in the TASK is satisfied.
 - Every blueprint step in the PLAN is checked off or explicitly marked deferred with rationale.
 - `make tidy`, `make vet`, `make test` and `make build` all pass.
-- All sbam conventions in `copilot-instructions.md` and `CLAUDE.md` are upheld.
+- All sbam conventions in `CLAUDE.md` are upheld.
 - Documentation surfaces are in sync with the change.
 
 ## Final steps

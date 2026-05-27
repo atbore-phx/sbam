@@ -76,6 +76,7 @@ pkg/
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
+    schedule_test.go           - Unit tests for the schedule command
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
