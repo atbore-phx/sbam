@@ -1,0 +1,1 @@
+Read and execute the instructions in `.github/prompts/generate-plan-from-issue.prompt.md` verbatim. The user invoked this as `/generate-plan-from-issue <issue-ref>`. Use the `<issue-ref>` argument (if provided) exactly as described in that prompt. If no argument was given, ask for one before doing anything else.

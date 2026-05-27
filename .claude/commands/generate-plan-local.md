@@ -1,0 +1,1 @@
+Read and execute the instructions in `.github/prompts/generate-plan-local.prompt.md` verbatim. The user invoked this as `/generate-plan-local <feature-name>`. Use the `<feature-name>` argument (if provided) exactly as described in Phase 1 of that prompt. If no argument was given, ask for one before doing anything else.

@@ -1,12 +1,13 @@
-Contributing with Copilot (Vibe Coding)
+Contributing with Copilot or Claude Code (Vibe Coding)
 
 Purpose
-- Provide guidance for contributors using Copilot prompts to propose and
-  implement changes.
+- Provide guidance for contributors using Copilot prompts or Claude Code
+  slash commands to propose and implement changes.
+- Both tools share the same prompt files in `.github/prompts/`.
 
 Principles
-- Iterate: use Copilot to generate a plan, then refine the plan with clarifying
-  answers.
+- Iterate: generate a plan with `/generate-plan-*`, then refine it with
+  clarifying answers.
 - Validate: always run tests and perform manual review of generated code.
 - Safety first: prefer draft PRs and require human approval before merging.
 
