@@ -62,6 +62,53 @@ func TestNewReturnsNoopWhenDisabled(t *testing.T) {
 	assert.Zero(t, observed.Len())
 }
 
+func TestNoopMethodsNeverError(t *testing.T) {
+	nop := NewNoop()
+	require.NotNil(t, nop)
+
+	t.Run("connect with nil context", func(t *testing.T) {
+		assert.NoError(t, nop.Connect(nil))
+	})
+
+	t.Run("connect with cancelled context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		assert.NoError(t, nop.Connect(ctx))
+	})
+
+	t.Run("disconnect with nil context", func(t *testing.T) {
+		assert.NoError(t, nop.Disconnect(nil))
+	})
+
+	t.Run("publish with empty topic", func(t *testing.T) {
+		assert.NoError(t, nop.Publish(context.Background(), "", 0, false, nil))
+	})
+
+	t.Run("publish with nil payload", func(t *testing.T) {
+		assert.NoError(t, nop.Publish(context.Background(), "topic", 1, true, nil))
+	})
+
+	t.Run("subscribe with nil handler", func(t *testing.T) {
+		assert.NoError(t, nop.Subscribe(context.Background(), "topic", 1, nil))
+	})
+
+	t.Run("subscribe with empty topic", func(t *testing.T) {
+		assert.NoError(t, nop.Subscribe(context.Background(), "", 1, func(string, []byte) {}))
+	})
+
+	t.Run("is connected always false", func(t *testing.T) {
+		assert.False(t, nop.IsConnected())
+	})
+}
+
+func TestNoopOnConnectDoesNothing(t *testing.T) {
+	nop := NewNoop()
+
+	called := false
+	nop.OnConnect(func() { called = true })
+	assert.False(t, called, "OnConnect callback should not be invoked by Noop")
+}
+
 // f64 returns a pointer to the provided float64 value. Used to build test
 // payloads where the production type is `*float64`.
 func f64(v float64) *float64 { return &v }
