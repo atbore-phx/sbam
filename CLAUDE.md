@@ -51,13 +51,15 @@ The application must be:
 ## Project Structure
 
 ```
+.claude/
+  commands/                   - Claude Code slash commands (delegate to .github/prompts/)
 .github/
   ISSUE_TEMPLATE/
     bug_report.yml            - GitHub issue form for bug reports
     feature_request.yml       - GitHub issue form for feature requests
     config.yml                - Issue template chooser policy (blank issues disabled)
   dependabot.yml              - Dependabot updates for Go modules, GitHub Actions, and Dockerfiles
-  prompts/                    - Workflow prompts (generate-plan-*, implement-plan)
+  prompts/                    - Workflow prompts (generate-plan-*, implement-plan) — single source of truth for both Copilot and Claude Code
   workflows/                  - CI/CD workflow definitions
 
 docs/
