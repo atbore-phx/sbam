@@ -72,7 +72,8 @@ func (f *fakeClient) Publish(ctx context.Context, topic string, qos byte, retain
 func (f *fakeClient) Subscribe(ctx context.Context, topic string, qos byte, handler mqtt.MessageHandler) error {
 	return nil
 }
-func (f *fakeClient) IsConnected() bool { return true }
+func (f *fakeClient) IsConnected() bool   { return true }
+func (f *fakeClient) OnConnect(cb func()) {}
 
 func drainPublishes(f *fakeClient) []publishedMessage {
 	var out []publishedMessage
