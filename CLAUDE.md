@@ -84,6 +84,7 @@ pkg/
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
+    config_schema_test.go     - Unit tests for HA add-on config.json schema regex validation
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher
