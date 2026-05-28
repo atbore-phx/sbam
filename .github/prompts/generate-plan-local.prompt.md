@@ -155,9 +155,27 @@ Create `docs/implementations/<feature-name>/<feature-name>-PLAN.md` using the st
 13. **Open Questions / Risks** — copy from TASK; mark as RESOLVED or DEFERRED.
 14. **Confidence Score** — rate 1–10 the likelihood of single-pass implementation success. If below 9, list what would raise it and offer to gather it now.
 
-### Phase 5 — Wrap-up
+### Phase 5 — Create GitHub Issue
 
-- Print a short summary with workspace-relative links to the TASK and PLAN.
+After the PLAN is written, offer to create a GitHub issue. Ask the user:
+
+1. **Whether to create an issue** (yes/no)
+2. **If yes, the issue type**: **feature request** or **bug report**
+
+Use the chosen template to determine field mapping:
+
+- **Feature**: read [`.github/ISSUE_TEMPLATE/feature_request.yml`](../../.github/ISSUE_TEMPLATE/feature_request.yml) — title prefix `[Feature]:`, label `enhancement`
+- **Bug**: read [`.github/ISSUE_TEMPLATE/bug_report.yml`](../../.github/ISSUE_TEMPLATE/bug_report.yml) — title prefix `[Bug]:`, label `bug`
+
+Map TASK sections to the form fields defined in the chosen template. Use `gh issue create --repo atbore-phx/sbam` with `--field <id>="<value>"` per field. For `confirmations` checkboxes, pass the required values from the template.
+
+If `gh` is unavailable or the command fails, print the rendered issue body as a markdown block so the user can create the issue manually, and move on. If the user declines, skip issue creation and proceed.
+
+After successful creation, update the PLAN file header to include `Issue: #<N>` linking to the created issue, and add the issue URL to the TASK `References` section.
+
+### Phase 6 — Wrap-up
+
+- Print a short summary with workspace-relative links to the TASK and PLAN, plus the issue URL if one was created.
 - Remind the user the next step is `/implement-plan <feature-name>`.
 - **Do not** modify any files outside `docs/implementations/<feature-name>/` during this prompt.
 - Files added or removed under `docs/implementations/<feature-name>/` do **not** require updates to the `Project Structure` section in [CLAUDE.md](../../CLAUDE.md). If you notice unrelated non-`docs/implementations/**` file additions/removals that would require a `Project Structure` update, mention that as a follow-up only; do **not** edit `CLAUDE.md` in this prompt.
