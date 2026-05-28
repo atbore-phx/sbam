@@ -298,7 +298,7 @@ func TestBatteryChargeError(t *testing.T) {
 	teardown()
 }
 
-func TestBatteryChargeModeClassifierErrorResetsDefaults(t *testing.T) {
+func TestBatteryChargeModeClassifierErrorSkipsDefaultsWhenNotCharging(t *testing.T) {
 	assert := assert.New(t)
 	setup()
 
@@ -321,6 +321,60 @@ func TestBatteryChargeModeClassifierErrorResetsDefaults(t *testing.T) {
 
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
+
+	// Defaults should NOT have been written (StorCtl_Mod was 0); verify OutWRte
+	// is still the mock-server zero-initialised value, not the default 10000.
+	err = fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
+	assert.NoError(err, "OpenModbusClient returned an error")
+	outWRte, readErr := fronius.ReadFroniusModbusRegister(fronius.OutWRte)
+	assert.NoError(readErr, "ReadFroniusModbusRegister returned an error")
+	assert.Equal(int16(0), outWRte, "OutWRte should still be 0 (defaults were skipped)")
+	err = fronius.ClosemodbusClient()
+	assert.NoError(err, "ClosemodbusClient returned an error")
+
+	teardown()
+}
+
+func TestBatteryChargeModeClassifierErrorResetsDefaultsWhenCharging(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+
+	// Pre-set StorCtl_Mod to 2 (inverter is force-charging).
+	fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
+	err = fronius.WriteFroniusModbusRegisters(map[uint16]int16{
+		fronius.StorCtl_Mod: 2,
+	})
+	fronius.ClosemodbusClient()
+	assert.NoError(err)
+
+	result, _, _, _, err := fronius.SetFroniusChargeBatteryMode(
+		100,
+		2000,
+		5000,
+		5000,
+		3500,
+		1000,
+		"00:00",
+		"23:59",
+		modbus_ip,
+		false,
+		100,
+		0,
+		false,
+		modbus_port,
+	)
+
+	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
+	assert.NoError(err)
+
+	// Defaults should have been written; verify OutWRte is now 10000.
+	err = fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
+	assert.NoError(err, "OpenModbusClient returned an error")
+	outWRte, readErr := fronius.ReadFroniusModbusRegister(fronius.OutWRte)
+	assert.NoError(readErr, "ReadFroniusModbusRegister returned an error")
+	assert.Equal(int16(10000), outWRte, "OutWRte should be 10000 (defaults were written)")
+	err = fronius.ClosemodbusClient()
+	assert.NoError(err, "ClosemodbusClient returned an error")
 
 	teardown()
 }
