@@ -68,6 +68,26 @@ func ReadFroniusModbusRegister(address uint16) (int16, error) {
 	return int16(value), u.HandleError(err, "Something goes wrong reading the register")
 }
 
+// ReadModbusRegister opens a Modbus TCP connection, reads a single holding
+// register, closes the connection, and returns the value. It is a standalone
+// helper for callers that only need to read one register without writing.
+func ReadModbusRegister(modbusIP string, register uint16, port ...string) (int16, error) {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	err = OpenModbusClient("tcp", modbusIP, p)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := ClosemodbusClient(); cerr != nil {
+			u.Log.Warnf("error closing modbus client: %v", cerr)
+		}
+	}()
+	return ReadFroniusModbusRegister(register)
+}
+
 func Setdefaults(modbus_ip string, port ...string) error {
 	p := "502"
 	if len(port) > 0 {
