@@ -1,0 +1,84 @@
+name: Dev Image
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  build-ha:
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (startsWith(github.ref_name, 'release/')) ||
+      (github.event.head_commit != null &&
+       startsWith(github.event.head_commit.message, '[build-ha]'))
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        goarch:
+          - amd64
+          - arm64
+        goos:
+          - linux
+        include:
+          - goarch: amd64
+            haarch: amd64
+            platform: linux/amd64
+            runs-on: ubuntu-24.04
+          - goarch: arm64
+            haarch: aarch64
+            platform: linux/arm64
+            runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Normalize branch name for Docker tags
+        id: branch
+        run: |
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          SANITIZED=$(echo "${BRANCH_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g' | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          echo "name=${SANITIZED}" >> "$GITHUB_OUTPUT"
+          echo "short-sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+
+      - name: GoReleaser Install
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          install-only: true
+
+      - name: GoReleaser Build ${{matrix.goos}}, ${{matrix.goarch}}
+        run: |
+          mkdir -p home-assistant/addons/sbam/bin
+          goreleaser build --clean --single-target --output home-assistant/addons/sbam/bin/sbam
+        env:
+          GOOS: ${{matrix.goos}}
+          GOARCH: ${{matrix.goarch}}
+          CGO_ENABLED: 0
+
+      - name: Build add-on image ${{ matrix.haarch }}
+        uses: home-assistant/builder/actions/build-image@2026.03.2
+        with:
+          arch: ${{ matrix.goarch }}
+          image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
+          image-tags: |
+            ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
+            ${{ steps.branch.outputs.name }}-latest
+          version: ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
+          context: home-assistant/addons/sbam
+          cosign: "false"
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          push: "true"
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/${{ matrix.haarch }}-base
+            PLATFORM=${{ matrix.platform }}
