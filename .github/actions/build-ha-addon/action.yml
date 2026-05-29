@@ -1,0 +1,54 @@
+name: Build HA Add-on Image
+description: Build the Go binary and the Home Assistant add-on Docker image
+
+inputs:
+  goarch:
+    description: 'Go architecture (amd64, arm64)'
+    required: true
+  haarch:
+    description: 'Home Assistant architecture (amd64, aarch64)'
+    required: true
+  image-tags:
+    description: 'Docker image tags (newline-separated)'
+    required: true
+  version:
+    description: 'Version label for the image'
+    required: true
+  github-token:
+    description: 'GitHub token for container registry auth'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.26'
+
+    - name: GoReleaser Install
+      uses: goreleaser/goreleaser-action@v7
+      with:
+        install-only: true
+
+    - name: GoReleaser Build
+      shell: bash
+      run: |
+        mkdir -p home-assistant/addons/sbam/bin
+        goreleaser build --clean --single-target --output home-assistant/addons/sbam/bin/sbam
+      env:
+        GOOS: linux
+        GOARCH: ${{ inputs.goarch }}
+        CGO_ENABLED: 0
+
+    - name: Build add-on image
+      uses: home-assistant/builder/actions/build-image@2026.03.2
+      with:
+        arch: ${{ inputs.goarch }}
+        image: ghcr.io/${{ github.repository_owner }}/ha-${{ inputs.haarch }}-sbam
+        image-tags: ${{ inputs.image-tags }}
+        version: ${{ inputs.version }}
+        context: home-assistant/addons/sbam
+        cosign: "false"
+        container-registry-password: ${{ inputs.github-token }}
+        push: "true"

@@ -177,9 +177,12 @@ Testing is manual since this is a CI workflow change:
 
 ## 8. Validation Gates
 
-- `make test` — ensure no Go code regressions (not expected, but gate)
+- `make tidy` — ensure go.mod is clean
+- `make vet` — ensure no vet issues
+- `make test` — ensure no Go code regressions
 - `make build` — ensure Go build still works
-- Verify YAML syntax: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/dev-image.yml'))"` or VS Code YAML linting
+- `bash home-assistant/addons/test_local.sh` — validate Go cross-compilation (amd64 + arm64) and native Docker image build
+- Verify YAML syntax: validate all `.github/workflows/*.yml` and `.github/actions/*/action.yml` files
 
 ## 9. Rollout / Backward Compatibility
 

@@ -20,16 +20,12 @@ jobs:
         goarch:
           - amd64
           - arm64
-        goos:
-          - linux
         include:
           - goarch: amd64
             haarch: amd64
-            platform: linux/amd64
             runs-on: ubuntu-24.04
           - goarch: arm64
             haarch: aarch64
-            platform: linux/arm64
             runs-on: ubuntu-24.04-arm
 
     steps:
@@ -47,38 +43,13 @@ jobs:
           echo "name=${SANITIZED}" >> "$GITHUB_OUTPUT"
           echo "short-sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Build and push HA add-on image
+        uses: ./.github/actions/build-ha-addon
         with:
-          go-version: '1.26'
-
-      - name: GoReleaser Install
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          install-only: true
-
-      - name: GoReleaser Build ${{matrix.goos}}, ${{matrix.goarch}}
-        run: |
-          mkdir -p home-assistant/addons/sbam/bin
-          goreleaser build --clean --single-target --output home-assistant/addons/sbam/bin/sbam
-        env:
-          GOOS: ${{matrix.goos}}
-          GOARCH: ${{matrix.goarch}}
-          CGO_ENABLED: 0
-
-      - name: Build add-on image ${{ matrix.haarch }}
-        uses: home-assistant/builder/actions/build-image@2026.03.2
-        with:
-          arch: ${{ matrix.goarch }}
-          image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
+          goarch: ${{ matrix.goarch }}
+          haarch: ${{ matrix.haarch }}
           image-tags: |
             ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
             ${{ steps.branch.outputs.name }}-latest
           version: ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
-          context: home-assistant/addons/sbam
-          cosign: "false"
-          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          push: "true"
-          build-args: |
-            BUILD_FROM=ghcr.io/home-assistant/${{ matrix.haarch }}-base
-            PLATFORM=${{ matrix.platform }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
