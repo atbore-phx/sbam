@@ -89,7 +89,20 @@ git push -u origin <branch-name>
 
 If the branch already has an upstream, just `git push`.
 
-### Step 6 — Create the PR
+### Step 6 — Check for existing PR
+
+Before creating a new PR, check if one already exists from the current branch:
+
+```bash
+gh pr list --repo atbore-phx/sbam --head <current-branch> --state open --json url,baseRefName,title
+```
+
+If output is non-empty, a PR already exists. Do **not** create a new one. Instead:
+- Report the existing PR URL and target base branch.
+- Note that the latest commits were pushed to the branch and are already reflected in the existing PR.
+- If the user intended to change the base branch, tell them to use `gh pr edit --base <new-base>`.
+
+### Step 7 — Create the PR
 
 Use `gh pr create --repo atbore-phx/sbam` with the parameters from step 4.
 
@@ -119,7 +132,7 @@ EOF
 
 Omit `--draft` if the user passed `--ready`. Omit `--label` if no labels were determined.
 
-### Step 7 — Report
+### Step 8 — Report
 
 Output the PR URL. If `gh` command fails, print the rendered PR body as a markdown block so the user can create it manually.
 
