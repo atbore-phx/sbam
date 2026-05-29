@@ -49,8 +49,8 @@ jobs:
           goarch: ${{ matrix.goarch }}
           haarch: ${{ matrix.haarch }}
           image-tags: |
-            ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
-            ${{ steps.branch.outputs.name }}-latest
-          version: ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
+            ${{ steps.branch.outputs.name }}-dev-${{ steps.branch.outputs.short-sha }}
+            ${{ steps.branch.outputs.name }}-dev-latest
+          version: ${{ steps.branch.outputs.name }}-dev-${{ steps.branch.outputs.short-sha }}
           use-goreleaser: 'false'
           github-token: ${{ secrets.GITHUB_TOKEN }}
