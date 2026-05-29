@@ -52,4 +52,5 @@ jobs:
             ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
             ${{ steps.branch.outputs.name }}-latest
           version: ${{ steps.branch.outputs.name }}-${{ steps.branch.outputs.short-sha }}
+          use-goreleaser: 'false'
           github-token: ${{ secrets.GITHUB_TOKEN }}
