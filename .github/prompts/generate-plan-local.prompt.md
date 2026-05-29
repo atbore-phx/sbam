@@ -11,12 +11,14 @@ You are generating an implementation plan for the **sbam** project (Smart Batter
 /generate-plan-local <feature-name>
 ```
 
-Where `<feature-name>` is a short kebab-case slug. The canonical local slug format is `<NN>-local-<slug>` where `<NN>` is a zero-padded ordinal (examples: `01-local-init`, `02-local-prometheus-metrics`).
+Where `<feature-name>` is a short kebab-case slug. The canonical local slug format is either:
+- `local-<slug>` — when there is no associated GitHub issue (e.g. `local-init`, `local-cache-forecast`)
+- `<NN>-local-<slug>` — when the feature maps to a GitHub issue #NN (e.g. `03-local-init`)
 
-- If the user supplies a plain slug (e.g. `init` or `cache-forecast`), the agent will prefix it with the next free zero-padded ordinal and the literal `local` to produce the canonical form (e.g. `03-local-cache-forecast`).
-- If the user supplies a full canonical slug already, it must match `^\d{2}-local-[a-z0-9-]+$`.
+- If the user supplies a plain slug (e.g. `init` or `cache-forecast`), the agent will prefix it with `local-` to produce the canonical form (e.g. `local-cache-forecast`). Only prefix with a numeric ordinal when the feature is tied to a GitHub issue number.
+- If the user supplies a full canonical slug already, it must match `^(local|\d{2})-local-[a-z0-9-]+$`.
 
-If the user did not pass a feature name, **ask for one** before doing anything else and generate the canonical slug from the provided title. Validate input: accept either a plain slug matching `^[a-z0-9][a-z0-9-]*$` or a canonical local slug matching `^\d{2}-local-[a-z0-9-]+$`. Do not proceed until you have a valid name.
+If the user did not pass a feature name, **ask for one** before doing anything else and generate the canonical slug from the provided title. Validate input: accept either a plain slug matching `^[a-z0-9][a-z0-9-]*$` or a canonical local slug matching `^(local|\d{2})-local-[a-z0-9-]+$`. Do not proceed until you have a valid name.
 
 ## Conventions
 

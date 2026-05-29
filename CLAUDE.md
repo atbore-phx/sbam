@@ -59,8 +59,10 @@ The application must be:
     feature_request.yml       - GitHub issue form for feature requests
     config.yml                - Issue template chooser policy (blank issues disabled)
   dependabot.yml              - Dependabot updates for Go modules, GitHub Actions, and Dockerfiles
-  prompts/                    - Workflow prompts (generate-plan-*, implement-plan) — single source of truth for both Copilot and Claude Code
+  prompts/                    - Workflow prompts (generate-plan-*, implement-plan, create-pr) — single source of truth for both Copilot and Claude Code
   workflows/                  - CI/CD workflow definitions
+  actions/
+    build-ha-addon/           - Composite action: build Go binary + HA add-on Docker image
 
 docs/
   prereq.md                   - Prerequisites required to run sbam
@@ -207,6 +209,7 @@ some prompts are available in `.github/prompts/` for reference and iteration. Th
 - `/generate-plan-local <feature-name>` — interactive authoring of TASK + PLAN from scratch (or refinement of an existing TASK)
 - `/generate-plan-from-issue <issue-ref>` — same as above but seeded from a GitHub issue
 - `/implement-plan <feature-name>` — executes the PLAN, runs validation gates, and updates documentation surfaces
+- `/create-pr [base-branch] [--ready] [--label <labels>]` — commits all changed files and opens a pull request
 
 ### Workflow
 

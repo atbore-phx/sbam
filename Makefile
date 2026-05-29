@@ -21,7 +21,7 @@ endif
 
 DATE=$(shell date)
 
-.PHONY: build test test-build fmt tidy vet
+.PHONY: build build-amd64 build-arm64 test test-build all fmt tidy vet
 
 fmt:
 	go fmt ./...
@@ -35,10 +35,22 @@ vet:
 test:
 	go test -cover -race ./...
 
+LDFLAGS=-ldflags="-X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.date=$(DATE)'"
+
 build:
 	rm -rf bin
 	mkdir -p bin
-	CGO_ENABLED=0 go build -ldflags="-X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.date=$(DATE)'" -o bin/sbam
+	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/sbam
+
+build-amd64:
+	rm -rf bin
+	mkdir -p bin
+	GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o bin/sbam
+
+build-arm64:
+	rm -rf bin
+	mkdir -p bin
+	GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o bin/sbam
 
 test-build: test build
 
