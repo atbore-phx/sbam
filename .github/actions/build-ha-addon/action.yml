@@ -66,3 +66,5 @@ runs:
         cosign: "false"
         container-registry-password: ${{ inputs.github-token }}
         push: "true"
+        build-args: |
+          BUILD_FROM=ghcr.io/home-assistant/${{ inputs.haarch }}-base:latest
