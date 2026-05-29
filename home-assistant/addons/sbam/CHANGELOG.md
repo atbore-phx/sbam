@@ -1,3 +1,9 @@
+## Unreleased
+
+### Crontab default validation fix
+
+The Home Assistant add-on configuration schema now accepts `0 0 0 0 0` as a valid crontab value, allowing users to disable scheduled execution through the HA UI. Previously the regex validation rejected this value even though the Go application has always treated it as the disabled sentinel.
+
 ## What's New in v2.0.2
 
 ### Battery Reset at End of Charge Window
