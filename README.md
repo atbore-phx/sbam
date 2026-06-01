@@ -179,10 +179,22 @@ Equal start/end values remain invalid.
 Crontab syntax is supported to repeat programmatically the execution of the `schedule` command. By default, it is set to `0 0 0 0 0` which means that the command will be executed once at startup without any repetition or action waiting for mqtt commands (if mqtt is enabled).\
 For eg. to run it every hour, set it to `0 * * * *`. For more information on crontab syntax, see [crontab.guru](https://crontab.guru/).
 
-Forecast selection currently uses a fixed noon threshold: before 12:00 local
-time, `schedule` evaluates the forecast for the current day; from 12:00 local
-time onward, it evaluates the forecast for the next day. This behavior 
-is independent from whether the charging window spans midnight.
+Forecast and consumption windows are controlled by two new options:
+
+- `--forecast_horizon` / `FORECAST_HORIZON` / `forecast_horizon` — selects which
+  forecast window to use (default: `default`):
+  - `default` — current behavior: today before 12:00, tomorrow from 12:00 onward.
+  - `next_solar_day` — same as `default`; targets the upcoming solar day.
+  - `remaining_today` — only forecast intervals from now through end of local day.
+  - `today` — full local calendar day.
+  - `tomorrow` — full next local calendar day.
+  - `off` — skip forecast retrieval entirely; only reserve charging is active.
+
+- `--consumption_horizon` / `CONSUMPTION_HORIZON` / `consumption_horizon` — selects
+  how the daily consumption value is applied (default: `full_day`):
+  - `full_day` — use `pw_consumption` as-is (current behavior).
+  - `remaining_today` — scale `pw_consumption` proportionally to the fraction of
+    the local day remaining.
 
 #### Debug Logs
 

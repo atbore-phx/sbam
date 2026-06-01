@@ -15,7 +15,7 @@ func New() *Power {
 	return &Power{}
 }
 
-func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cache_file_prefix string, cache_time int32) (float64, bool, error) {
+func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon ForecastHorizon, now time.Time) (float64, bool, error) {
 	production := 0.0
 	urlList := strings.Split(urls, ",")
 	for i := range urlList {
@@ -27,7 +27,12 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 		return production, false, err
 	}
 
-	day := CheckSun(time.Now())
+	day, after, skip := ResolveForecastDay(forecastHorizon, now)
+	if skip {
+		u.Log.Infof("Forecast horizon %q: skipping forecast retrieval", forecastHorizon)
+		return production, false, nil
+	}
+
 	for pvn, url := range urlList {
 		u.Log.Infof("Index %d URL %s", pvn, url)
 		if !cache_forecast {
@@ -44,7 +49,7 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 		}
 		u.Log.Infof("Starting Calculate PV production for solar System %d", pvn)
 
-		dailyProduction, err := GetTotalDayPowerEstimate(forecasts, day)
+		dailyProduction, err := GetDayPowerEstimate(forecasts, day, after)
 		if err != nil {
 			u.Log.Errorln("Error getting total power estimate for", url, ":", err)
 			return production, false, err

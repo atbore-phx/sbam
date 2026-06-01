@@ -174,10 +174,10 @@ func TestHandler(t *testing.T) {
 	defer ts.Close()
 
 	// Create a new Power object
-	power := power.New()
+	p := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	production, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
+	production, _, err := p.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200, power.ForecastHorizonDefault, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 250000.0, production)
 }
@@ -217,10 +217,10 @@ func TestHandlerCache(t *testing.T) {
 	defer ts.Close()
 
 	// Create a new Power object
-	power := power.New()
+	p := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	production, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, true, "gotest_cached_forecast.json", 7200)
+	production, _, err := p.Handler("apiKey", ts.URL+", "+ts.URL, true, "gotest_cached_forecast.json", 7200, power.ForecastHorizonDefault, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 250000.0, production)
 }
@@ -245,10 +245,10 @@ func TestHandlerError(t *testing.T) {
 	ts.Close()
 
 	// Create a new Power object
-	power := power.New()
+	p := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, test_forecast_retrieved, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
+	_, test_forecast_retrieved, err := p.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200, power.ForecastHorizonDefault, time.Now())
 	assert.NoError(t, err)
 	assert.Equal(t, test_forecast_retrieved, false)
 }
@@ -288,10 +288,10 @@ func TestHandlerError2(t *testing.T) {
 	defer ts.Close()
 
 	// Create a new Power object
-	power := power.New()
+	p := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200)
+	_, _, err := p.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200, power.ForecastHorizonDefault, time.Now())
 	assert.Error(t, err)
 
 }
@@ -331,10 +331,10 @@ func TestHandlerError3(t *testing.T) {
 	defer ts.Close()
 
 	// Create a new Power object
-	power := power.New()
+	p := power.New()
 
 	// Call the Handler function with the mock HTTP server's URL
-	_, _, err := power.Handler("apiKey", ts.URL+", "+ts.URL+", ", false, "cached_forecast", 7200)
+	_, _, err := p.Handler("apiKey", ts.URL+", "+ts.URL+", ", false, "cached_forecast", 7200, power.ForecastHorizonDefault, time.Now())
 	assert.Error(t, err)
 }
 
@@ -449,4 +449,105 @@ func TestGetForecastChache_NoCacheFile(t *testing.T) {
 	// GetForecast will fail, so should return error
 	_, err := power.GetForecastChache("", "", filename, 3600)
 	assert.Error(t, err)
+}
+
+func TestGetDayPowerEstimate_AllPeriods(t *testing.T) {
+	forecasts := power.Forecasts{
+		Forecasts: []power.Forecast{
+			{PeriodEnd: "2023-06-29T00:00:00Z", PVEstimate: 100},
+			{PeriodEnd: "2023-06-29T00:30:00Z", PVEstimate: 150},
+			{PeriodEnd: "2023-06-30T00:00:00Z", PVEstimate: 200},
+		},
+	}
+
+	day, _ := time.Parse("2006-01-02", "2023-06-29")
+	day = day.In(time.UTC)
+	totalPower, err := power.GetDayPowerEstimate(forecasts, day, nil)
+	assert.NoError(t, err)
+	// (100 + 150) * 0.5 * 1000 = 125000
+	assert.Equal(t, 125000.0, totalPower)
+}
+
+func TestGetDayPowerEstimate_WithAfter(t *testing.T) {
+	forecasts := power.Forecasts{
+		Forecasts: []power.Forecast{
+			{PeriodEnd: "2023-06-29T00:00:00Z", PVEstimate: 100},
+			{PeriodEnd: "2023-06-29T00:30:00Z", PVEstimate: 150},
+			{PeriodEnd: "2023-06-29T01:00:00Z", PVEstimate: 200},
+		},
+	}
+
+	day, _ := time.Parse("2006-01-02", "2023-06-29")
+	day = day.In(time.UTC)
+	// Exclude the first period (00:00 UTC).
+	after := time.Date(2023, 6, 29, 0, 15, 0, 0, time.UTC)
+	totalPower, err := power.GetDayPowerEstimate(forecasts, day, &after)
+	assert.NoError(t, err)
+	// (150 + 200) * 0.5 * 1000 = 175000
+	assert.Equal(t, 175000.0, totalPower)
+}
+
+func TestGetDayPowerEstimate_AfterAtBoundary(t *testing.T) {
+	forecasts := power.Forecasts{
+		Forecasts: []power.Forecast{
+			{PeriodEnd: "2023-06-29T00:30:00Z", PVEstimate: 150},
+		},
+	}
+
+	day, _ := time.Parse("2006-01-02", "2023-06-29")
+	day = day.In(time.UTC)
+	// after exactly at period_end → excluded (must be strictly after).
+	after := time.Date(2023, 6, 29, 0, 30, 0, 0, time.UTC)
+	totalPower, err := power.GetDayPowerEstimate(forecasts, day, &after)
+	assert.NoError(t, err)
+	assert.Equal(t, 0.0, totalPower)
+}
+
+func TestGetDayPowerEstimate_InvalidPeriodEnd(t *testing.T) {
+	forecasts := power.Forecasts{
+		Forecasts: []power.Forecast{
+			{PeriodEnd: "InvalidTime", PVEstimate: 100},
+		},
+	}
+
+	day, _ := time.Parse("2006-01-02", "2023-06-29")
+	_, err := power.GetDayPowerEstimate(forecasts, day, nil)
+	assert.Error(t, err)
+}
+
+func TestHandler_ForecastOff(t *testing.T) {
+	// When forecast_horizon=off, Handler should return (0, false, nil)
+	// without making any HTTP request.
+	p := power.New()
+	production, retrieved, err := p.Handler("", "", false, "", 0, power.ForecastHorizonOff, time.Now())
+	assert.NoError(t, err)
+	assert.Equal(t, 0.0, production)
+	assert.False(t, retrieved)
+}
+
+func TestHandler_RemainingToday(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2023, 6, 29, 14, 0, 0, 0, loc)
+
+	// Mock server returns forecasts for the whole day.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"forecasts": [
+				{"period_end": "2023-06-29T10:00:00Z", "pv_estimate": 100},
+				{"period_end": "2023-06-29T10:30:00Z", "pv_estimate": 100},
+				{"period_end": "2023-06-29T15:00:00Z", "pv_estimate": 200},
+				{"period_end": "2023-06-29T15:30:00Z", "pv_estimate": 200}
+			]
+		}`)
+	}))
+	defer ts.Close()
+
+	p := power.New()
+	// remaining_today with now=14:00 UTC should only include periods after 14:00.
+	production, retrieved, err := p.Handler("apiKey", ts.URL, false, "", 0, power.ForecastHorizonRemainingToday, now)
+	assert.NoError(t, err)
+	assert.True(t, retrieved)
+	// Only 15:00 and 15:30 periods: (200 + 200) * 0.5 * 1000 = 200000
+	assert.Equal(t, 200000.0, production)
 }

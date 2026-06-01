@@ -6,6 +6,7 @@ import (
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -74,7 +75,7 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 
 func estimate(apiKey string, url string, fronius_ip string, cache_forecast bool, cache_file_prefix string, cache_time int32) {
 	pwr := pw.New()
-	_, _, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
+	_, _, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time, pw.ForecastHorizonDefault, time.Now())
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)

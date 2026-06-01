@@ -36,7 +36,9 @@
     "mqtt_password": "",
     "mqtt_topic_prefix": "sbam",
     "mqtt_ha_discovery": true,
-    "mqtt_ha_discovery_prefix": "homeassistant"
+    "mqtt_ha_discovery_prefix": "homeassistant",
+    "forecast_horizon": "default",
+    "consumption_horizon": "full_day"
   },
   "schema": {
     "url": "str",
@@ -66,6 +68,8 @@
     "mqtt_password": "password?",
     "mqtt_topic_prefix": "str",
     "mqtt_ha_discovery": "bool",
-    "mqtt_ha_discovery_prefix": "str"
+    "mqtt_ha_discovery_prefix": "str",
+    "forecast_horizon": "list(default|next_solar_day|remaining_today|today|tomorrow|off)",
+    "consumption_horizon": "list(full_day|remaining_today)"
   }
 }

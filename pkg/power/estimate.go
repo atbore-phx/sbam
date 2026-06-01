@@ -130,31 +130,49 @@ func ReadForecastCache(cache_file_name string) (Forecasts, bool, error) {
 	return cachedForecasts, true, nil
 }
 
+// GetTotalDayPowerEstimate sums PV estimates from forecasts for the
+// calendar day day. It delegates to GetDayPowerEstimate without an
+// after-filter.
 func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, error) {
+	return GetDayPowerEstimate(forecasts, day, nil)
+}
+
+// GetDayPowerEstimate sums PV estimates from forecasts for the calendar
+// day day. When after is non-nil only periods with period_end strictly
+// after that point (in the local timezone of day) are included.
+//
+// period_end values are parsed as RFC 3339 and converted to the local
+// timezone of day before comparison, so day boundaries are evaluated in
+// local time regardless of the original UTC offset.
+func GetDayPowerEstimate(forecasts Forecasts, day time.Time, after *time.Time) (float64, error) {
 	totalPower := 0.0
+	loc := day.Location()
 	for _, forecast := range forecasts.Forecasts {
 		periodEnd, err := time.Parse(time.RFC3339, forecast.PeriodEnd)
 		if err != nil {
 			u.Log.Errorln("Error parsing time:", err)
 			return totalPower, err
 		}
-		if periodEnd.Year() == day.Year() && periodEnd.YearDay() == day.YearDay() {
+		// Convert to local time so day-of-year comparisons are
+		// consistent with the caller-supplied day.
+		periodEndLocal := periodEnd.In(loc)
+		if periodEndLocal.Year() == day.Year() && periodEndLocal.YearDay() == day.YearDay() {
+			if after != nil && !periodEndLocal.After(*after) {
+				continue
+			}
 			totalPower += forecast.PVEstimate * 0.5 // Multiply by 0.5 because data is obtained every 30min
 		}
 	}
 
-	// The calculated totalPower is in Wh
+	// The calculated totalPower is in kWh
 	totalPower = totalPower * 1000
 	u.Log.Infof("Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(totalPower))
 	return totalPower, nil
 }
 
+// CheckSun returns today if now is before 12:00 local time, otherwise
+// returns tomorrow. It delegates to the internal checkSun helper used by
+// ResolveForecastDay.
 func CheckSun(now time.Time) time.Time {
-
-	switch time := now; {
-	case time.Hour() < 12:
-		return now
-	default:
-		return now.AddDate(0, 0, 1)
-	}
+	return checkSun(now)
 }
