@@ -124,6 +124,7 @@ Flags:
   -f, --cache_file_prefix string   CACHE_FILE_NAME (default 'cached_forecast') (default "cached_forecast")
   -n, --cache_forecast             CACHE_FORECAST (default false)
   -l, --cache_time int32           CACHE_TIME (default 7200) (default 7200)
+      --forecast_horizon string    Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off) (default "default")
   -H, --fronius_ip string          set FRONIUS_IP
   -h, --help                       help for estimate
   -u, --url string                 Set the forecast URL. For multiple URLs, use a comma (,) to separate them
@@ -145,8 +146,10 @@ Flags:
   -n, --cache_forecast                    CACHE_FORECAST (default false)
   -l, --cache_time int32                  CACHE_TIME (default 7200) (default 7200)
   -t, --crontab string                    CRONTAB (default "0 0 0 0 0")
+      --consumption_horizon string        Consumption horizon mode (full_day, remaining_today) (default "full_day")
   -d, --defaults                          DEFAULTS (default true)
   -e, --end_hr string                     END_HR (default "00:55")
+      --forecast_horizon string           Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off) (default "default")
   -H, --fronius_ip string                 FRONIUS_IP
   -h, --help                              help for schedule
   -m, --max_charge float                  MAX_CHARGE (default 3500)
