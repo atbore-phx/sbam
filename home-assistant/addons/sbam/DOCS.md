@@ -84,7 +84,13 @@ Before starting, open the Configuration tab and set options as needed.
 - **cache_forecast**: Enable forecast caching (default false).
 - **cache_file_prefix**: Forecast cache file prefix (default cached_forecast).
 - **cache_time**: Forecast cache TTL in seconds (default 7200).
-- **forecast_horizon**: Forecast window selection mode (default `default`). Options: `default` (today before 12:00, tomorrow after), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off` (skip forecast, reserve-only charging).
+- **forecast_horizon**: Forecast window selection mode (default `default`).
+  - `default` — current behavior: forecast for today before 12:00, for tomorrow after 12:00.
+  - `next_solar_day` — same as `default`; targets the upcoming useful solar day, appropriate for night charging.
+  - `remaining_today` — forecast only the intervals from now through end of the local day.
+  - `today` — forecast the full local calendar day.
+  - `tomorrow` — forecast the full next local calendar day.
+  - `off` — skip forecast retrieval entirely; only reserve charging is active (no Solcast API calls).
 - **consumption_horizon**: Daily consumption model (default `full_day`). Options: `full_day` (use `pw_consumption` as-is), `remaining_today` (scale proportionally to time remaining in the local day).
 - **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
 - **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
