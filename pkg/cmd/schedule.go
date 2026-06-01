@@ -73,7 +73,7 @@ var newStorage = func() storageClient {
 }
 
 type powerClient interface {
-	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon pw.ForecastHorizon, now time.Time) (float64, bool, error)
+	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error)
 }
 
 var newPower = func() powerClient {

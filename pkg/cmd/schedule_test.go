@@ -11,7 +11,6 @@ import (
 
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
-	pw "sbam/pkg/power"
 	u "sbam/src/utils"
 
 	"github.com/stretchr/testify/assert"
@@ -275,7 +274,7 @@ type fakePowerClient struct {
 	calls      int
 }
 
-func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon pw.ForecastHorizon, now time.Time) (float64, bool, error) {
+func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error) {
 	_ = apiKey
 	_ = url
 	_ = cache_forecast

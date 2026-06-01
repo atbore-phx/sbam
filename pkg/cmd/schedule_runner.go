@@ -209,20 +209,19 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
-	fh := pw.ForecastHorizon(r.cfg.ForecastHorizon)
-	ch := pw.ConsumptionHorizon(r.cfg.ConsumptionHorizon)
-	effectiveConsumption := pw.ResolveConsumption(ch, r.cfg.PWConsumption, now)
+	effectiveConsumption := pw.ResolveConsumption(
+		r.cfg.ConsumptionHorizon, r.cfg.PWConsumption, now)
 
 	var solarPowerProduction float64
 	var forecastRetrieved bool
 	var forecastErr error
 
-	if fh != pw.ForecastHorizonOff {
+	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
 		powerHandler := newPower()
 		solarPowerProduction, forecastRetrieved, forecastErr = powerHandler.Handler(
 			r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast,
 			r.cfg.CacheFilePrefix, r.cfg.CacheTime,
-			fh, now,
+			r.cfg.ForecastHorizon, now,
 		)
 		if forecastErr != nil {
 			u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")

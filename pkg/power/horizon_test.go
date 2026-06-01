@@ -14,7 +14,7 @@ func TestValidateForecastHorizon_Valid(t *testing.T) {
 		t.Run(s, func(t *testing.T) {
 			h, err := power.ValidateForecastHorizon(s)
 			assert.NoError(t, err)
-			assert.Equal(t, power.ForecastHorizon(s), h)
+			assert.Equal(t, s, h)
 		})
 	}
 }
@@ -31,7 +31,7 @@ func TestValidateConsumptionHorizon_Valid(t *testing.T) {
 		t.Run(s, func(t *testing.T) {
 			h, err := power.ValidateConsumptionHorizon(s)
 			assert.NoError(t, err)
-			assert.Equal(t, power.ConsumptionHorizon(s), h)
+			assert.Equal(t, s, h)
 		})
 	}
 }

@@ -15,7 +15,7 @@ func New() *Power {
 	return &Power{}
 }
 
-func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon ForecastHorizon, now time.Time) (float64, bool, error) {
+func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error) {
 	production := 0.0
 	urlList := strings.Split(urls, ",")
 	for i := range urlList {

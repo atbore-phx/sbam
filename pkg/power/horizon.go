@@ -5,65 +5,58 @@ import (
 	"time"
 )
 
-// ForecastHorizon selects which forecast window is used for solar
-// production estimation.
-type ForecastHorizon string
-
+// Forecast horizon mode constants.
 const (
-	ForecastHorizonDefault        ForecastHorizon = "default"
-	ForecastHorizonNextSolarDay   ForecastHorizon = "next_solar_day"
-	ForecastHorizonRemainingToday ForecastHorizon = "remaining_today"
-	ForecastHorizonToday          ForecastHorizon = "today"
-	ForecastHorizonTomorrow       ForecastHorizon = "tomorrow"
-	ForecastHorizonOff            ForecastHorizon = "off"
+	ForecastHorizonDefault        = "default"
+	ForecastHorizonNextSolarDay   = "next_solar_day"
+	ForecastHorizonRemainingToday = "remaining_today"
+	ForecastHorizonToday          = "today"
+	ForecastHorizonTomorrow       = "tomorrow"
+	ForecastHorizonOff            = "off"
 )
 
-// ValidateForecastHorizon returns a ForecastHorizon parsed from s, or an
-// error when s does not name a known mode.
-func ValidateForecastHorizon(s string) (ForecastHorizon, error) {
-	h := ForecastHorizon(s)
-	switch h {
+// ValidateForecastHorizon returns s if it names a known forecast horizon
+// mode, or an error otherwise.
+func ValidateForecastHorizon(s string) (string, error) {
+	switch s {
 	case ForecastHorizonDefault,
 		ForecastHorizonNextSolarDay,
 		ForecastHorizonRemainingToday,
 		ForecastHorizonToday,
 		ForecastHorizonTomorrow,
 		ForecastHorizonOff:
-		return h, nil
+		return s, nil
 	default:
 		return "", fmt.Errorf("unknown forecast_horizon %q: must be one of default, next_solar_day, remaining_today, today, tomorrow, off", s)
 	}
 }
 
-// ConsumptionHorizon selects how the daily consumption value is applied.
-type ConsumptionHorizon string
-
+// Consumption horizon mode constants.
 const (
-	ConsumptionHorizonFullDay        ConsumptionHorizon = "full_day"
-	ConsumptionHorizonRemainingToday ConsumptionHorizon = "remaining_today"
+	ConsumptionHorizonFullDay        = "full_day"
+	ConsumptionHorizonRemainingToday = "remaining_today"
 )
 
-// ValidateConsumptionHorizon returns a ConsumptionHorizon parsed from s, or
-// an error when s does not name a known mode.
-func ValidateConsumptionHorizon(s string) (ConsumptionHorizon, error) {
-	h := ConsumptionHorizon(s)
-	switch h {
+// ValidateConsumptionHorizon returns s if it names a known consumption
+// horizon mode, or an error otherwise.
+func ValidateConsumptionHorizon(s string) (string, error) {
+	switch s {
 	case ConsumptionHorizonFullDay,
 		ConsumptionHorizonRemainingToday:
-		return h, nil
+		return s, nil
 	default:
 		return "", fmt.Errorf("unknown consumption_horizon %q: must be one of full_day, remaining_today", s)
 	}
 }
 
-// ResolveForecastDay maps a ForecastHorizon and the current time to the
-// calendar day whose Solcast intervals should be summed, an optional
+// ResolveForecastDay maps a forecast horizon mode and the current time to
+// the calendar day whose Solcast intervals should be summed, an optional
 // "after" filter that excludes periods ending at or before that point
 // (used by remaining_today), and a skip flag that signals the caller to
 // bypass forecast retrieval entirely.
 //
 // The returned day is in the local timezone of now.
-func ResolveForecastDay(h ForecastHorizon, now time.Time) (day time.Time, after *time.Time, skip bool) {
+func ResolveForecastDay(h string, now time.Time) (day time.Time, after *time.Time, skip bool) {
 	switch h {
 	case ForecastHorizonDefault, ForecastHorizonNextSolarDay:
 		day = checkSun(now)
@@ -102,13 +95,13 @@ func checkSun(now time.Time) time.Time {
 }
 
 // ResolveConsumption computes the effective daily consumption value from
-// the static pwConsumption and the chosen ConsumptionHorizon at the given
-// time now (local timezone).
+// the static pwConsumption and the chosen consumption horizon mode at the
+// given time now (local timezone).
 //
 //   - full_day returns pwConsumption unchanged.
 //   - remaining_today returns pwConsumption scaled by the fraction of the
 //     local day that remains (seconds remaining / 86400).
-func ResolveConsumption(h ConsumptionHorizon, pwConsumption float64, now time.Time) float64 {
+func ResolveConsumption(h string, pwConsumption float64, now time.Time) float64 {
 	switch h {
 	case ConsumptionHorizonFullDay:
 		return pwConsumption
