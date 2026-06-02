@@ -73,6 +73,19 @@ func TestClassifyDecision(t *testing.T) {
 			expectedDecision:         fronius.DecisionIdle,
 			expectedReason:           fronius.ReasonIdle,
 		},
+		{
+			name:                     "idle with forecast-disabled reason when forecast is off and net power is negative",
+			pwBatt2charge:            2000,
+			pwForecast:               100,
+			pwConsumption:            5000,
+			pwBattMax:                5000,
+			pwBattReserve:            1000,
+			pwLwt:                    100,
+			forecastChargeEnabled:    false,
+			battReserveChargeEnabled: false,
+			expectedDecision:         fronius.DecisionIdle,
+			expectedReason:           fronius.ReasonForecastDisabled,
+		},
 	}
 
 	for _, tc := range cases {
@@ -89,18 +102,6 @@ func TestClassifyDecision(t *testing.T) {
 			assert.Equal(t, tc.expectedReason, gotReason)
 		})
 	}
-
-	t.Run("returns skip and error for unexpected power state", func(t *testing.T) {
-		decision, reason, _, err := fronius.ClassifyDecision(
-			2000, 100, 5000, 5000,
-			1000, 100,
-			false, false,
-		)
-
-		assert.Error(t, err)
-		assert.Equal(t, fronius.DecisionSkip, decision)
-		assert.Contains(t, reason, "unexpected power state")
-	})
 
 	t.Run("returns power state snapshot", func(t *testing.T) {
 		// updated signature adds an error return; ensure it's nil

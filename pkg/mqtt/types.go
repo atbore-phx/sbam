@@ -28,6 +28,8 @@ type StatePayload struct {
 	ChargePct           *int16     `json:"charge_pct"`
 	LastDecision        string     `json:"last_decision"`
 	LastDecisionReason  string     `json:"last_decision_reason"`
+	ForecastHorizon     string     `json:"forecast_horizon"`
+	ConsumptionHorizon  string     `json:"consumption_horizon"`
 	ChargeWindowActive  *bool      `json:"charge_window_active"`
 	ReserveWindowActive *bool      `json:"batt_reserve_window_active"`
 	Paused              bool       `json:"paused"`

@@ -110,6 +110,8 @@ pkg/
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
+    horizon.go                - Forecast and consumption horizon types, validation, resolution
+    horizon_test.go           - Unit tests for horizon resolution
     estimate.go               - Forecast retrieval, caching, power calculations
     power_test.go             - HTTP mock tests for Solcast API
   storage/

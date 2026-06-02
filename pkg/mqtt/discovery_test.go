@@ -175,6 +175,8 @@ func TestBuildDiscoveryTemplatesAndPublish(t *testing.T) {
 		"charge_pct",
 		"last_decision",
 		"last_decision_reason",
+		"forecast_horizon",
+		"consumption_horizon",
 		"next_run",
 		"paused",
 		"ts",
