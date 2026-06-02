@@ -161,10 +161,3 @@ func GetDayPowerEstimate(forecasts Forecasts, day time.Time, after *time.Time) (
 	u.Log.Infof("Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(totalPower))
 	return totalPower, nil
 }
-
-// CheckSun returns today if now is before 12:00 local time, otherwise
-// returns tomorrow. It delegates to the internal checkSun helper used by
-// ResolveForecastDay.
-func CheckSun(now time.Time) time.Time {
-	return checkSun(now)
-}

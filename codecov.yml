@@ -1,3 +1,9 @@
 ignore:
   - "src"
   - "pkg/cmd"
+
+coverage:
+  status:
+    patch:
+      default:
+        target: 80%
