@@ -98,7 +98,7 @@ func TestGetForecastError3(t *testing.T) {
 	assert.Contains(t, err.Error(), "|")
 }
 
-func TestGetTotalDayPowerEstimate(t *testing.T) {
+func TestGetDayPowerEstimate_LegacyWrapper(t *testing.T) {
 	forecasts := power.Forecasts{
 		Forecasts: []power.Forecast{
 			{
@@ -117,12 +117,12 @@ func TestGetTotalDayPowerEstimate(t *testing.T) {
 	}
 
 	day, _ := time.Parse("2006-01-02", "2023-06-29")
-	totalPower, err := power.GetTotalDayPowerEstimate(forecasts, day)
+	totalPower, err := power.GetDayPowerEstimate(forecasts, day, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 125000.0, totalPower)
 }
 
-func TestErrorGetTotalDayPowerEstimate(t *testing.T) {
+func TestErrorGetDayPowerEstimate(t *testing.T) {
 	forecasts := power.Forecasts{
 		Forecasts: []power.Forecast{
 			{
@@ -133,7 +133,7 @@ func TestErrorGetTotalDayPowerEstimate(t *testing.T) {
 	}
 
 	day, _ := time.Parse("2006-01-02", "2023-06-29")
-	_, err := power.GetTotalDayPowerEstimate(forecasts, day)
+	_, err := power.GetDayPowerEstimate(forecasts, day, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing time \"InvalidTime\"")
 

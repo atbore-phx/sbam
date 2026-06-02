@@ -322,13 +322,12 @@ func TestBatteryChargeModeClassifierErrorSkipsDefaultsWhenNotCharging(t *testing
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.NoError(err)
 
-	// Defaults should NOT have been written (StorCtl_Mod was 0); verify OutWRte
-	// is still the mock-server zero-initialised value, not the default 10000.
+	// Classifier returns idle (forecast disabled); ForceCharge(0) writes defaults.
 	err = fronius.OpenModbusClient("tcp", modbus_ip, modbus_port)
 	assert.NoError(err, "OpenModbusClient returned an error")
 	outWRte, readErr := fronius.ReadFroniusModbusRegister(fronius.OutWRte)
 	assert.NoError(readErr, "ReadFroniusModbusRegister returned an error")
-	assert.Equal(int16(0), outWRte, "OutWRte should still be 0 (defaults were skipped)")
+	assert.Equal(int16(10000), outWRte, "OutWRte should be 10000 (defaults were restored)")
 	err = fronius.ClosemodbusClient()
 	assert.NoError(err, "ClosemodbusClient returned an error")
 

@@ -130,13 +130,6 @@ func ReadForecastCache(cache_file_name string) (Forecasts, bool, error) {
 	return cachedForecasts, true, nil
 }
 
-// GetTotalDayPowerEstimate sums PV estimates from forecasts for the
-// calendar day day. It delegates to GetDayPowerEstimate without an
-// after-filter.
-func GetTotalDayPowerEstimate(forecasts Forecasts, day time.Time) (float64, error) {
-	return GetDayPowerEstimate(forecasts, day, nil)
-}
-
 // GetDayPowerEstimate sums PV estimates from forecasts for the calendar
 // day day. When after is non-nil only periods with period_end strictly
 // after that point (in the local timezone of day) are included.
@@ -164,8 +157,7 @@ func GetDayPowerEstimate(forecasts Forecasts, day time.Time, after *time.Time) (
 		}
 	}
 
-	// The calculated totalPower is in kWh
-	totalPower = totalPower * 1000
+	totalPower = totalPower * 1000 // The calculated totalPower is in Wh
 	u.Log.Infof("Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(totalPower))
 	return totalPower, nil
 }

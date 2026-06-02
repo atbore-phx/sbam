@@ -22,8 +22,9 @@ const (
 	ReasonBatteryFull    Reason = "Battery is full charged"
 	ReasonForecastCharge Reason = "Net Power (actual battery power + Net solar power) is not enough"
 	ReasonReserveCharge  Reason = "Battery charge is below reserve threshold"
-	ReasonIdle           Reason = "Net Power (actual battery power + Net solar power) is enough"
-	ReasonSkip           Reason = "unexpected power state"
+	ReasonIdle              Reason = "Net Power (actual battery power + Net solar power) is enough"
+	ReasonForecastDisabled  Reason = "Forecast-based charging is disabled (forecast_horizon=off or forecast retrieval failed)"
+	ReasonSkip              Reason = "unexpected power state"
 )
 
 func (r Reason) String() string {
@@ -64,6 +65,8 @@ func ClassifyDecision(
 		return DecisionReserveCharge, ReasonReserveCharge, pw, nil
 	case pw.Net >= -1*pwLwt:
 		return DecisionIdle, ReasonIdle, pw, nil
+	case !forecastChargeEnabled:
+		return DecisionIdle, ReasonForecastDisabled, pw, nil
 	default:
 		return DecisionSkip, ReasonSkip, pw, fmt.Errorf("unexpected power state: %+v", pw)
 	}
