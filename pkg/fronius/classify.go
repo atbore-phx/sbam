@@ -19,12 +19,12 @@ func (d Decision) String() string {
 type Reason string
 
 const (
-	ReasonBatteryFull    Reason = "Battery is full charged"
-	ReasonForecastCharge Reason = "Net Power (actual battery power + Net solar power) is not enough"
-	ReasonReserveCharge  Reason = "Battery charge is below reserve threshold"
-	ReasonIdle              Reason = "Net Power (actual battery power + Net solar power) is enough"
-	ReasonForecastDisabled  Reason = "Forecast-based charging is disabled (forecast_horizon=off or forecast retrieval failed)"
-	ReasonSkip              Reason = "unexpected power state"
+	ReasonBatteryFull      Reason = "Battery is full charged"
+	ReasonForecastCharge   Reason = "Net Power (actual battery power + Net solar power) is not enough"
+	ReasonReserveCharge    Reason = "Battery charge is below reserve threshold"
+	ReasonIdle             Reason = "Net Power (actual battery power + Net solar power) is enough"
+	ReasonForecastDisabled Reason = "Forecast-based charging is disabled (forecast_horizon=off or forecast retrieval failed)"
+	ReasonSkip             Reason = "unexpected power state"
 )
 
 func (r Reason) String() string {
