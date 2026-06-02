@@ -1,10 +1,10 @@
 package storage
 
-type Storage struct{}
+type storage struct{}
 
-type Batteries struct {
+type batteries struct {
 	Body struct {
-		Data map[string]Battery `json:"Data"`
+		Data map[string]battery `json:"Data"`
 	} `json:"Body"`
 	Head struct {
 		RequestArguments struct {
@@ -19,12 +19,12 @@ type Batteries struct {
 	} `json:"Head"`
 }
 
-type Battery struct {
-	Controller Controller    `json:"Controller"`
+type battery struct {
+	Controller controller    `json:"Controller"`
 	Modules    []interface{} `json:"Modules"`
 }
 
-type Controller struct {
+type controller struct {
 	CapacityMaximum  float64 `json:"Capacity_Maximum"`
 	CurrentDC        float64 `json:"Current_DC"`
 	DesignedCapacity float64 `json:"DesignedCapacity"`

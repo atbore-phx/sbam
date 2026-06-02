@@ -9,7 +9,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 	}
 	var ch_pc int16 = 0
 
-	decision, reason, pw, cerr := ClassifyDecision(
+	decision, reason, pw, cerr := classifyDecision(
 		pw_batt2charge, pw_forecast, pw_consumption, pw_batt_max,
 		pw_batt_reserve, pw_lwt,
 		forecast_charge_enabled, batt_reserve_charge_enabled,
@@ -25,25 +25,25 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 			u.Log.Info("Inverter is not force-charging (StorCtl_Mod=0), skipping defaults write")
 			return 0, decision, reason, pw, nil
 		}
-		err = ForceCharge(fronius_ip, 0, p)
-		if err != nil {
-			u.Log.Errorf("Error setting defaults after classifier error: %s", err)
-			return 0, decision, reason, pw, err
+		modbusErr = ForceCharge(fronius_ip, 0, p)
+		if modbusErr != nil {
+			u.Log.Errorf("Error setting defaults after classifier error: %s", modbusErr)
+			return 0, decision, reason, pw, modbusErr
 		}
 		return 0, decision, reason, pw, nil
 	}
 
 	switch decision {
-	case DecisionForecastCharge:
+	case decisionForecastCharge:
 		ch_pc = SetChargePower(pw_batt_max, -1*pw.Net+pw_upt, max_charge)
-	case DecisionReserveCharge:
+	case decisionReserveCharge:
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
 	}
 
-	err = ForceCharge(fronius_ip, ch_pc, p)
-	if err != nil {
-		u.Log.Errorln("Error forcing charge: %s ", err)
-		return ch_pc, decision, reason, pw, err
+	modbusErr = ForceCharge(fronius_ip, ch_pc, p)
+	if modbusErr != nil {
+		u.Log.Errorln("Error forcing charge: %s ", modbusErr)
+		return ch_pc, decision, reason, pw, modbusErr
 	}
 
 	return ch_pc, decision, reason, pw, nil
