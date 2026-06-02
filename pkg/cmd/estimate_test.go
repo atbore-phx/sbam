@@ -125,7 +125,7 @@ func TestCheckEstimate(t *testing.T) {
 
 func TestEstimate_PanicsWhenPowerHandlerReturnsError(t *testing.T) {
 	assert.Panics(t, func() {
-		estimate("api-key", "https://a.test,https://b.test,https://c.test", "127.0.0.1", false, "", 0)
+		estimate("api-key", "https://a.test,https://b.test,https://c.test", "127.0.0.1", false, "", 0, "default")
 	})
 }
 
@@ -133,7 +133,7 @@ func TestEstimate_PanicsWhenStorageHandlerReturnsError(t *testing.T) {
 	ts := newEstimateTestServer(t)
 
 	assert.Panics(t, func() {
-		estimate("api-key", ts.URL, "bad host", false, "", 0)
+		estimate("api-key", ts.URL, "bad host", false, "", 0, "default")
 	})
 }
 
@@ -142,6 +142,6 @@ func TestEstimate_SucceedsWithValidForecastAndStorage(t *testing.T) {
 	froniusIP := strings.TrimPrefix(ts.URL, "http://")
 
 	assert.NotPanics(t, func() {
-		estimate("api-key", ts.URL, froniusIP, false, "", 0)
+		estimate("api-key", ts.URL, froniusIP, false, "", 0, "default")
 	})
 }

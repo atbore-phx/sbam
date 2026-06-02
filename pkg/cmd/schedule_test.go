@@ -274,12 +274,14 @@ type fakePowerClient struct {
 	calls      int
 }
 
-func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32) (float64, bool, error) {
+func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error) {
 	_ = apiKey
 	_ = url
 	_ = cache_forecast
 	_ = cache_file_prefix
 	_ = cache_time
+	_ = forecastHorizon
+	_ = now
 	f.calls++
 	return f.forecastWh, f.retrieved, f.err
 }

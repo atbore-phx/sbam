@@ -22,7 +22,7 @@ import (
 var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr,
 	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
-	mqtt_topic_prefix, mqtt_ha_discovery_prefix string
+	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip bool
@@ -41,6 +41,8 @@ const (
 	const_mqtt_topic_prefix   = "sbam"
 	const_ha_discovery_prefix = "homeassistant"
 	const_mqtt_op_timeout     = 5 * time.Second
+	const_forecast_horizon    = "default"
+	const_consumption_horizon = "full_day"
 	scheduleClockLayout       = "15:04"
 )
 
@@ -71,7 +73,7 @@ var newStorage = func() storageClient {
 }
 
 type powerClient interface {
-	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32) (float64, bool, error)
+	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error)
 }
 
 var newPower = func() powerClient {
@@ -111,6 +113,8 @@ var scdCmd = &cobra.Command{
 		mqtt_topic_prefix = viper.GetString("mqtt_topic_prefix")
 		mqtt_ha_discovery = viper.GetBool("mqtt_ha_discovery")
 		mqtt_ha_discovery_prefix = viper.GetString("mqtt_ha_discovery_prefix")
+		forecast_horizon = viper.GetString("forecast_horizon")
+		consumption_horizon = viper.GetString("consumption_horizon")
 
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
 			batt_reserve_start_hr = viper.GetString("start_hr")
@@ -171,6 +175,8 @@ var scdCmd = &cobra.Command{
 			CacheFilePrefix:    s_cache_file_prefix,
 			CacheTime:          s_cache_time,
 			Defaults:           s_defaults,
+			ForecastHorizon:    forecast_horizon,
+			ConsumptionHorizon: consumption_horizon,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
 		}
@@ -248,6 +254,8 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_topic_prefix, "mqtt_topic_prefix", const_mqtt_topic_prefix, "MQTT topic prefix")
 	scdCmd.Flags().BoolVar(&mqtt_ha_discovery, "mqtt_ha_discovery", true, "Enable Home Assistant MQTT discovery")
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
+	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
+	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -401,6 +409,10 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 		return err
 	} else if (s_cache_time < 0) || (s_cache_time > 86400) {
 		err := errors.New("The cache_time must be between 0 and 86400 seconds")
+		return err
+	} else if _, err := pw.ValidateForecastHorizon(forecast_horizon); err != nil {
+		return err
+	} else if _, err := pw.ValidateConsumptionHorizon(consumption_horizon); err != nil {
 		return err
 	}
 

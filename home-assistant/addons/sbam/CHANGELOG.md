@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Configurable forecast and consumption horizons
+
+New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
+
+- `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
+- `consumption_horizon`: `full_day` (current behavior), `remaining_today`
+
+Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
+
 ### Crontab default validation fix
 
 The Home Assistant add-on configuration schema now accepts `0 0 0 0 0` as a valid crontab value, allowing users to disable scheduled execution through the HA UI. Previously the regex validation rejected this value even though the Go application has always treated it as the disabled sentinel.

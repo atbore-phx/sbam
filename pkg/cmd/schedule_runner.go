@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	pw "sbam/pkg/power"
 	u "sbam/src/utils"
 	"strings"
 	"sync/atomic"
@@ -43,6 +44,8 @@ type RunnerConfig struct {
 	CacheFilePrefix    string
 	CacheTime          int32
 	Defaults           bool
+	ForecastHorizon    string
+	ConsumptionHorizon string
 	MQTT               mqtt.Config
 	Now                func() time.Time
 }
@@ -224,23 +227,36 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
-	powerHandler := newPower()
-	solarPowerProduction, forecastRetrieved, forecastErr := powerHandler.Handler(r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast, r.cfg.CacheFilePrefix, r.cfg.CacheTime)
-	if forecastErr != nil {
-		u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
-		r.publishError(ctx, "power", forecastErr)
-		solarPowerProduction = 0.0
-		forecastRetrieved = false
+	effectiveConsumption := pw.ResolveConsumption(
+		r.cfg.ConsumptionHorizon, r.cfg.PWConsumption, now)
+
+	var solarPowerProduction float64
+	var forecastRetrieved bool
+	var forecastErr error
+
+	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
+		powerHandler := newPower()
+		solarPowerProduction, forecastRetrieved, forecastErr = powerHandler.Handler(
+			r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast,
+			r.cfg.CacheFilePrefix, r.cfg.CacheTime,
+			r.cfg.ForecastHorizon, now,
+		)
+		if forecastErr != nil {
+			u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
+			r.publishError(ctx, "power", forecastErr)
+			solarPowerProduction = 0.0
+			forecastRetrieved = false
+		}
 	}
 
-	u.Log.Infof("your Daily consumption is:%d Wh", int(r.cfg.PWConsumption))
+	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 
 	froniusHandler := newFronius()
 	chargePct, decision, reason, powerState, froniusErr := froniusHandler.Handler(
 		solarPowerProduction,
 		capacityToCharge,
 		capacityMax,
-		r.cfg.PWConsumption,
+		effectiveConsumption,
 		r.cfg.MaxCharge,
 		r.cfg.PWBattReserve,
 		r.cfg.StartHR,
@@ -268,6 +284,8 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	payload.BatteryCapacityWh = &capacityMax
 	payload.ForecastTodayWh = &solarPowerProduction
 	payload.PwNetWh = &powerState.Net
+	payload.ForecastHorizon = r.cfg.ForecastHorizon
+	payload.ConsumptionHorizon = r.cfg.ConsumptionHorizon
 	payload.ChargePct = &chargePct
 	payload.Paused = false
 	r.publishState(payload)
