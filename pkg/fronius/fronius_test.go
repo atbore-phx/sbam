@@ -400,3 +400,96 @@ func TestBatteryChargeModeClassifierErrorResetFails(t *testing.T) {
 	assert.Equal(int16(0), result, "SetFroniusChargeBatteryMode returned wrong value")
 	assert.Error(err)
 }
+
+func TestReadModbusRegister(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+	defer teardown()
+
+	value, err := ReadModbusRegister(modbus_ip, StorCtl_Mod, modbus_port)
+	// Reads from a mock server; call should succeed.
+	assert.NoError(err)
+	// value may be a default (0) from the holding register — fine.
+	_ = value
+}
+
+func TestReadModbusRegisterConnectionError(t *testing.T) {
+	_, err := ReadModbusRegister("255.255.255.255", OutWRte, "6502")
+	assert.Error(t, err)
+}
+
+func TestWriteFroniusModbusRegistersError(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+	OpenModbusClient("tcp", modbus_ip, modbus_port)
+	ClosemodbusClient()
+	teardown()
+
+	// Client is closed and server is down — write should fail.
+	err := WriteFroniusModbusRegisters(map[uint16]int16{40349: 2})
+	assert.Error(err)
+}
+
+func TestReadFroniusModbusRegistersError(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+	OpenModbusClient("tcp", modbus_ip, modbus_port)
+	ClosemodbusClient()
+	teardown()
+
+	// Client is closed and server is down — read should fail.
+	_, err := ReadFroniusModbusRegisters(map[uint16]int16{40349: 1})
+	assert.Error(err)
+}
+
+func TestSetFroniusChargeBatteryModeCustomPort(t *testing.T) {
+	assert := assert.New(t)
+	setup()
+
+	result, _, _, _, err := SetFroniusChargeBatteryMode(
+		1000,
+		11000,
+		11000,
+		9000,
+		3500,
+		0,
+		"00:00",
+		"23:59",
+		modbus_ip,
+		true,
+		0,
+		0,
+		true,
+		modbus_port,
+	)
+	teardown()
+
+	assert.Equal(int16(31), result)
+	assert.NoError(err)
+}
+
+func TestSetFroniusChargeBatteryModeForceChargeError(t *testing.T) {
+	assert := assert.New(t)
+
+	// Use a bogus IP so Modbus connect fails during ForceCharge.
+	result, _, _, _, err := SetFroniusChargeBatteryMode(
+		1000,
+		1000,
+		10000,
+		9000,
+		3500,
+		0,
+		"00:00",
+		"23:59",
+		"192.0.2.1",
+		true,
+		0,
+		0,
+		true,
+		"6502",
+	)
+
+	// Should get an error from ForceCharge failing to connect.
+	assert.Error(err)
+	_ = result
+}

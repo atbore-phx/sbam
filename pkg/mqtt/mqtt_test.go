@@ -1119,3 +1119,32 @@ func (c *errAfterTimeoutContext) Err() error {
 func (c *errAfterTimeoutContext) Value(key any) any {
 	return nil
 }
+
+func TestSanitizeBrokerParseError(t *testing.T) {
+	// An invalid URL that url.Parse rejects returns the raw input.
+	raw := ":// invalid : //"
+	assert.Equal(t, raw, sanitizeBroker(raw))
+}
+
+func TestSanitizeBrokerRemovesUserinfo(t *testing.T) {
+	assert.Equal(t, "tcp://example.com:1883", sanitizeBroker("tcp://user:pass@example.com:1883"))
+}
+
+func TestPublishAvailabilityNilClient(t *testing.T) {
+	// Should not panic with nil client; logs a warning instead.
+	assert.NotPanics(t, func() {
+		PublishAvailability(context.Background(), nil, "sbam", true)
+	})
+}
+
+func TestPublishStateNilClient(t *testing.T) {
+	assert.NotPanics(t, func() {
+		PublishState(context.Background(), nil, "sbam", StatePayload{})
+	})
+}
+
+func TestPublishErrorNilClient(t *testing.T) {
+	assert.NotPanics(t, func() {
+		PublishError(context.Background(), nil, "sbam", ErrorPayload{Error: "boom"})
+	})
+}
