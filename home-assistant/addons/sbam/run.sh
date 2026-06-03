@@ -30,6 +30,7 @@ export MQTT_HA_DISCOVERY=$(bashio::config 'mqtt_ha_discovery')
 export MQTT_HA_DISCOVERY_PREFIX=$(bashio::config 'mqtt_ha_discovery_prefix')
 export FORECAST_HORIZON=$(bashio::config 'forecast_horizon')
 export CONSUMPTION_HORIZON=$(bashio::config 'consumption_horizon')
+export WINDOWS_JSON=$(bashio::config 'windows' | jq -c '.')
 
 mqtt_autofill_from_ha_service() {
 	[ "${MQTT_ENABLED}" = "true" ] || return 0

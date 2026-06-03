@@ -81,6 +81,7 @@ pkg/
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
     schedule_test.go           - Unit tests for the schedule command
+    schedule_validation_test.go - Unit tests for schedule parameter validation
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
@@ -112,6 +113,8 @@ pkg/
     handler.go                - Get daily solar production estimate
     horizon.go                - Forecast and consumption horizon types, validation, resolution
     horizon_test.go           - Unit tests for horizon resolution
+    window.go                 - Charge window types, validation, active-window resolution
+    window_test.go            - Unit tests for window validation and resolution
     estimate.go               - Forecast retrieval, caching, power calculations
     power_test.go             - HTTP mock tests for Solcast API
   storage/

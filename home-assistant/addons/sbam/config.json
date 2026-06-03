@@ -38,7 +38,8 @@
     "mqtt_ha_discovery": true,
     "mqtt_ha_discovery_prefix": "homeassistant",
     "forecast_horizon": "default",
-    "consumption_horizon": "full_day"
+    "consumption_horizon": "full_day",
+    "windows": []
   },
   "schema": {
     "url": "str",
@@ -70,6 +71,14 @@
     "mqtt_ha_discovery": "bool",
     "mqtt_ha_discovery_prefix": "str",
     "forecast_horizon": "list(default|next_solar_day|remaining_today|today|tomorrow|off)",
-    "consumption_horizon": "list(full_day|remaining_today)"
+    "consumption_horizon": "list(full_day|remaining_today)",
+    "windows": [{
+      "name": "str",
+      "start": "match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)",
+      "end": "match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)",
+      "max_charge": "float",
+      "forecast_horizon": "list(default|next_solar_day|remaining_today|today|tomorrow|off)?",
+      "consumption_horizon": "list(full_day|remaining_today)?"
+    }]
   }
 }

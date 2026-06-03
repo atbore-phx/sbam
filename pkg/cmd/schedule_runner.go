@@ -43,6 +43,7 @@ type RunnerConfig struct {
 	Defaults           bool
 	ForecastHorizon    string
 	ConsumptionHorizon string
+	Windows            []pw.Window
 	MQTT               mqtt.Config
 	Now                func() time.Time
 }
@@ -162,11 +163,9 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		now = r.now()
 	}
 
-	inChargeWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
-	if err != nil {
-		r.publishError(ctx, "tick", err)
-		return err
-	}
+	// Resolve active window and derive effective charge parameters.
+	// When no windows are configured, falls back to legacy StartHR/EndHR.
+	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName := r.resolveActiveWindow(now)
 
 	reserveWindowActive, err := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if err != nil {
@@ -199,7 +198,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if !inChargeWindow {
-		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + r.cfg.StartHR + " <= t <= " + r.cfg.EndHR)
+		u.Log.Infof("The current time is outside all configured charge windows")
 		capMax := capacityMax
 
 		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
@@ -210,7 +209,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	effectiveConsumption := pw.ResolveConsumption(
-		r.cfg.ConsumptionHorizon, r.cfg.PWConsumption, now)
+		effectiveConsumptionHorizon, r.cfg.PWConsumption, now)
 
 	var solarPowerProduction float64
 	var forecastRetrieved bool
@@ -221,7 +220,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		solarPowerProduction, forecastRetrieved, forecastErr = powerHandler.Handler(
 			r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast,
 			r.cfg.CacheFilePrefix, r.cfg.CacheTime,
-			r.cfg.ForecastHorizon, now,
+			effectiveForecastHorizon, now,
 		)
 		if forecastErr != nil {
 			u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
@@ -266,8 +265,16 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	payload.BatteryCapacityWh = &capacityMax
 	payload.ForecastTodayWh = &solarPowerProduction
 	payload.PwNetWh = &powerState.Net
-	payload.ForecastHorizon = r.cfg.ForecastHorizon
-	payload.ConsumptionHorizon = r.cfg.ConsumptionHorizon
+	payload.ForecastHorizon = effectiveForecastHorizon
+	payload.ConsumptionHorizon = effectiveConsumptionHorizon
+	if activeWindowName != "" {
+		awName := activeWindowName
+		payload.ActiveWindow = &awName
+		awMaxCharge := effectiveMaxCharge
+		payload.ActiveWindowMaxCharge = &awMaxCharge
+		awFH := effectiveForecastHorizon
+		payload.ActiveWindowForecastHorizon = &awFH
+	}
 	payload.ChargePct = &chargePct
 	payload.Paused = false
 	r.publishState(payload)
@@ -434,11 +441,7 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 // computing current window flags and returning a payload ready for
 // callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
-	inChargeWindow, inChargeErr := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
-	if inChargeErr != nil {
-		u.HandleError(inChargeErr, "unable to compute charge window status")
-		inChargeWindow = false
-	}
+	inChargeWindow, _, _, _, _ := r.resolveActiveWindow(now)
 
 	reserveWindowActive, reserveErr := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if reserveErr != nil {
@@ -514,6 +517,44 @@ func (r *Runner) setPause(pauseUntil *time.Time) {
 func (r *Runner) clearPause() {
 	r.paused.Store(nil)
 	u.Log.Info("schedule resumed")
+}
+
+// resolveActiveWindow determines whether the current time falls within any
+// configured charge window and returns the effective charge parameters.
+// When windows are configured it delegates to power.ResolveActiveWindow;
+// otherwise it falls back to the legacy checkTimeRangeAt call using
+// RunnerConfig.StartHR / EndHR.
+func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string) {
+	maxCharge = r.cfg.MaxCharge
+	forecastHorizon = r.cfg.ForecastHorizon
+	consumptionHorizon = r.cfg.ConsumptionHorizon
+
+	if len(r.cfg.Windows) > 0 {
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+		if active == nil {
+			return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+		}
+		maxCharge = active.MaxCharge
+		if active.ForecastHorizon != "" {
+			forecastHorizon = active.ForecastHorizon
+		}
+		if active.ConsumptionHorizon != "" {
+			consumptionHorizon = active.ConsumptionHorizon
+		}
+		name := pw.WindowNameOrDefault(*active, 0)
+		return true, maxCharge, forecastHorizon, consumptionHorizon, name
+	}
+
+	// Legacy path: use single StartHR/EndHR window.
+	inWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
+	if err != nil {
+		u.HandleError(err, "checkTimeRangeAt failed in resolveActiveWindow")
+		return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+	}
+	if inWindow {
+		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy"
+	}
+	return false, maxCharge, forecastHorizon, consumptionHorizon, ""
 }
 
 // pauseStateAt reports whether the runner is currently paused at the
