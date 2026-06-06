@@ -1,40 +1,22 @@
 #!/usr/bin/with-contenv bashio
 
-export URL=$(bashio::config 'url')
-export APIKEY=$(bashio::config 'apikey')
-export FRONIUS_IP=$(bashio::config 'fronius_ip')
-export START_HR=$(bashio::config 'start_hr')
-export END_HR=$(bashio::config 'end_hr')
-export CRONTAB=$(bashio::config 'crontab')
-export PW_CONSUMPTION=$(bashio::config 'pw_consumption')
-export MAX_CHARGE=$(bashio::config 'max_charge')
-export PW_LWT=$(bashio::config 'pw_lwt')
-export PW_UPT=$(bashio::config 'pw_upt')
-export PW_BATT_RESERVE=$(bashio::config 'pw_batt_reserve')
-export BATT_RESERVE_START_HR=$(bashio::config 'batt_reserve_start_hr')
-export BATT_RESERVE_END_HR=$(bashio::config 'batt_reserve_end_hr')
-export DEFAULTS=$(bashio::config 'defaults')
-export RESET=$(bashio::config 'reset')
+# Generate config.yaml from Supervisor options.
+# JSON is valid YAML 1.2, so the Go app's viper reads it natively.
+cd /data
+cp /data/options.json config.yaml
+
+# DEBUG and LOG_TYPE are read via os.Getenv (src/utils/log.go), not viper.
 export DEBUG=$(bashio::config 'debug')
 export LOG_TYPE=$(bashio::config 'log_type')
-export CACHE_FORECAST=$(bashio::config 'cache_forecast')
-export CACHE_FILE_PREFIX=$(bashio::config 'cache_file_prefix')
-export CACHE_TIME=$(bashio::config 'cache_time')
-export MQTT_ENABLED=$(bashio::config 'mqtt_enabled')
-export MQTT_BROKER=$(bashio::config 'mqtt_broker')
-export MQTT_CLIENT_ID=$(bashio::config 'mqtt_client_id')
-export MQTT_USERNAME=$(bashio::config 'mqtt_username')
-export MQTT_PASSWORD=$(bashio::config 'mqtt_password')
-export MQTT_TOPIC_PREFIX=$(bashio::config 'mqtt_topic_prefix')
-export MQTT_HA_DISCOVERY=$(bashio::config 'mqtt_ha_discovery')
-export MQTT_HA_DISCOVERY_PREFIX=$(bashio::config 'mqtt_ha_discovery_prefix')
-export FORECAST_HORIZON=$(bashio::config 'forecast_horizon')
-export CONSUMPTION_HORIZON=$(bashio::config 'consumption_horizon')
-export WINDOWS_JSON=$(bashio::config 'windows' | jq -c '.')
 
+# MQTT autofill: dynamically discover broker details from Home Assistant services.
+# Exported env vars override config.yaml values via viper's AutomaticEnv().
 mqtt_autofill_from_ha_service() {
-	[ "${MQTT_ENABLED}" = "true" ] || return 0
-	[ -z "${MQTT_BROKER}" ] || return 0
+	local mqtt_enabled mqtt_broker mqtt_user
+	mqtt_enabled=$(bashio::config 'mqtt_enabled')
+	[ "${mqtt_enabled}" = "true" ] || return 0
+	mqtt_broker=$(bashio::config 'mqtt_broker')
+	[ -z "${mqtt_broker}" ] || return 0
 	bashio::services.available 'mqtt' || return 0
 
 	local mqtt_host mqtt_port mqtt_username mqtt_password
@@ -46,12 +28,15 @@ mqtt_autofill_from_ha_service() {
 	if [ -n "${mqtt_host}" ] && [ -n "${mqtt_port}" ]; then
 		export MQTT_BROKER="tcp://${mqtt_host}:${mqtt_port}"
 	fi
-	[ -n "${MQTT_USERNAME}" ] || export MQTT_USERNAME="${mqtt_username}"
-	[ -n "${MQTT_PASSWORD}" ] || export MQTT_PASSWORD="${mqtt_password}"
+	mqtt_user=$(bashio::config 'mqtt_username')
+	[ -n "${mqtt_user}" ] || export MQTT_USERNAME="${mqtt_username}"
+	[ -n "$(bashio::config 'mqtt_password')" ] || export MQTT_PASSWORD="${mqtt_password}"
 }
 
 mqtt_autofill_from_ha_service
 
-[ "$RESET" = "true" ] && sbam configure -d
+# Reset inverter to defaults at startup if configured.
+reset=$(bashio::config 'reset')
+[ "$reset" = "true" ] && sbam configure -d
 
 sbam schedule

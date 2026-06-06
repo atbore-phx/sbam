@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
@@ -19,14 +17,13 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	yaml "gopkg.in/yaml.v3"
 )
 
 var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr,
 	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
-	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
-	windowsJSON string
-var windowsCSV []string
+	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip bool
@@ -120,11 +117,23 @@ var scdCmd = &cobra.Command{
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
 
-		// Resolve charge windows from all sources (config.yaml, CSV flags, JSON flag/env).
-		windows, windowsConfigured, err := resolveWindows(cmd)
-		if err != nil {
-			u.Log.Error(err)
-			return
+		// Resolve windows: config.yaml (parsed YAML) or --windows flag / WINDOWS env var (raw YAML).
+		var windows []pw.Window
+		if viper.InConfig("windows") {
+			if err := viper.UnmarshalKey("windows", &windows); err != nil {
+				u.Log.Errorf("invalid windows in config.yaml: %v", err)
+				return
+			}
+		} else if raw := viper.GetString("windows"); raw != "" {
+			if err := yaml.Unmarshal([]byte(raw), &windows); err != nil {
+				u.Log.Errorf("invalid --windows / WINDOWS: %v", err)
+				return
+			}
+		}
+		for i := range windows {
+			if windows[i].Name == "" {
+				windows[i].Name = fmt.Sprintf("window-%d", i+1)
+			}
 		}
 
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
@@ -163,7 +172,7 @@ var scdCmd = &cobra.Command{
 
 		u.LogStartupParams(cmd)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, windowsConfigured, windows)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, windows)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -268,8 +277,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
-	scdCmd.Flags().StringSliceVar(&windowsCSV, "windows", nil, "Repeatable CSV charge windows: name:HH:MM-HH:MM:max_charge[:forecast_horizon[:consumption_horizon]]")
-	scdCmd.Flags().StringVar(&windowsJSON, "windows-json", "", "JSON array of charge window objects")
+	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -383,12 +391,10 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 // The function intentionally keeps validation local to the command so the
 // runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
-	pw_batt_reserve float64, start_hr, end_hr string, windowsConfigured bool, windows []pw.Window) error {
-	// Reject mixing of windows: with legacy start_hr/end_hr.
-	if windowsConfigured {
-		legacyExplicit := viper.InConfig("start_hr") || viper.InConfig("end_hr") ||
-			os.Getenv("START_HR") != "" || os.Getenv("END_HR") != ""
-		if legacyExplicit {
+	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window) error {
+	// Reject mixing of windows: with legacy start_hr/end_hr in config.yaml.
+	if len(windows) > 0 {
+		if viper.InConfig("start_hr") || viper.InConfig("end_hr") {
 			return errors.New("cannot mix 'windows:' with legacy 'start_hr'/'end_hr' keys; remove the legacy keys from your configuration")
 		}
 		if err := pw.ValidateWindows(windows); err != nil {
@@ -585,193 +591,4 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
-}
-
-// resolveWindows collects charge windows from all configuration surfaces
-// (config.yaml, --windows CSV flags, --windows-json flag, WINDOWS_JSON env
-// var) and returns the parsed list, a flag indicating whether windows were
-// explicitly configured, and any parse or validation error.
-func resolveWindows(cmd *cobra.Command) ([]pw.Window, bool, error) {
-	var windows []pw.Window
-	configured := false
-
-	// Source 1: config.yaml (viper).
-	if viper.IsSet("windows") {
-		var yamlWindows []pw.Window
-		if err := viper.UnmarshalKey("windows", &yamlWindows); err == nil && len(yamlWindows) > 0 {
-			windows = append(windows, yamlWindows...)
-			configured = true
-		}
-	}
-
-	// Source 2: --windows CSV flags (repeatable).
-	if len(windowsCSV) > 0 {
-		for i, csv := range windowsCSV {
-			w, err := parseWindowsCSV(csv)
-			if err != nil {
-				return nil, false, fmt.Errorf("--windows flag #%d %q: %w", i+1, csv, err)
-			}
-			windows = append(windows, w)
-		}
-		configured = true
-	}
-
-	// Source 3: --windows-json flag / WINDOWS_JSON env var.
-	if windowsJSON != "" {
-		var jsonWindows []pw.Window
-		if err := json.Unmarshal([]byte(windowsJSON), &jsonWindows); err != nil {
-			return nil, false, fmt.Errorf("--windows-json: %w", err)
-		}
-		windows = append(windows, jsonWindows...)
-		configured = true
-	}
-
-	// Ensure each window has a name; auto-generate if empty.
-	for i := range windows {
-		if windows[i].Name == "" {
-			windows[i].Name = fmt.Sprintf("window-%d", i+1)
-		}
-	}
-
-	return windows, configured, nil
-}
-
-// parseWindowsCSV parses a single --windows CSV value in the form:
-//
-//	name:HH:MM-HH:MM:max_charge[:forecast_horizon[:consumption_horizon]]
-//
-// The name segment is optional. If omitted the caller assigns a synthetic
-// name ("window-N") after all sources have been merged.
-func parseWindowsCSV(csv string) (pw.Window, error) {
-	// CSV format: [name:]start-end:max_charge[:forecast_horizon[:consumption_horizon]]
-	// Example: night:02:00-06:00:3500:tomorrow:full_day
-	// Example: 02:00-06:00:3500
-
-	// Time contains colons (HH:MM), so we split on colon but reassemble time parts.
-	// Strategy: find the first occurrence of "-HH:MM" (end time) by scanning.
-	// Simpler approach: the delimiter between end and max_charge is the LAST colon
-	// before the max_charge number. Actually, let's use a different approach.
-
-	// The format is unambiguous because:
-	//   name:  (optional, no colons)
-	//   start: HH:MM (always has one colon)
-	//   -      literal dash separating start and end
-	//   end:   HH:MM (always has one colon)
-	//   :      delimiter
-	//   max_charge: number (no colons)
-	//   [:forecast_horizon]  optional, no colons
-	//   [:consumption_horizon] optional, no colons
-
-	// So the colons appear in: name: (if present), start HH:MM, end HH:MM, and
-	// delimiters after max_charge. We can parse by splitting on ':' and working
-	// backwards from the rightmost fields.
-
-	parts := strings.Split(csv, ":")
-	if len(parts) < 4 {
-		return pw.Window{}, fmt.Errorf("expected at least start:end:max_charge (e.g. 02:00-06:00:3500), got %q", csv)
-	}
-
-	// Working backwards:
-	// parts[-1] = consumption_horizon or forecast_horizon or max_charge
-	// parts[-2] = forecast_horizon or max_charge or end_minute
-	// parts[-3] = max_charge or end_hour:start_minute:end_hour
-	//
-	// This is tricky. Let's use a different strategy: find the last colon that
-	// precedes a numeric value (max_charge).
-
-	// Alternative: The dash between start and end is the key delimiter.
-	// "start-end" looks like "HH:MM-HH:MM".
-	// Split on '-' first to get [prefix, end+rest].
-	// prefix ends with :MM (minute of start).
-	// end+rest starts with HH:MM:max_charge...
-
-	// Even simpler: count colons. HH:MM-HH:MM has exactly 2 colons.
-	// Additional colons come from optional name prefix and horizon suffixes.
-	// Let's find the index of "HH:MM-HH:MM" pattern.
-
-	// Simplest reliable approach: find the dash position, then find the colon
-	// immediately before it (start's colon), and the colon immediately after
-	// (end's colon).
-
-	dashIdx := strings.LastIndex(csv, "-")
-	if dashIdx < 0 {
-		return pw.Window{}, fmt.Errorf("missing start-end separator '-', got %q", csv)
-	}
-
-	// Find start time: the "HH:MM" before the dash.
-	// The colon in start is the last ':' before the dash.
-	startColon := strings.LastIndex(csv[:dashIdx], ":")
-	if startColon < 0 || startColon < 2 {
-		return pw.Window{}, fmt.Errorf("invalid start time in %q", csv)
-	}
-	startHH := csv[startColon-2 : startColon]
-	startMM := csv[startColon+1 : dashIdx]
-	start := startHH + ":" + startMM
-
-	// Find end time: the "HH:MM" after the dash.
-	// The colon in end is the first ':' after the dash.
-	rest := csv[dashIdx+1:]
-	endColon := strings.Index(rest, ":")
-	if endColon < 0 || endColon < 2 {
-		return pw.Window{}, fmt.Errorf("invalid end time in %q", csv)
-	}
-	endHH := rest[endColon-2 : endColon]
-	// end is followed by ':' then max_charge.
-	endRest := rest[endColon+1:]
-	nextColon := strings.Index(endRest, ":")
-	var endMM string
-	var afterEnd string
-	if nextColon >= 0 {
-		endMM = endRest[:nextColon]
-		afterEnd = endRest[nextColon+1:]
-	} else {
-		endMM = endRest
-		afterEnd = ""
-	}
-	end := endHH + ":" + endMM
-
-	// Determine the name prefix (everything before startHH).
-	prefix := strings.TrimSuffix(csv[:startColon-2], ":")
-	name := strings.TrimRight(prefix, ":")
-
-	// Parse max_charge and optional horizons from afterEnd.
-	if afterEnd == "" {
-		return pw.Window{}, fmt.Errorf("missing max_charge in %q", csv)
-	}
-
-	// Split remaining parts by colon.
-	remaining := strings.Split(afterEnd, ":")
-	if len(remaining) < 1 {
-		return pw.Window{}, fmt.Errorf("missing max_charge in %q", csv)
-	}
-
-	maxCharge, err := parseFloat(remaining[0])
-	if err != nil {
-		return pw.Window{}, fmt.Errorf("invalid max_charge %q in %q: %w", remaining[0], csv, err)
-	}
-
-	var fh, ch string
-	if len(remaining) >= 2 {
-		fh = remaining[1]
-	}
-	if len(remaining) >= 3 {
-		ch = remaining[2]
-	}
-
-	return pw.Window{
-		Name:               name,
-		Start:              start,
-		End:                end,
-		MaxCharge:          maxCharge,
-		ForecastHorizon:    fh,
-		ConsumptionHorizon: ch,
-	}, nil
-}
-
-// parseFloat parses a string to float64, supporting both decimal and integer
-// representations.
-func parseFloat(s string) (float64, error) {
-	var f float64
-	_, err := fmt.Sscanf(strings.TrimSpace(s), "%f", &f)
-	return f, err
 }

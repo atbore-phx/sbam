@@ -66,21 +66,23 @@ pkg/mqtt/
 
 home-assistant/addons/sbam/
   config.json        ← MODIFY: add windows array-of-objects schema
-  run.sh             ← MODIFY: export WINDOWS_JSON env var
+  run.sh             ← MODIFY: generate config.yaml from /data/options.json instead of per-key env var exports
 ```
 
-### Data flow
+### Data flow (three YAML surfaces → single resolution)
 
 ```
-config.yaml                  Viper/CLI                Runner.Tick()
-────────────                 ─────────                ────────────
-windows:                     windows []power.Window   1. active := power.ResolveActiveWindow(windows, now)
-  - name: "night"        →   ────────────────────→   2. max_charge = active.MaxCharge  (or top-level fallback)
-    start: "02:00"             validated at startup   3. fh = active.ForecastHorizon (or top-level fallback)
-    end: "06:00"                                     4. ch = active.ConsumptionHorizon (or top-level fallback)
-    max_charge: 3500                                 5. pass resolved values to fronius.Handler + power.Handler
-    forecast_horizon: tomorrow
+config.yaml                  --windows flag / WINDOWS env    Runner.Tick()
+────────────                 ──────────────────────────      ────────────
+windows:                     --windows '[{...}]'             1. viper.InConfig("windows")
+  - name: "night"        →   WINDOWS='[{...}]'           →     → UnmarshalKey (YAML already parsed)
+    start: "02:00"             (raw YAML string)             2. OR viper.GetString("windows")
+    end: "06:00"                                                → yaml.Unmarshal (flag/env raw string)
+    max_charge: 3500                                        3. active := power.ResolveActiveWindow(windows, now)
+    forecast_horizon: tomorrow                              4. use per-window max_charge/horizons
 ```
+
+Precedence: `--windows` flag > `WINDOWS` env var > `config.yaml` (viper default).
 
 ### Key types
 
@@ -141,18 +143,17 @@ windows:
     # forecast_horizon and consumption_horizon inherit top-level defaults
 ```
 
-### CLI flags
+### CLI flag
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--windows` | `string` (repeatable) | `[]` | CSV: `name:start-end:max_charge[:forecast_horizon[:consumption_horizon]]` |
-| `--windows-json` | `string` | `""` | JSON array of window objects |
+| `--windows` | `string` | `""` | YAML string (flow or block style, same format as config.yaml `windows:` key) |
 
 ### Env var
 
 | Var | Description |
 |---|---|
-| `WINDOWS_JSON` | JSON array of window objects |
+| `WINDOWS` | YAML string — bound automatically by viper's `AutomaticEnv()` to the `windows` key |
 
 ### `home-assistant/addons/sbam/config.json` schema
 
@@ -173,7 +174,7 @@ Add to both `"options"` and `"schema"`:
 
 ### `home-assistant/addons/sbam/run.sh`
 
-Export `WINDOWS_JSON` from add-on options JSON using `jq`.
+Replaced per-key `export $(bashio::config ...)` lines with `cp /data/options.json config.yaml`. JSON is valid YAML 1.2, so the Go app's viper reads the Supervisor options natively. MQTT autofill and RESET handling remain as env var overrides.
 
 ### Validation rules (startup)
 
@@ -253,47 +254,35 @@ ActiveWindowMaxCharge       *float64 `json:"active_window_max_charge,omitempty"`
 ActiveWindowForecastHorizon *string  `json:"active_window_forecast_horizon,omitempty"`
 ```
 
-**Rationale**: Pointerized so the JSON key is omitted entirely when no windows are configured (legacy mode). This avoids breaking existing MQTT consumers.
+**Rationale**: Pointerized so the JSON key is omitted entirely when no windows are configured (legacy mode).
 
 ### Step 4 — Update `pkg/mqtt/discovery.go`
 
-Add a new sensor entity in `BuildDiscovery`:
-
-```go
-entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "active_window",
-    sensorPayload(base, deviceID, "active_window", "Active Window",
-        "{{ value_json.active_window }}", "", "", "", "diagnostic"))
-```
-
-Also add `active_window_max_charge` and `active_window_forecast_horizon` as diagnostic sensors.
-
-**Rationale**: Users can trigger automations based on which window is active. Diagnostic category keeps the default HA UI clean.
+Add `active_window`, `active_window_max_charge`, `active_window_forecast_horizon` as diagnostic sensors in `BuildDiscovery`.
 
 ### Step 5 — Update `pkg/cmd/schedule.go`
 
-**Add new CLI flags** in `registerScdCmd()`:
-
+**Add `--windows` CLI flag** in `registerScdCmd()`:
 ```go
-scdCmd.Flags().StringSliceVar(&windowsCSV, "windows", nil,
-    "Repeatable CSV charge windows: name:start-end:max_charge[:forecast_horizon[:consumption_horizon]]")
-scdCmd.Flags().StringVar(&windowsJSON, "windows-json", "",
-    "JSON array of charge window objects")
+scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 ```
 
-Bind env var: `viper.BindEnv("windows_json")` — but Viper's `AutomaticEnv()` handles `WINDOWS_JSON` automatically.
+**Windows resolution logic** (replaced `resolveWindows` / CSV / JSON multi-source merge):
+```go
+var windows []pw.Window
+if viper.InConfig("windows") {
+    viper.UnmarshalKey("windows", &windows)       // YAML already parsed
+} else if raw := viper.GetString("windows"); raw != "" {
+    yaml.Unmarshal([]byte(raw), &windows)          // flag or env var raw YAML
+}
+for i := range windows {
+    if windows[i].Name == "" {
+        windows[i].Name = fmt.Sprintf("window-%d", i+1)
+    }
+}
+```
 
-**Add new package-level vars**: `windowsCSV []string`, `windowsJSON string`.
-
-**Update `checkScheduleschedule`** to:
-1. Check for mixing of `windows:` (or CLI `--windows`/`--windows-json`) with explicit `start_hr`/`end_hr` → reject
-2. If `windows:` present, parse and call `power.ValidateWindows()`
-3. If `windows:` absent, legacy validation unchanged
-
-**Add CSV parsing helper** (`parseWindowsCSV`) — parse `name:start-end:max_charge[:forecast_horizon[:consumption_horizon]]` into `power.Window`. Handle empty name (auto-generate "window-N").
-
-**Add JSON parsing** via `encoding/json.Unmarshal` into `[]power.Window`.
-
-**Wire into RunnerConfig**: add `Windows []power.Window` field, populate in `schedule` command `Run`.
+**Updated `checkScheduleschedule`** signature: `windows []pw.Window` instead of `windowsConfigured bool, windows []pw.Window`. Mixing detection uses `viper.InConfig("start_hr")`.
 
 ### Step 6 — Update `pkg/cmd/schedule_runner.go`
 
@@ -341,32 +330,23 @@ if activeWindow != nil {
 
 **Update `newCommandPayload`**: when windows are configured, use `power.ResolveActiveWindow` instead of `checkTimeRangeAt`.
 
-### Step 7 — Remove duplicated clock helpers from `pkg/cmd/schedule.go`
+### Step 7 — Keep clock helpers in `pkg/cmd/schedule.go`
 
-After Step 1 moves clock helpers to `pkg/power/window.go`:
-- Remove `clockSegment`, `expandClockWindow`, `clockMinute`, `segmentContains`, `isWindowContainedIn` from `pkg/cmd/schedule.go`
-- Update existing call sites in `pkg/cmd/` to use `power.*` equivalents
-- Keep `checkTimeRangeAt`, `parseScheduleClock`, `validateScheduleWindow` in `pkg/cmd/` — they serve the legacy code path and the batt_reserve window check
-
-**Rationale**: `checkTimeRangeAt` is still needed for `batt_reserve_start_hr`/`batt_reserve_end_hr` which are not part of the multi-window feature. The clock helpers move to `pkg/power/` because they're domain logic shared by the new window resolver.
+The clock helpers (`clockSegment`, `expandClockWindow`, `clockMinute`, `segmentContains`, `isWindowContainedIn`) remain in `pkg/cmd/schedule.go` — they are still used by `isWindowContainedIn` for batt_reserve containment validation, which is not part of multi-window. `pkg/power/window.go` has its own independent implementations. (Deferred: deduplication as a follow-up.)
 
 ### Step 8 — Update `home-assistant/addons/sbam/config.json`
 
-Add `windows` to both `"options"` (with an empty array default) and `"schema"` (as array-of-objects with the syntax from Section 5 above).
+Add `windows` to both `"options"` (with an empty array default) and `"schema"` (as array-of-objects).
 
 ### Step 9 — Update `home-assistant/addons/sbam/run.sh`
 
-Read from add-on options JSON and export `WINDOWS_JSON` env var.
+Replace 30+ `export $(bashio::config ...)` lines with `cd /data && cp /data/options.json config.yaml`. JSON is valid YAML 1.2, viper reads it natively. Keep MQTT autofill (exports env var overrides) and RESET handling.
 
 ### Step 10 — Update tests
 
-- **`pkg/cmd/schedule_test.go`**: Add test cases for:
-  - Two-window config selects correct window at different times
-  - Legacy compatibility (no `windows:` → behavior unchanged)
-  - Mixing `windows:` with `start_hr`/`end_hr` rejected
-  - `--windows` CSV flag parsing
-- **`pkg/cmd/schedule_mqtt_wiring_test.go`**: Verify active_window fields appear in state payload when windows are configured
-- **`pkg/mqtt/discovery_test.go`**: Add test for new active_window discovery sensors
+- **`pkg/cmd/schedule_test.go`**: Updated `checkScheduleschedule` call sites (signature changed from `windowsConfigured bool` to `windows []pw.Window`).
+- **`pkg/cmd/schedule_validation_test.go`**: Updated `checkScheduleschedule` call sites.
+- **`pkg/mqtt/discovery_test.go`**: Updated allowed template fields for new active_window sensors.
 
 ---
 
@@ -449,17 +429,14 @@ go test ./pkg/mqtt/ -run Discovery -v # discovery tests
 |---|---|
 | Horizon precedence (per-window vs top-level) | **RESOLVED**: per-window overrides top-level when set |
 | Horizons dependency (#159) | **RESOLVED**: merged, types available in `pkg/power/horizon.go` |
-| HA add-on nested-list schema syntax | **DEFERRED**: verify during implementation; fall back to manual test |
-| CLI `--windows` CSV parsing with `:` delimiters | **RESOLVED**: hours/minutes are always 2-digit padded (`HH:MM`), so splitting on `:` is unambiguous when parsing `name:start-end:max_charge` because start-end uses `-` as delimiter |
+| HA add-on nested-list schema syntax | **RESOLVED**: `[{...}]` syntax in `config.json` accepted by Supervisor |
+| CLI `--windows` YAML format | **RESOLVED**: simplified from CSV/JSON to YAML-only. CSV parsing removed. |
+| HA add-on config bridge (env vars → config.yaml) | **RESOLVED**: `cp /data/options.json config.yaml` — JSON is valid YAML 1.2 |
+| Clock helper deduplication (pkg/cmd vs pkg/power) | **DEFERRED**: both copies kept; batt_reserve validation still needs pkg/cmd copies |
 
 ---
 
-## 13. Confidence Score
+## 13. Revision History
 
-**9/10** — single-pass implementation success is likely because:
-- The window resolution logic (cross-midnight, segment expansion) already exists and is tested in `pkg/cmd/`
-- No new external dependencies
-- Clear separation between legacy and new code paths
-- Horizon types already validated and resolved by #159
-
-The 1 point deduction is for the HA add-on schema syntax uncertainty (no prior art in this repo for array-of-objects). This is resolvable during implementation with a manual add-on test.
+- **2026-06-03**: Initial PLAN written from issue #146 and epic #151.
+- **2026-06-06**: Simplified config surface — removed CSV `--windows` and JSON `--windows-json` flags, replaced with single YAML `--windows` flag + `WINDOWS` env var. Removed `resolveWindows`, `parseWindowsCSV`, `parseFloat`. HA add-on `run.sh` now generates `config.yaml` from `/data/options.json` instead of per-key env var exports. TASK updated to reflect all changes.

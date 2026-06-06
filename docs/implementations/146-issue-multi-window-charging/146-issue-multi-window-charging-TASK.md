@@ -33,21 +33,21 @@ This replaces #62 and unblocks #48 (price-driven scheduling).
 
 ## Functional Requirements
 
-- [ ] `windows:` accepts a non-empty ordered list. Each entry has:
+- [x] `windows:` accepts a non-empty ordered list. Each entry has:
   - `name` (string, optional, used for MQTT/logs; auto-generated if absent, e.g. "window-1")
   - `start` (HH:MM, local)
   - `end` (HH:MM, local; cross-midnight allowed, same semantics as #116)
   - `max_charge` (W, required)
   - `forecast_horizon` (enum, optional; defaults to top-level `forecast_horizon`)
   - `consumption_horizon` (enum, optional; defaults to top-level `consumption_horizon`)
-- [ ] Window resolution per tick:
+- [x] Window resolution per tick:
   - Exactly one window is active at a time. Validation rejects overlapping windows.
   - If no window is active, the runner behaves as it does today outside the charge window (no force-charge).
-- [ ] Legacy compatibility: if `windows:` is absent, sbam synthesizes a single window from `start_hr` / `end_hr` / `max_charge` (and inherits top-level horizons). Behavior matches today bit-for-bit.
-- [ ] CLI flag `--windows` accepts a compact CSV form `name:start-end:max_charge[:forecast_horizon[:consumption_horizon]]` repeatable, plus a JSON form via `--windows-json`. Env var `WINDOWS_JSON` accepts the JSON form.
-- [ ] HA add-on schema exposes `windows` as a list of objects.
-- [ ] MQTT state payload includes the active window `name` (or synthetic id) and its resolved `max_charge` / horizons.
-- [ ] Discovery payloads expose the active-window label as a sensor.
+- [x] Legacy compatibility: if `windows:` is absent, sbam synthesizes a single window from `start_hr` / `end_hr` / `max_charge` (and inherits top-level horizons). Behavior matches today bit-for-bit.
+- [x] CLI flag `--windows` accepts a YAML string (flow or block style). Env var `WINDOWS` accepts the same YAML format. All three surfaces (`config.yaml`, `--windows` flag, `WINDOWS` env var) share the same YAML schema with standard viper precedence (flag > env > yaml).
+- [x] HA add-on: writes `config.yaml` from Supervisor `/data/options.json` at startup (JSON is valid YAML 1.2). Scalar options no longer use per-key env var exports.
+- [x] MQTT state payload includes the active window `name` (or synthetic id) and its resolved `max_charge` / horizons.
+- [x] Discovery payloads expose the active-window label as a sensor.
 
 ## Non-functional Requirements
 
@@ -63,16 +63,17 @@ This replaces #62 and unblocks #48 (price-driven scheduling).
 
 ## Configuration Impact
 
-- New CLI flags:
-  - `--windows` (repeatable CSV: `name:start-end:max_charge[:forecast_horizon[:consumption_horizon]]`)
-  - `--windows-json` (JSON array of window objects)
+- New CLI flag:
+  - `--windows` (YAML string, flow or block style)
 - New `config.yaml` keys:
   - `windows` (list of objects)
-- New env vars:
-  - `WINDOWS_JSON` (JSON array of window objects)
-- Home Assistant add-on config schema impact:
-  - New `windows` list option in `home-assistant/addons/sbam/config.json`
-  - Legacy `start_hr` / `end_hr` / `max_charge` kept for backward compatibility
+- New env var:
+  - `WINDOWS` (YAML string — used by standalone Docker/CLI users; viper's `AutomaticEnv()` binds it to the `windows` key)
+- Home Assistant add-on changes:
+  - `run.sh` now generates `config.yaml` from `/data/options.json` at startup (JSON is valid YAML 1.2, viper reads it natively). Per-key env var exports replaced by single file copy.
+  - MQTT autofill and RESET handling remain in `run.sh`.
+  - New `windows` list option in `home-assistant/addons/sbam/config.json` schema.
+  - Legacy `start_hr` / `end_hr` / `max_charge` kept for backward compatibility.
 
 ## External Integrations Touched
 
@@ -83,12 +84,12 @@ This replaces #62 and unblocks #48 (price-driven scheduling).
 
 ## Acceptance Criteria
 
-- [ ] Configs without `windows:` behave identically to v2.1.
-- [ ] A two-window config (e.g. night + midday) selects the correct window across the day in unit tests.
-- [ ] Cross-midnight window remains correct when listed alongside a daytime window.
-- [ ] Overlap and invalid-time configs are rejected with actionable errors.
-- [ ] MQTT discovery exposes the active window as a sensor in Home Assistant.
-- [ ] README and add-on docs document the `windows:` schema with examples.
+- [x] Configs without `windows:` behave identically to v2.1.
+- [x] A two-window config (e.g. night + midday) selects the correct window across the day in unit tests.
+- [x] Cross-midnight window remains correct when listed alongside a daytime window.
+- [x] Overlap and invalid-time configs are rejected with actionable errors.
+- [x] MQTT discovery exposes the active window as a sensor in Home Assistant.
+- [x] README and add-on docs document the `windows:` schema with examples.
 
 ## Test Strategy
 
@@ -103,10 +104,11 @@ This replaces #62 and unblocks #48 (price-driven scheduling).
 
 ## Risks / Open Questions
 
-- Horizon precedence: per-window `forecast_horizon` / `consumption_horizon` overrides top-level. Top-level remains the default when per-window value is absent. (Resolved per issue proposal.)
-- Horizons dependency: #159 is merged — `pkg/power/horizon.go` provides `ValidateForecastHorizon`, `ValidateConsumptionHorizon`, `ResolveForecastDay`, and `ResolveConsumption`.
-- HA add-on schema for nested lists: verify supervisor schema syntax used elsewhere in the repo.
-- CLI `--windows` CSV format: confirm `:` and `-` delimiters are unambiguous given time format `HH:MM`. Since hours and minutes are always 2-digit padded, parsing is unambiguous.
+- Horizon precedence: per-window `forecast_horizon` / `consumption_horizon` overrides top-level. Top-level remains the default when per-window value is absent. (Resolved.)
+- Horizons dependency: #159 is merged — `pkg/power/horizon.go` provides `ValidateForecastHorizon`, `ValidateConsumptionHorizon`, `ResolveForecastDay`, and `ResolveConsumption`. (Resolved.)
+- HA add-on schema for nested lists: verified with `[{...}]` syntax in `config.json`. (Resolved.)
+- CLI `--windows` YAML format: simplified from CSV/JSON to YAML-only on all three surfaces (`config.yaml`, `--windows` flag, `WINDOWS` env var). CSV parsing removed as over-engineered. (Resolved.)
+- HA add-on config bridge: replaced per-key env var exports with `cp /data/options.json config.yaml` — JSON is valid YAML 1.2, viper reads it natively. (Resolved.)
 
 ## References
 
