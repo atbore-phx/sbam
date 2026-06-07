@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
@@ -117,16 +118,21 @@ var scdCmd = &cobra.Command{
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
 
-		// Resolve windows: config.yaml (parsed YAML) or --windows flag / WINDOWS env var (raw YAML).
+		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
-		if viper.InConfig("windows") {
-			if err := viper.UnmarshalKey("windows", &windows); err != nil {
-				u.Log.Errorf("invalid windows in config.yaml: %v", err)
+		if f := cmd.Flags().Lookup("windows"); f != nil && f.Changed {
+			if err := yaml.Unmarshal([]byte(f.Value.String()), &windows); err != nil {
+				u.Log.Errorf("invalid --windows flag: %v", err)
 				return
 			}
-		} else if raw := viper.GetString("windows"); raw != "" {
-			if err := yaml.Unmarshal([]byte(raw), &windows); err != nil {
-				u.Log.Errorf("invalid --windows / WINDOWS: %v", err)
+		} else if env, ok := os.LookupEnv("WINDOWS"); ok {
+			if err := yaml.Unmarshal([]byte(env), &windows); err != nil {
+				u.Log.Errorf("invalid WINDOWS env var: %v", err)
+				return
+			}
+		} else if viper.InConfig("windows") {
+			if err := viper.UnmarshalKey("windows", &windows); err != nil {
+				u.Log.Errorf("invalid windows in config.yaml: %v", err)
 				return
 			}
 		}
