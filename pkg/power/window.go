@@ -32,12 +32,12 @@ type clockSegment struct {
 // ForecastHorizon and ConsumptionHorizon are optional per-window overrides.
 // When empty the top-level forecast_horizon / consumption_horizon is used.
 type Window struct {
-	Name               string  `json:"name" mapstructure:"name"`
-	Start              string  `json:"start" mapstructure:"start"`
-	End                string  `json:"end" mapstructure:"end"`
-	MaxCharge          float64 `json:"max_charge" mapstructure:"max_charge"`
-	ForecastHorizon    string  `json:"forecast_horizon,omitempty" mapstructure:"forecast_horizon,omitempty"`
-	ConsumptionHorizon string  `json:"consumption_horizon,omitempty" mapstructure:"consumption_horizon,omitempty"`
+	Name               string  `json:"name" yaml:"name" mapstructure:"name"`
+	Start              string  `json:"start" yaml:"start" mapstructure:"start"`
+	End                string  `json:"end" yaml:"end" mapstructure:"end"`
+	MaxCharge          float64 `json:"max_charge" yaml:"max_charge" mapstructure:"max_charge"`
+	ForecastHorizon    string  `json:"forecast_horizon,omitempty" yaml:"forecast_horizon,omitempty" mapstructure:"forecast_horizon,omitempty"`
+	ConsumptionHorizon string  `json:"consumption_horizon,omitempty" yaml:"consumption_horizon,omitempty" mapstructure:"consumption_horizon,omitempty"`
 }
 
 // ValidateWindows checks a non-empty ordered list of charge windows and
