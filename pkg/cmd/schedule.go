@@ -182,7 +182,16 @@ var scdCmd = &cobra.Command{
 			u.HandleError(err, "mqtt client setup failed")
 		}
 
-		u.LogStartupParams(cmd)
+		extras := map[string]interface{}{
+			"effective_start_hr":              w_start_hr,
+			"effective_end_hr":                w_end_hr,
+			"effective_batt_reserve_start_hr": batt_reserve_start_hr,
+			"effective_batt_reserve_end_hr":   batt_reserve_end_hr,
+		}
+		if len(windows) > 0 {
+			extras["window_count"] = len(windows)
+		}
+		u.LogStartupParams(cmd, extras)
 
 		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows)
 		if err != nil {
