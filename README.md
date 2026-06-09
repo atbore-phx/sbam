@@ -44,9 +44,9 @@ If you don't code but want to support the project, you can sponsor the project o
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-6f42c1?style=for-the-badge&logo=github)](https://github.com/sponsors/atbore-phx)
 
-#### Vibe Coding
+#### Compound Engineering
 
-Optional Vibe Coding is accepted in this repo, prompt-driven workflow for contributors that can help generate `TASK` and `PLAN` documents and assist implementation. A set of prompts lives under [.github/prompts/](.github/prompts/) and guidance/examples are in [doc/vibe](docs/vibe). Feel free to improve the prompts and docs, but always validate generated code, run tests, and require human review before merging.
+This project uses [Compound Engineering](https://github.com/anthropics/compound-engineering) skills for feature development — brainstorm, plan, implement, review, and ship with a consistent, quality-gated workflow. Contributor guidance and examples live in [docs/vibe](docs/vibe). Always validate generated code, run tests, and require human review before merging.
 
 ### Prerequisites
 ----
