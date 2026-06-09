@@ -46,7 +46,7 @@ If you don't code but want to support the project, you can sponsor the project o
 
 #### Compound Engineering
 
-This project uses [Compound Engineering](https://github.com/anthropics/compound-engineering) skills for feature development — brainstorm, plan, implement, review, and ship with a consistent, quality-gated workflow. Contributor guidance and examples live in [docs/vibe](docs/vibe). Always validate generated code, run tests, and require human review before merging.
+This project uses [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin) skills for feature development — brainstorm, plan, implement, review, and ship with a consistent, quality-gated workflow. Contributor guidance and examples live in [docs/vibe](docs/vibe). Always validate generated code, run tests, and require human review before merging.
 
 ### Prerequisites
 ----
