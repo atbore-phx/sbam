@@ -170,13 +170,22 @@ Flags:
   -L, --pw_lwt float                      PW_LWT
   -U, --pw_upt float                      PW_UPT
   -s, --start_hr string                   START_HR (default "00:00")
+      --windows string                     Charge windows in YAML format (same as config.yaml windows: key)
   -u, --url string                        Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
 ```
 
+Charge windows can be defined either as a single legacy window (`--start_hr`,`--end_hr`,`--max_charge`) or as a multi-window list (`--windows` or the `windows:` key in `config.yaml`). The two forms are mutually exclusive.\
+
+**Legacy single window:**\
 Time windows can span midnight for both charge (`--start_hr`,`--end_hr`) and reserve (`--batt_reserve_start_hr`,`--batt_reserve_end_hr`) ranges.\
 Example:\
 `--start_hr 22:00 --end_hr 06:00` and optionally:\
 `--batt_reserve_start_hr 23:00 --batt_reserve_end_hr 05:00` (if omitted defaults to the same as `start_hr`/`end_hr`).\
+
+**Multi-window list (YAML):**\
+The `windows:` key in `config.yaml` (or `--windows` flag / `WINDOWS` env var) accepts an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon`. List order defines the daily sequence: the first entry starts first, the last entry ends last. Cross-midnight windows are supported.\
+Example:\
+`--windows '[{name: night, start: "02:00", end: "06:00", max_charge: 3500, forecast_horizon: tomorrow}, {name: midday, start: "12:00", end: "15:00", max_charge: 2000}]'`
 Equal start/end values remain invalid.
 
 Crontab syntax is supported to repeat programmatically the execution of the `schedule` command. By default, it is set to `0 0 0 0 0` which means that the command will be executed once at startup without any repetition or action waiting for mqtt commands (if mqtt is enabled).\

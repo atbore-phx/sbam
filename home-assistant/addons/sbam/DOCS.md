@@ -99,6 +99,9 @@ Before starting, open the Configuration tab and set options as needed.
   - `max_charge` (float, required) — maximum grid charging power in W for this window.
   - `forecast_horizon` (string, optional) — per-window forecast horizon override; defaults to top-level `forecast_horizon`.
   - `consumption_horizon` (string, optional) — per-window consumption horizon override; defaults to top-level `consumption_horizon`.
+  List order defines the daily sequence: the first entry starts first, the last entry ends last.
+  The end time of the final window determines when the inverter is reset to defaults (5 minutes before).
+  Cross-midnight windows are supported (e.g. `start: "22:00", end: "04:00"`).
   Example:
   ```yaml
   windows:
@@ -112,7 +115,7 @@ Before starting, open the Configuration tab and set options as needed.
       end: "15:00"
       max_charge: 2000
   ```
-  This option is also available via CLI `--windows` (repeatable CSV) and `--windows-json` (JSON).
+  This option is also available via CLI `--windows` (YAML string) and the `WINDOWS` environment variable.
 - **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
 - **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
 - **mqtt_client_id**: Optional MQTT client identifier. if empty and MQTT is enabled, SBAM generates a random client ID at runtime.

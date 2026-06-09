@@ -21,7 +21,7 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr,
+var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, w_start_hr, w_end_hr,
 	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon string
@@ -141,14 +141,20 @@ var scdCmd = &cobra.Command{
 				windows[i].Name = fmt.Sprintf("window-%d", i+1)
 			}
 		}
-
+		if len(windows) > 0 {
+			w_start_hr = windows[0].Start
+			w_end_hr = windows[len(windows)-1].End
+		} else {
+			w_start_hr = start_hr
+			w_end_hr = end_hr
+		}
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
-			batt_reserve_start_hr = viper.GetString("start_hr")
+			batt_reserve_start_hr = w_start_hr
 		} else {
 			batt_reserve_start_hr = viper.GetString("batt_reserve_start_hr")
 		}
 		if len(viper.GetString("batt_reserve_end_hr")) == 0 {
-			batt_reserve_end_hr = viper.GetString("end_hr")
+			batt_reserve_end_hr = w_end_hr
 		} else {
 			batt_reserve_end_hr = viper.GetString("batt_reserve_end_hr")
 		}
@@ -178,7 +184,7 @@ var scdCmd = &cobra.Command{
 
 		u.LogStartupParams(cmd)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, windows)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -227,7 +233,7 @@ var scdCmd = &cobra.Command{
 		}
 
 		if crontab != const_ct {
-			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, end_hr); err != nil {
+			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
 				u.Log.Error(err)
 				_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 				stop()
@@ -398,11 +404,9 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 // runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
 	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window) error {
-	// Reject mixing of windows: with legacy start_hr/end_hr in config.yaml.
+
 	if len(windows) > 0 {
-		if viper.InConfig("start_hr") || viper.InConfig("end_hr") {
-			return errors.New("cannot mix 'windows:' with legacy 'start_hr'/'end_hr' keys; remove the legacy keys from your configuration")
-		}
+		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
 		if err := pw.ValidateWindows(windows); err != nil {
 			return fmt.Errorf("invalid windows configuration: %w", err)
 		}
@@ -417,17 +421,22 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
-		return err
-	} else if len(crontab) == 0 {
+	} else if len(windows) == 0 {
+		// Legacy window validation — skipped when windows: is configured.
+		if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
+			return err
+		}
+		if max_charge < 0 {
+			err := errors.New("max_charge must to be float > 0")
+			return err
+		}
+	}
+	if len(crontab) == 0 {
 		fmt.Printf("the --crontab must be set")
 		err := errors.New("crontab must to be integer > 0")
 		return err
 	} else if pw_consumption < 0 {
 		err := errors.New("pw_consumption must to be float > 0")
-		return err
-	} else if max_charge < 0 {
-		err := errors.New("max_charge must to be float > 0")
 		return err
 	} else if pw_lwt < 0 {
 		err := errors.New("pw_lwt must to be float > 0")
