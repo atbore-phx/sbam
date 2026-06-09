@@ -73,8 +73,11 @@ main_test.go                 # CLI-level tests
 pkg/
   cmd/
     root.go                   - Cobra root command, Viper config loading
+    root_test.go              - Unit tests for the root command
     configure.go              - `configure` command: battery defaults & force charge
+    configure_test.go         - Unit tests for the configure command
     estimate.go               - `estimate` command: display forecast & battery state
+    estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
@@ -82,12 +85,15 @@ pkg/
     schedule_validation_test.go - Unit tests for schedule parameter validation
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
+    schedule_cron_test.go     - Unit tests for cron-based scheduling
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
     config_schema_test.go     - Unit tests for HA add-on config.json schema regex validation
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher
     modbus.go                 - Modbus TCP client (open, read, write, close)
+    classify.go               - Battery charge classification logic
+    classify_test.go          - Unit tests for charge classification
     configure.go              - Modbus register writing (SetDefaults, ForceCharge)
     schedule.go               - Battery charging algorithm
     error.go                  - Error handling utilities
@@ -125,6 +131,7 @@ src/
   utils/
     log.go                    - Centralized zap logger initialization
     error.go                  - Error handling helpers (HandleError, HandleErrorPanic)
+    error_test.go             - Unit tests for error handling helpers
     startup.go                - Startup parameters dump (DumpStartupParams, SecretKeys)
     startup_test.go           - Unit tests for the startup dump helper
 
@@ -230,10 +237,15 @@ Plans are written to `docs/plans/YYYY-MM-DD-NNN-<type>-<name>-plan.md`. Historic
 
 ### Guardrails
 
-- Tests: run `make test` locally; the PR must pass CI tests
-- Review: at least one reviewer must sign off on generated code
-- Secrets: never commit real API keys or credentials; use placeholders
-- Scope: keep each generated PR small and focused
+- **Format:** run `make fmt` to format Go code.
+- **Tidy:** run `make tidy` to clean up module dependencies.
+- **Vet:** run `make vet` to catch suspicious constructs.
+- **Test:** run `make test` locally; the PR must pass CI tests.
+- **Build:** run `make build` to verify the binary compiles.
+- **All:** run `make all` to execute the full pipeline (fmt → tidy → vet → test → build).
+- **Review:** at least one reviewer must sign off on generated code.
+- **Secrets:** never commit real API keys or credentials; use placeholders.
+- **Scope:** keep each generated PR small and focused.
 
 ---
 
