@@ -1,5 +1,17 @@
 ## Unreleased
 
+### Multi-window charging schedule
+
+New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_charge` triple with an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon` overrides. Key highlights:
+
+- Define multiple charge windows per day (e.g. night 02:00–06:00 and midday 12:00–15:00) with independent power limits and horizons.
+- Cross-midnight windows supported (e.g. 22:00–04:00).
+- Overlap detection rejects misconfigured windows at startup.
+- Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
+- Mixing `windows` with legacy keys is rejected with a clear error.
+- MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
+- CLI flags: `--windows` (repeatable CSV) and `--windows-json` (JSON array). Env var: `WINDOWS_JSON`.
+
 ### Configurable forecast and consumption horizons
 
 New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:

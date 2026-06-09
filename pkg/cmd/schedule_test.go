@@ -467,49 +467,49 @@ func TestMakeBasePayloadSetsCommonFields(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckScheduleschedule_EmptyFroniusIP(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fronius_ip")
 }
 
 func TestCheckScheduleschedule_EmptyApiKey(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "apikey")
 }
 
 func TestCheckScheduleschedule_EmptyURL(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "url")
 }
 
 func TestCheckScheduleschedule_EmptyCrontab(t *testing.T) {
-	err := checkScheduleschedule("", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "crontab")
 }
 
 func TestCheckScheduleschedule_NegativePWConsumption(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", -1, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", -1, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_consumption")
 }
 
 func TestCheckScheduleschedule_NegativeMaxCharge(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, -1, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, -1, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max_charge")
 }
 
 func TestCheckScheduleschedule_InvalidWindow(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "bad", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "bad", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid start_hr")
 }
 
 func TestCheckScheduleschedule_BattReserveNotContained(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "06:00")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "06:00", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "batt_reserve_start_hr")
 }
@@ -524,7 +524,7 @@ func TestCheckScheduleschedule_InvalidCacheTime(t *testing.T) {
 	s_cache_time = -1
 	defer func() { s_cache_time = oldCacheTime }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cache_time")
 }
@@ -539,7 +539,7 @@ func TestCheckScheduleschedule_CacheTimeTooLarge(t *testing.T) {
 	s_cache_time = 90000
 	defer func() { s_cache_time = oldCacheTime }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cache_time")
 }
@@ -560,7 +560,7 @@ func TestCheckScheduleschedule_InvalidForecastHorizon(t *testing.T) {
 	forecast_horizon = "invalid_horizon"
 	defer func() { forecast_horizon = oldForecastHorizon }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forecast_horizon")
 }
@@ -581,7 +581,7 @@ func TestCheckScheduleschedule_InvalidConsumptionHorizon(t *testing.T) {
 	consumption_horizon = "invalid_horizon"
 	defer func() { consumption_horizon = oldConsumptionHorizon }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59")
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "consumption_horizon")
 }

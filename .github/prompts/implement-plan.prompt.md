@@ -123,8 +123,7 @@ Implementation is complete when:
 
 - Every acceptance criterion in the TASK is satisfied.
 - Every blueprint step in the PLAN is checked off or explicitly marked deferred with rationale.
-- code is well formatted with `go fmt ./...`
-- `make tidy`, `make vet`, `make test` and `make build` all pass.
+- `make fmt`, `make tidy`, `make vet`, `make test` and `make build` all pass.
 - All sbam conventions in `CLAUDE.md` are upheld.
 - Documentation surfaces are in sync with the change.
 

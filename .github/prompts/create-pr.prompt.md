@@ -55,6 +55,12 @@ git add <file1> <file2> ...
 
 Never stage files that contain secrets (`.env`, `credentials.json`, etc.).
 
+Always Check your settings/config if there are Co-Authors to add, If so, ensure they are properly formatted as per GitHub's co-author syntax:
+
+```Co-authored-by: Name <email>
+   Co-authored-by: Name <email>
+```
+
 Commit using a heredoc:
 
 ```bash

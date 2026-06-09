@@ -92,6 +92,30 @@ Before starting, open the Configuration tab and set options as needed.
   - `tomorrow` — forecast the full next local calendar day.
   - `off` — skip forecast retrieval entirely; only reserve charging is active (no Solcast API calls).
 - **consumption_horizon**: Daily consumption model (default `full_day`). Options: `full_day` (use `pw_consumption` as-is), `remaining_today` (scale proportionally to time remaining in the local day).
+- **windows**: Optional ordered list of charge windows replacing the single `start_hr`/`end_hr`/`max_charge` triple. When configured, legacy `start_hr`/`end_hr` keys must not be specified. Each window accepts:
+  - `name` (string, optional) — human-readable label shown in MQTT/logs; auto-generated if empty.
+  - `start` (string, required) — window start time in `HH:MM` format.
+  - `end` (string, required) — window end time in `HH:MM` format. Cross-midnight ranges are supported.
+  - `max_charge` (float, required) — maximum grid charging power in W for this window.
+  - `forecast_horizon` (string, optional) — per-window forecast horizon override; defaults to top-level `forecast_horizon`.
+  - `consumption_horizon` (string, optional) — per-window consumption horizon override; defaults to top-level `consumption_horizon`.
+  List order defines the daily sequence: the first entry starts first, the last entry ends last.
+  The end time of the final window determines when the inverter is reset to defaults (5 minutes before).
+  Cross-midnight windows are supported (e.g. `start: "22:00", end: "04:00"`).
+  Example:
+  ```yaml
+  windows:
+    - name: "night"
+      start: "02:00"
+      end: "06:00"
+      max_charge: 3500
+      forecast_horizon: "tomorrow"
+    - name: "midday"
+      start: "12:00"
+      end: "15:00"
+      max_charge: 2000
+  ```
+  This option is also available via CLI `--windows` (YAML string) and the `WINDOWS` environment variable.
 - **mqtt_enabled**: Enable MQTT publishing and command/discovery integration (default false).
 - **mqtt_broker**: Optional MQTT broker URL, for example tcp://broker:1883. if empty and MQTT is enabled, SBAM tries to auto-fill from Home Assistant service data.
 - **mqtt_client_id**: Optional MQTT client identifier. if empty and MQTT is enabled, SBAM generates a random client ID at runtime.

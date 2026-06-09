@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
@@ -17,9 +18,10 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	yaml "gopkg.in/yaml.v3"
 )
 
-var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr,
+var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, w_start_hr, w_end_hr,
 	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon string
@@ -116,13 +118,43 @@ var scdCmd = &cobra.Command{
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
 
+		// Resolve windows with flag > env > config.yaml precedence.
+		var windows []pw.Window
+		if f := cmd.Flags().Lookup("windows"); f != nil && f.Changed {
+			if err := yaml.Unmarshal([]byte(f.Value.String()), &windows); err != nil {
+				u.Log.Errorf("invalid --windows flag: %v", err)
+				return
+			}
+		} else if env, ok := os.LookupEnv("WINDOWS"); ok {
+			if err := yaml.Unmarshal([]byte(env), &windows); err != nil {
+				u.Log.Errorf("invalid WINDOWS env var: %v", err)
+				return
+			}
+		} else if viper.InConfig("windows") {
+			if err := viper.UnmarshalKey("windows", &windows); err != nil {
+				u.Log.Errorf("invalid windows in config.yaml: %v", err)
+				return
+			}
+		}
+		for i := range windows {
+			if windows[i].Name == "" {
+				windows[i].Name = fmt.Sprintf("window-%d", i+1)
+			}
+		}
+		if len(windows) > 0 {
+			w_start_hr = windows[0].Start
+			w_end_hr = windows[len(windows)-1].End
+		} else {
+			w_start_hr = start_hr
+			w_end_hr = end_hr
+		}
 		if len(viper.GetString("batt_reserve_start_hr")) == 0 {
-			batt_reserve_start_hr = viper.GetString("start_hr")
+			batt_reserve_start_hr = w_start_hr
 		} else {
 			batt_reserve_start_hr = viper.GetString("batt_reserve_start_hr")
 		}
 		if len(viper.GetString("batt_reserve_end_hr")) == 0 {
-			batt_reserve_end_hr = viper.GetString("end_hr")
+			batt_reserve_end_hr = w_end_hr
 		} else {
 			batt_reserve_end_hr = viper.GetString("batt_reserve_end_hr")
 		}
@@ -152,7 +184,7 @@ var scdCmd = &cobra.Command{
 
 		u.LogStartupParams(cmd)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -172,6 +204,7 @@ var scdCmd = &cobra.Command{
 			PWLWT:              pw_lwt,
 			PWUPT:              pw_upt,
 			CacheForecast:      s_cache_forecast,
+			Windows:            windows,
 			CacheFilePrefix:    s_cache_file_prefix,
 			CacheTime:          s_cache_time,
 			Defaults:           s_defaults,
@@ -200,7 +233,7 @@ var scdCmd = &cobra.Command{
 		}
 
 		if crontab != const_ct {
-			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, end_hr); err != nil {
+			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
 				u.Log.Error(err)
 				_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 				stop()
@@ -256,6 +289,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
+	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -369,7 +403,15 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 // The function intentionally keeps validation local to the command so the
 // runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
-	pw_batt_reserve float64, start_hr, end_hr string) error {
+	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window) error {
+
+	if len(windows) > 0 {
+		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
+		if err := pw.ValidateWindows(windows); err != nil {
+			return fmt.Errorf("invalid windows configuration: %w", err)
+		}
+	}
+
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
 		err := errors.New("the --fronius_ip flag must be set")
 		return err
@@ -379,17 +421,22 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
-		return err
-	} else if len(crontab) == 0 {
+	} else if len(windows) == 0 {
+		// Legacy window validation — skipped when windows: is configured.
+		if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
+			return err
+		}
+		if max_charge < 0 {
+			err := errors.New("max_charge must to be float > 0")
+			return err
+		}
+	}
+	if len(crontab) == 0 {
 		fmt.Printf("the --crontab must be set")
 		err := errors.New("crontab must to be integer > 0")
 		return err
 	} else if pw_consumption < 0 {
 		err := errors.New("pw_consumption must to be float > 0")
-		return err
-	} else if max_charge < 0 {
-		err := errors.New("max_charge must to be float > 0")
 		return err
 	} else if pw_lwt < 0 {
 		err := errors.New("pw_lwt must to be float > 0")
