@@ -35,7 +35,7 @@ var estCmd = &cobra.Command{
 		e_cache_time = viper.GetInt32("cache_time")
 		e_forecast_horizon = viper.GetString("forecast_horizon")
 
-		u.LogStartupParams(cmd)
+		u.LogStartupParams(cmd, nil)
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
