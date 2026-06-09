@@ -62,7 +62,7 @@ func TestDumpStartupParams_Expected(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("apikey", "super-secret-value"))
 	require.NoError(t, bindFlags(cmd))
 
-	out := DumpStartupParams(cmd)
+	out := DumpStartupParams(cmd, nil)
 
 	assert.Contains(t, out, "effective startup parameters (subcommand: schedule)")
 	assert.Contains(t, out, "apikey")
@@ -82,7 +82,7 @@ func TestDumpStartupParams_NumericAndBoolDefaults(t *testing.T) {
 	cmd.Flags().Bool("force_charge", false, "FORCE_CHARGE")
 	require.NoError(t, bindFlags(cmd))
 
-	out := DumpStartupParams(cmd)
+	out := DumpStartupParams(cmd, nil)
 
 	assert.Contains(t, out, "effective startup parameters (subcommand: configure)")
 	assert.Regexp(t, `power\s+=\s+0\s+source=default`, out)
@@ -93,7 +93,7 @@ func TestDumpStartupParams_NoFlagsNoConfig(t *testing.T) {
 	resetViper(t)
 
 	assert.NotPanics(t, func() {
-		out := DumpStartupParams(nil)
+		out := DumpStartupParams(nil, nil)
 		assert.Equal(t, "effective startup parameters", out)
 	})
 }
@@ -105,7 +105,7 @@ func TestDumpStartupParams_AutoDiscoversNewFlag(t *testing.T) {
 	cmd.Flags().String("brand_new_flag", "", "a flag the helper has never seen")
 	require.NoError(t, bindFlags(cmd))
 
-	out := DumpStartupParams(cmd)
+	out := DumpStartupParams(cmd, nil)
 
 	assert.Contains(t, out, "brand_new_flag",
 		"any newly registered flag must appear without editing the helper")
@@ -124,7 +124,7 @@ func TestDumpStartupParams_RedactsRegisteredSecret(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set(secretKey, "should-not-leak"))
 	require.NoError(t, bindFlags(cmd))
 
-	out := DumpStartupParams(cmd)
+	out := DumpStartupParams(cmd, nil)
 
 	assert.NotContains(t, out, "should-not-leak")
 	assert.True(t, strings.Contains(out, "***"),
@@ -141,7 +141,7 @@ func TestDumpStartupParams_RedactsMQTTSecrets(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("mqtt_tls_client_cert_key", "top-secret-key"))
 	require.NoError(t, bindFlags(cmd))
 
-	out := DumpStartupParams(cmd)
+	out := DumpStartupParams(cmd, nil)
 
 	assert.NotContains(t, out, "top-secret-password")
 	assert.NotContains(t, out, "top-secret-key")
@@ -179,5 +179,62 @@ func TestLogStartupParams_DoesNotPanic(t *testing.T) {
 	cmd.Flags().String("foo", "bar", "foo")
 	require.NoError(t, bindFlags(cmd))
 
-	assert.NotPanics(t, func() { LogStartupParams(cmd) })
+	assert.NotPanics(t, func() { LogStartupParams(cmd, nil) })
+}
+
+func TestDumpStartupParams_Extras(t *testing.T) {
+	resetViper(t)
+
+	cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().String("start_hr", "00:00", "START_HR")
+	require.NoError(t, bindFlags(cmd))
+
+	extras := map[string]interface{}{
+		"effective_start_hr": "02:00",
+		"window_count":       3,
+	}
+
+	out := DumpStartupParams(cmd, extras)
+
+	assert.Contains(t, out, "effective startup parameters (subcommand: schedule)")
+	assert.Regexp(t, `effective_start_hr\s+=\s+"02:00"\s+source=computed`, out)
+	assert.Regexp(t, `window_count\s+=\s+3\s+source=computed`, out)
+	// viper key still appears with its own source.
+	assert.Regexp(t, `start_hr\s+=\s+"00:00"\s+source=default`, out)
+}
+
+func TestDumpStartupParams_EmptyKeysWithExtras(t *testing.T) {
+	// viper.Reset clears all keys; even without any viper keys,
+	// extras should still render.
+	viper.Reset()
+	viper.AutomaticEnv()
+	t.Cleanup(viper.Reset)
+
+	extras := map[string]interface{}{
+		"computed_value": "hello",
+	}
+
+	out := DumpStartupParams(nil, extras)
+
+	assert.Contains(t, out, "effective startup parameters")
+	assert.Regexp(t, `computed_value\s+=\s+"hello"\s+source=computed`, out)
+	// No viper keys should appear (there are none).
+	assert.NotContains(t, out, "source=flag")
+	assert.NotContains(t, out, "source=default")
+	assert.NotContains(t, out, "source=env")
+	assert.NotContains(t, out, "source=yaml")
+}
+
+func TestLogStartupParams_WithExtras(t *testing.T) {
+	resetViper(t)
+
+	cmd := &cobra.Command{Use: "probe", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().String("foo", "bar", "foo")
+	require.NoError(t, bindFlags(cmd))
+
+	extras := map[string]interface{}{
+		"derived": 42,
+	}
+
+	assert.NotPanics(t, func() { LogStartupParams(cmd, extras) })
 }
