@@ -70,7 +70,7 @@ func TestCheckScheduleScheduleValid(t *testing.T) {
 		args.pwBattReserve,
 		args.startHr,
 		args.endHr,
-	)
+		nil)
 
 	require.NoError(t, err)
 }
@@ -204,7 +204,7 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 				args.pwBattReserve,
 				args.startHr,
 				args.endHr,
-			)
+				nil)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.errSubstr)
@@ -228,7 +228,7 @@ func TestCheckScheduleScheduleCrossMidnightChargeWindowValid(t *testing.T) {
 		args.pwBattReserve,
 		args.startHr,
 		args.endHr,
-	)
+		nil)
 
 	require.NoError(t, err)
 }
@@ -294,7 +294,7 @@ func TestCheckScheduleScheduleReserveWindowContainment(t *testing.T) {
 				args.pwBattReserve,
 				args.startHr,
 				args.endHr,
-			)
+				nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

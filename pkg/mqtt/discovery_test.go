@@ -180,8 +180,14 @@ func TestBuildDiscoveryTemplatesAndPublish(t *testing.T) {
 		"next_run",
 		"paused",
 		"ts",
+		"active_window",
+		"active_window_max_charge",
+		"active_window_forecast_horizon",
 		"charge_window_active",
 		"batt_reserve_window_active",
+		"active_window",
+		"active_window_max_charge",
+		"active_window_forecast_horizon",
 	}
 
 	for _, entity := range entities {
