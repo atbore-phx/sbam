@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const runnerIntentQueueSize = 16
+const (
+	runnerIntentQueueSize  = 16
+	chargeCooldownMinutes  = 5
+)
 
 var (
 	errRunnerIntentQueueFull = errors.New("runner intent queue is full")
@@ -200,6 +203,21 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		capMax := capacityMax
 
 		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
+		payload.BatterySOCPct = &socPct
+		payload.BatteryCapacityWh = &capMax
+		r.publishState(payload)
+		return nil
+	}
+
+	inCooldown, cooldownErr := isInCooldown(now, r.cfg.StartHR, r.cfg.EndHR, chargeCooldownMinutes)
+	if cooldownErr != nil {
+		r.publishError(ctx, "tick", cooldownErr)
+		return cooldownErr
+	}
+	if inCooldown {
+		u.Log.Info("cooldown active — charge decisions suppressed near window end")
+		capMax := capacityMax
+		payload := makeBasePayload("cooldown", "charge decisions suppressed near window end", inChargeWindow, reserveWindowActive)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
 		r.publishState(payload)
@@ -520,6 +538,31 @@ func (r *Runner) pauseStateAt(now time.Time) (bool, *time.Time) {
 
 	copyUntil := until
 	return true, &copyUntil
+}
+
+// isInCooldown returns true when the provided `now` falls within the
+// cooldown period — the last cooldownMinutes before endHR in a same-day
+// or cross-midnight window. The cooldown duration is a proximity check
+// (distance to end_hr), structurally distinct from checkTimeRangeAt's
+// containment check, but uses the same clock parsing, timezone handling,
+// and cross-midnight day adjustment.
+func isInCooldown(now time.Time, startHR, endHR string, cooldownMinutes int) (bool, error) {
+	startTime, endTime, err := validateScheduleWindow("start_hr", startHR, "end_hr", endHR)
+	if err != nil {
+		return false, err
+	}
+
+	endAt := time.Date(now.Year(), now.Month(), now.Day(), endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
+
+	if isCrossMidnightWindow(startTime, endTime) {
+		startAt := time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
+		if now.After(startAt) || now.Equal(startAt) {
+			endAt = endAt.Add(24 * time.Hour)
+		}
+	}
+
+	cooldownStart := endAt.Add(-time.Duration(cooldownMinutes) * time.Minute)
+	return !now.Before(cooldownStart) && now.Before(endAt), nil
 }
 
 // isCrossMidnightWindow returns true when the start clock time is strictly
