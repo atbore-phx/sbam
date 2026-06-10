@@ -1,1 +1,0 @@
-Read and execute the instructions in `.github/prompts/implement-plan.prompt.md` verbatim. The user invoked this as `/implement-plan <feature-name>`. Use the `<feature-name>` argument (if provided) exactly as described in the "Resolving the PLAN" section of that prompt. If no argument was given, ask for one before doing anything else.

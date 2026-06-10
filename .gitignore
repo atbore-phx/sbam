@@ -29,5 +29,8 @@ go.work
 # config yaml files
 config.yaml
 
+# Compound Engineering local config
+.compound-engineering/*.local.yaml
+
 #ide
 .vscode

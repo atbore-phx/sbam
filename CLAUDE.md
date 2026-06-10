@@ -52,14 +52,12 @@ The application must be:
 
 ```
 .claude/
-  commands/                   - Claude Code slash commands (delegate to .github/prompts/)
 .github/
   ISSUE_TEMPLATE/
     bug_report.yml            - GitHub issue form for bug reports
     feature_request.yml       - GitHub issue form for feature requests
     config.yml                - Issue template chooser policy (blank issues disabled)
   dependabot.yml              - Dependabot updates for Go modules, GitHub Actions, and Dockerfiles
-  prompts/                    - Workflow prompts (generate-plan-*, implement-plan, create-pr) — single source of truth for both Copilot and Claude Code
   workflows/                  - CI/CD workflow definitions
   actions/
     build-ha-addon/           - Composite action: build Go binary + HA add-on Docker image
@@ -67,7 +65,7 @@ The application must be:
 docs/
   prereq.md                   - Prerequisites required to run sbam
   mqtt.md                     - Detailed MQTT feed and Home Assistant discovery documentation
-  vibe/                       - Contributor workflow docs for TASK/PLAN prompt usage
+  vibe/                       - Contributor workflow docs for Compound Engineering skills
 
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
@@ -75,8 +73,11 @@ main_test.go                 # CLI-level tests
 pkg/
   cmd/
     root.go                   - Cobra root command, Viper config loading
+    root_test.go              - Unit tests for the root command
     configure.go              - `configure` command: battery defaults & force charge
+    configure_test.go         - Unit tests for the configure command
     estimate.go               - `estimate` command: display forecast & battery state
+    estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
@@ -84,12 +85,15 @@ pkg/
     schedule_validation_test.go - Unit tests for schedule parameter validation
     schedule_mqtt_wiring_test.go - Unit tests for MQTT command subscription wiring and latest-state re-publish behavior
     schedule_lifecycle_test.go - Unit tests for runner lifecycle behavior in no-cron MQTT/no-MQTT modes
+    schedule_cron_test.go     - Unit tests for cron-based scheduling
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
     config_schema_test.go     - Unit tests for HA add-on config.json schema regex validation
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher
     modbus.go                 - Modbus TCP client (open, read, write, close)
+    classify.go               - Battery charge classification logic
+    classify_test.go          - Unit tests for charge classification
     configure.go              - Modbus register writing (SetDefaults, ForceCharge)
     schedule.go               - Battery charging algorithm
     error.go                  - Error handling utilities
@@ -127,6 +131,7 @@ src/
   utils/
     log.go                    - Centralized zap logger initialization
     error.go                  - Error handling helpers (HandleError, HandleErrorPanic)
+    error_test.go             - Unit tests for error handling helpers
     startup.go                - Startup parameters dump (DumpStartupParams, SecretKeys)
     startup_test.go           - Unit tests for the startup dump helper
 
@@ -141,7 +146,7 @@ Important:
 If you add, remove, rename, or move files or directories in this repository, update the "Project Structure" list above to reflect those changes.
 
 Do not track:
-- docs/implementations/ in the project structure as these are generated and managed by the implementation workflow.
+- docs/plans/ in the project structure as these are generated and managed by the Compound Engineering workflow.
 
 Rules:
 
@@ -201,39 +206,46 @@ Rules:
 
 ---
 
-## Claude Code Workflow
+## Compound Engineering Workflow
 
-This project uses a prompt-driven workflow for feature development. Features are designed and shipped in three repeatable steps. Each feature lives in its own directory under `docs/implementations/<feature-name>/` and contains exactly two managed files:
+This project uses Compound Engineering skills for feature development. The workflow is anchored by `STRATEGY.md` (product direction) and `CLAUDE.md` (coding standards).
 
-- `<feature-name>-TASK.md` — human-facing feature request and requirements
-- `<feature-name>-PLAN.md` — agent-facing implementation plan
+### Available skills
 
-### Available Prompts
+| Skill | Purpose | Old prompt equivalent |
+|---|---|---|
+| `/ce-strategy` | Create or update product strategy (`STRATEGY.md`) | (none) |
+| `/ce-brainstorm` | Explore requirements and define what to build | `/generate-plan-local` (without an issue) |
+| `/ce-plan` | Create a technical implementation plan | `/generate-plan-from-issue` or `/generate-plan-local` |
+| `/ce-work` | Execute the plan and implement changes | `/implement-plan` |
+| `/ce-code-review` | Structured code review before merging | (none) |
+| `/ce-commit-push-pr` | Commit, push, and open a pull request | `/create-pr` |
 
-some prompts are available in `.github/prompts/` for reference and iteration. The main ones are:
-
-- `/generate-plan-local <feature-name>` — interactive authoring of TASK + PLAN from scratch (or refinement of an existing TASK)
-- `/generate-plan-from-issue <issue-ref>` — same as above but seeded from a GitHub issue
-- `/implement-plan <feature-name>` — executes the PLAN, runs validation gates, and updates documentation surfaces
-- `/create-pr [base-branch] [--ready] [--label <labels>]` — commits all changed files and opens a pull request
+Plans are written to `docs/plans/YYYY-MM-DD-NNN-<type>-<name>-plan.md`. Historical TASK+PLAN files from the pre-CE prompt workflow live under `docs/implementations/archive/`.
 
 ### Workflow
 
-1. Generate a PLAN using `/generate-plan-from-issue <N>` or `/generate-plan-local <slug>`
-2. Review the generated `TASK.md` and `PLAN.md` under `docs/implementations/<feature>/`
-3. Answer clarifications added by the agent, update the TASK if needed
-4. Implement changes locally on a feature branch
-5. Add or update unit and integration tests as appropriate
+1. Optionally run `/ce-strategy` to ground product direction.
+2. For new ideas, start with `/ce-brainstorm` to define requirements, then `/ce-plan` to produce a technical plan.
+3. For work scoped in an existing GitHub issue, run `/ce-plan` directly from the issue.
+4. Execute the plan with `/ce-work <plan-path>`.
+5. Add or update unit and integration tests as appropriate.
 6. Run validation: `make test`, `make build`, `make all` to ensure everything works locally.
-7. Open a **draft PR** referencing the issue and the generated PLAN
-8. Request at least one human reviewer and ensure CI passes before converting from draft
+7. Run `/ce-code-review` to review changes before opening a PR.
+8. Ship with `/ce-commit-push-pr` — opens a draft PR with a value-first description.
+9. Request at least one human reviewer and ensure CI passes before converting from draft.
 
 ### Guardrails
 
-- Tests: run `make test` locally; the PR must pass CI tests
-- Review: at least one reviewer must sign off on generated code
-- Secrets: never commit real API keys or credentials; use placeholders
-- Scope: keep each generated PR small and focused
+- **Format:** run `make fmt` to format Go code.
+- **Tidy:** run `make tidy` to clean up module dependencies.
+- **Vet:** run `make vet` to catch suspicious constructs.
+- **Test:** run `make test` locally; the PR must pass CI tests.
+- **Build:** run `make build` to verify the binary compiles.
+- **All:** run `make all` to execute the full pipeline (fmt → tidy → vet → test → build).
+- **Review:** at least one reviewer must sign off on generated code.
+- **Secrets:** never commit real API keys or credentials; use placeholders.
+- **Scope:** keep each generated PR small and focused.
 
 ---
 

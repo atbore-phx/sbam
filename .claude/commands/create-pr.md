@@ -1,1 +1,0 @@
-The user invoked this as `/create-pr [base-branch] [--ready] [--label <labels>]`. Read and execute the instructions in `.github/prompts/create-pr.prompt.md` verbatim. Use the arguments as described in that prompt.
