@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	runnerIntentQueueSize  = 16
-	chargeCooldownMinutes  = 5
+	runnerIntentQueueSize = 16
+	chargeCooldownMinutes = 5
 )
 
 var (

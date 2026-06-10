@@ -540,7 +540,6 @@ func TestRunner_HandleCommandQueueFullKeepsExistingItems(t *testing.T) {
 	}
 }
 
-
 func TestIsInCooldown_SameDayWindow(t *testing.T) {
 	loc := time.UTC
 	tests := []struct {
