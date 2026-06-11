@@ -536,6 +536,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 		if err != nil {
 			return err
 		}
+		u.Log.Infof("Battery will be reset to defaults daily at %s (end_hr - 5 min)", endTime.Format(layout))
 	}
 
 	c.Start()

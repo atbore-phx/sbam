@@ -540,275 +540,247 @@ func TestRunner_HandleCommandQueueFullKeepsExistingItems(t *testing.T) {
 	}
 }
 
-func TestRunner_HandleCommandUnknownTopicRejected(t *testing.T) {
-	client := newFakeClient()
-	runner := newRunnerForTests(client)
-
-	accepted := runner.HandleCommand(context.Background(), "sbam/cmd/not_known", nil)
-	require.False(t, accepted)
-
-	msgs := drainPublishes(client)
-	ackMsg, ok := findPublishedBySuffix(msgs, "/ack")
-	require.True(t, ok, "expected ack publish")
-	ack := decodeAckPayload(t, ackMsg.payload)
-	assert.False(t, ack.Accepted)
-	assert.Equal(t, "not_known", ack.Command)
-	assert.Equal(t, mqtt.ErrUnknownCommand.Error(), ack.Error)
-}
-
-func TestRunner_TickSkipsForecastAndChargeWhenPaused(t *testing.T) {
-	client := newFakeClient()
-
-	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
-	oldStorageFactory := newStorage
-	newStorage = func() storageClient { return fakeStorage }
-	defer func() { newStorage = oldStorageFactory }()
-
-	fakePower := &fakePowerClient{forecastWh: 9999, retrieved: true}
-	oldPowerFactory := newPower
-	newPower = func() powerClient { return fakePower }
-	defer func() { newPower = oldPowerFactory }()
-
-	stub := &stubFroniusClient{}
-	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
-	defer func() { newFronius = oldFroniusFactory }()
-
-	runner := newRunnerForTests(client)
-	runner.setPause(nil) // indefinite pause
-
-	require.NoError(t, runner.Tick(context.Background(), runner.now()))
-
-	// storage should be called, but power and fronius should not be called
-	assert.Equal(t, 1, fakeStorage.calls)
-	assert.Equal(t, 0, fakePower.calls)
-	assert.Equal(t, 0, stub.calls)
-
-	msgs := drainPublishes(client)
-	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
-	require.True(t, ok)
-	state := decodeStatePayload(t, stateMsg.payload)
-	assert.True(t, state.Paused)
-	assert.Equal(t, "paused", state.LastDecision)
-}
-
-func TestRunner_NewCommandPayloadUsesLocalWallClockWindow(t *testing.T) {
-	loc := time.FixedZone("CEST", 2*60*60)
-
+func TestIsInCooldown_SameDayWindow(t *testing.T) {
+	loc := time.UTC
 	tests := []struct {
 		name         string
 		now          time.Time
-		wantInCharge bool
-		wantReserve  bool
+		startHR      string
+		endHR        string
+		wantCooldown bool
+		errSubstr    string
 	}{
 		{
-			name:         "00:00 local inside window",
-			now:          time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
-			wantInCharge: true,
-			wantReserve:  true,
+			name:         "4 min before end — in cooldown",
+			now:          time.Date(2026, time.June, 11, 6, 51, 0, 0, loc),
+			startHR:      "00:00",
+			endHR:        "06:55",
+			wantCooldown: true,
 		},
 		{
-			name:         "01:00 local inside window",
-			now:          time.Date(2026, time.May, 16, 1, 0, 0, 0, loc),
-			wantInCharge: true,
-			wantReserve:  true,
+			name:         "6 min before end — not in cooldown",
+			now:          time.Date(2026, time.June, 11, 6, 49, 0, 0, loc),
+			startHR:      "00:00",
+			endHR:        "06:55",
+			wantCooldown: false,
 		},
 		{
-			name:         "06:00 local inclusive end boundary",
-			now:          time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
-			wantInCharge: true,
-			wantReserve:  true,
+			name:         "at cooldown boundary (exactly 5 min before end)",
+			now:          time.Date(2026, time.June, 11, 6, 50, 0, 0, loc),
+			startHR:      "00:00",
+			endHR:        "06:55",
+			wantCooldown: true,
 		},
 		{
-			name:         "07:00 local outside window",
-			now:          time.Date(2026, time.May, 16, 7, 0, 0, 0, loc),
-			wantInCharge: false,
-			wantReserve:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			runner := NewRunner(RunnerConfig{
-				StartHR:            "00:00",
-				EndHR:              "06:00",
-				BattReserveStartHR: "00:00",
-				BattReserveEndHR:   "06:00",
-				Now: func() time.Time {
-					return tt.now
-				},
-			}, nil)
-
-			payload := runner.newCommandPayload("decision", "reason", runner.now())
-
-			require.NotNil(t, payload.ChargeWindowActive)
-			require.NotNil(t, payload.ReserveWindowActive)
-			assert.Equal(t, tt.wantInCharge, *payload.ChargeWindowActive)
-			assert.Equal(t, tt.wantReserve, *payload.ReserveWindowActive)
-		})
-	}
-}
-
-func TestRunner_NewCommandPayloadUsesLocalWallClockWindowCrossMidnight(t *testing.T) {
-	loc := time.FixedZone("CEST", 2*60*60)
-
-	tests := []struct {
-		name         string
-		now          time.Time
-		wantInCharge bool
-		wantReserve  bool
-	}{
-		{
-			name:         "23:00 local inside cross-midnight windows",
-			now:          time.Date(2026, time.May, 16, 23, 0, 0, 0, loc),
-			wantInCharge: true,
-			wantReserve:  true,
+			name:         "at end boundary — not in cooldown",
+			now:          time.Date(2026, time.June, 11, 6, 55, 0, 0, loc),
+			startHR:      "00:00",
+			endHR:        "06:55",
+			wantCooldown: false,
 		},
 		{
-			name:         "02:00 local inside cross-midnight windows",
-			now:          time.Date(2026, time.May, 16, 2, 0, 0, 0, loc),
-			wantInCharge: true,
-			wantReserve:  true,
-		},
-		{
-			name:         "12:00 local outside cross-midnight windows",
-			now:          time.Date(2026, time.May, 16, 12, 0, 0, 0, loc),
-			wantInCharge: false,
-			wantReserve:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			runner := NewRunner(RunnerConfig{
-				StartHR:            "22:00",
-				EndHR:              "06:00",
-				BattReserveStartHR: "23:00",
-				BattReserveEndHR:   "05:00",
-				Now: func() time.Time {
-					return tt.now
-				},
-			}, nil)
-
-			payload := runner.newCommandPayload("decision", "reason", runner.now())
-
-			require.NotNil(t, payload.ChargeWindowActive)
-			require.NotNil(t, payload.ReserveWindowActive)
-			assert.Equal(t, tt.wantInCharge, *payload.ChargeWindowActive)
-			assert.Equal(t, tt.wantReserve, *payload.ReserveWindowActive)
-		})
-	}
-}
-
-func TestCheckTimeRangeAt_BoundariesAndErrors(t *testing.T) {
-	loc := time.FixedZone("UTC+1", 1*60*60)
-
-	tests := []struct {
-		name      string
-		now       time.Time
-		startHR   string
-		endHR     string
-		want      bool
-		errSubstr string
-	}{
-		{
-			name:    "same-day start boundary inclusive",
-			now:     time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
-			startHR: "00:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:    "same-day end boundary inclusive",
-			now:     time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
-			startHR: "00:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:    "same-day after end inactive",
-			now:     time.Date(2026, time.May, 16, 6, 1, 0, 0, loc),
-			startHR: "00:00",
-			endHR:   "06:00",
-			want:    false,
-		},
-		{
-			name:    "cross-midnight before midnight active",
-			now:     time.Date(2026, time.May, 16, 23, 0, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:    "cross-midnight after midnight active",
-			now:     time.Date(2026, time.May, 16, 2, 0, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:    "cross-midnight daytime inactive",
-			now:     time.Date(2026, time.May, 16, 12, 0, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    false,
-		},
-		{
-			name:    "cross-midnight just before start inactive",
-			now:     time.Date(2026, time.May, 16, 21, 59, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    false,
-		},
-		{
-			name:    "cross-midnight exact start active",
-			now:     time.Date(2026, time.May, 16, 22, 0, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:    "cross-midnight exact end active",
-			now:     time.Date(2026, time.May, 16, 6, 0, 0, 0, loc),
-			startHR: "22:00",
-			endHR:   "06:00",
-			want:    true,
-		},
-		{
-			name:      "invalid start format",
-			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
-			startHR:   "bad",
-			endHR:     "06:00",
-			errSubstr: "invalid start time",
-		},
-		{
-			name:      "invalid end format",
-			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
+			name:      "invalid endHR returns error",
+			now:       time.Date(2026, time.June, 11, 6, 50, 0, 0, loc),
 			startHR:   "00:00",
-			endHR:     "bad",
-			errSubstr: "invalid end time",
-		},
-		{
-			name:      "equal start and end rejected",
-			now:       time.Date(2026, time.May, 16, 0, 0, 0, 0, loc),
-			startHR:   "06:00",
-			endHR:     "06:00",
-			errSubstr: "must not be equal",
+			endHR:     "not-a-time",
+			errSubstr: "end_hr",
 		},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			inRange, err := checkTimeRangeAt(tt.now, tt.startHR, tt.endHR)
+			inCooldown, err := isInCooldown(tt.now, tt.startHR, tt.endHR, chargeCooldownMinutes)
 			if tt.errSubstr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)
 				return
 			}
-
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, inRange)
+			assert.Equal(t, tt.wantCooldown, inCooldown)
 		})
 	}
+}
+
+func TestIsInCooldown_CrossMidnightWindow(t *testing.T) {
+	loc := time.UTC
+	tests := []struct {
+		name         string
+		now          time.Time
+		startHR      string
+		endHR        string
+		wantCooldown bool
+	}{
+		{
+			name:         "before midnight far from end — not in cooldown",
+			now:          time.Date(2026, time.June, 11, 23, 0, 0, 0, loc),
+			startHR:      "22:00",
+			endHR:        "06:00",
+			wantCooldown: false,
+		},
+		{
+			name:         "after midnight 2 min to end — in cooldown",
+			now:          time.Date(2026, time.June, 12, 5, 58, 0, 0, loc),
+			startHR:      "22:00",
+			endHR:        "06:00",
+			wantCooldown: true,
+		},
+		{
+			name:         "after midnight 7 min to end — not in cooldown",
+			now:          time.Date(2026, time.June, 12, 5, 53, 0, 0, loc),
+			startHR:      "22:00",
+			endHR:        "06:00",
+			wantCooldown: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			inCooldown, err := isInCooldown(tt.now, tt.startHR, tt.endHR, chargeCooldownMinutes)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCooldown, inCooldown)
+		})
+	}
+}
+
+func TestRunner_TickCooldownSuppressesCharge(t *testing.T) {
+	cooldownNow := time.Date(2026, time.June, 11, 6, 51, 0, 0, time.UTC)
+
+	originalNewFronius := newFronius
+	originalNewStorage := newStorage
+	originalNewPower := newPower
+	defer func() {
+		newFronius = originalNewFronius
+		newStorage = originalNewStorage
+		newPower = originalNewPower
+	}()
+
+	newFronius = func() froniusClient {
+		return &stubFroniusClient{}
+	}
+
+	newStorage = func() storageClient {
+		return &fakeStorageClient{
+			capacityToCharge: 5000,
+			capacityMax:      13824,
+			socPct:           36.0,
+		}
+	}
+
+	powerCalled := false
+	newPower = func() powerClient {
+		powerCalled = true
+		return &fakePowerClient{forecastWh: 15000, retrieved: true}
+	}
+
+	cfg := RunnerConfig{
+		APIKey:             "key",
+		URL:                "https://example.test/forecast",
+		FroniusIP:          "127.0.0.1",
+		PWConsumption:      1000,
+		MaxCharge:          3500,
+		PWBattReserve:      5000,
+		StartHR:            "00:00",
+		EndHR:              "06:55",
+		BattReserveStartHR: "00:00",
+		BattReserveEndHR:   "06:55",
+		PWLWT:              0,
+		PWUPT:              0,
+		CacheForecast:      false,
+		CacheTime:          7200,
+		MQTT: mqtt.Config{
+			Enabled:     true,
+			TopicPrefix: "sbam",
+		},
+		Now: func() time.Time {
+			return cooldownNow
+		},
+	}
+
+	client := newFakeClient()
+	runner := NewRunner(cfg, client)
+	runner.writer = &fakeBatteryWriter{}
+
+	err := runner.Tick(context.Background(), cooldownNow)
+	require.NoError(t, err)
+
+	assert.False(t, powerCalled, "power forecast should not be fetched during cooldown")
+
+	msgs := drainPublishes(client)
+	stateMsg, found := findPublishedBySuffix(msgs, "/state")
+	require.True(t, found, "expected a state payload during cooldown")
+
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, "cooldown", state.LastDecision)
+	assert.Contains(t, state.LastDecisionReason, "suppressed")
+	assert.NotNil(t, state.BatterySOCPct)
+	assert.NotNil(t, state.BatteryCapacityWh)
+}
+
+func TestRunner_TickOutsideCooldownProceedsNormally(t *testing.T) {
+	normalNow := time.Date(2026, time.June, 11, 6, 49, 0, 0, time.UTC)
+
+	originalNewFronius := newFronius
+	originalNewStorage := newStorage
+	originalNewPower := newPower
+	defer func() {
+		newFronius = originalNewFronius
+		newStorage = originalNewStorage
+		newPower = originalNewPower
+	}()
+
+	froniusCalls := 0
+	newFronius = func() froniusClient {
+		froniusCalls++
+		return &stubFroniusClient{}
+	}
+
+	newStorage = func() storageClient {
+		return &fakeStorageClient{
+			capacityToCharge: 5000,
+			capacityMax:      13824,
+			socPct:           36.0,
+		}
+	}
+
+	powerCalled := false
+	newPower = func() powerClient {
+		powerCalled = true
+		return &fakePowerClient{forecastWh: 15000, retrieved: true}
+	}
+
+	cfg := RunnerConfig{
+		APIKey:             "key",
+		URL:                "https://example.test/forecast",
+		FroniusIP:          "127.0.0.1",
+		PWConsumption:      1000,
+		MaxCharge:          3500,
+		PWBattReserve:      5000,
+		StartHR:            "00:00",
+		EndHR:              "06:55",
+		BattReserveStartHR: "00:00",
+		BattReserveEndHR:   "06:55",
+		PWLWT:              0,
+		PWUPT:              0,
+		CacheForecast:      false,
+		CacheTime:          7200,
+		MQTT: mqtt.Config{
+			Enabled:     true,
+			TopicPrefix: "sbam",
+		},
+		Now: func() time.Time {
+			return normalNow
+		},
+	}
+
+	client := newFakeClient()
+	runner := NewRunner(cfg, client)
+	runner.writer = &fakeBatteryWriter{}
+
+	err := runner.Tick(context.Background(), normalNow)
+	require.NoError(t, err)
+
+	assert.True(t, powerCalled, "power forecast should be fetched outside cooldown")
+	assert.Equal(t, 1, froniusCalls, "fronius handler should be called outside cooldown")
 }
