@@ -6,6 +6,8 @@ Fixed a race condition where the battery could remain in force-charge mode after
 
 The fix adds a 5-minute cooldown at the tail of the charging window: no new charge decisions are made in the last 5 minutes before `end_hr`, ensuring the reset cannot be overridden.
 
+Thanks [@travellingkiwi](https://github.com/travellingkiwi) for reporting this in [#165](https://github.com/atbore-phx/sbam/issues/165).
+
 ## What's New in v2.0.1
 
 ### ARM64/aarch64 Build Fix
