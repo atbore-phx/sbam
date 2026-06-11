@@ -247,3 +247,71 @@ func TestValidateWindows_CrossMidnightValid(t *testing.T) {
 	err := ValidateWindows(windows)
 	assert.NoError(t, err)
 }
+
+// --- Windows-mode field validation tests ---
+
+func intPtr(v int) *int   { return &v }
+func boolPtr(v bool) *bool { return &v }
+
+func TestValidateWindows_TickMinutesValid(t *testing.T) {
+	windows := []Window{
+		{Name: "fast", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(30)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_TickMinutesZeroRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(0)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tick_minutes")
+}
+
+func TestValidateWindows_TickMinutesNegativeRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(-1)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tick_minutes")
+}
+
+func TestValidateWindows_DefaultsAndBeforeEndValid(t *testing.T) {
+	windows := []Window{
+		{Name: "with-defaults", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(10)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_BeforeEndDefaultsZeroValid(t *testing.T) {
+	windows := []Window{
+		{Name: "at-end", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(0)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_BeforeEndDefaultsNegativeRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(-1)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "before_end_defaults")
+}
+
+func TestValidateWindows_NewFieldsOptional(t *testing.T) {
+	// A window without any of the new fields should still validate.
+	windows := []Window{
+		{Name: "plain", Start: "06:00", End: "07:00", MaxCharge: 3500},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
