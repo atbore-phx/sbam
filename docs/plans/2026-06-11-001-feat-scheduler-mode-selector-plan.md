@@ -56,7 +56,7 @@ The schedule runner currently decides between legacy single-window and multi-win
 
 - **`auto` value defined but hidden.** The value exists so early adopters can manually set it and get a useful rejection message, but it is excluded from HA schema and CLI help to avoid presenting a non-functional option.
 
-- **`tick_minutes`, `defaults`, and `before_end_defaults` are optional pointer fields on Window.** Using `*int` / `*bool` with `omitempty` tags so zero values don't serialize and existing configs are unaffected. Validation rejects negative or zero values.
+- **`tick_minutes`, `defaults`, and `before_end_defaults` are optional pointer fields on Window.** Using `*int` / `*bool` with `omitempty` tags so zero values don't serialize and existing configs are unaffected. Validation rejects negative values and `tick_minutes` of zero. `before_end_defaults` of zero is valid (fires at window end).
 
 - **Deprecation warning on MQTT, not just logs.** HA users monitor dashboards, not container logs. The `StatePayload` gains a `deprecation_warning` string field, published once at startup when crontab mode is active.
 
@@ -71,7 +71,7 @@ The schedule runner currently decides between legacy single-window and multi-win
 - **Dependencies:** None
 - **Files:**
   - `pkg/power/window.go` — add fields to Window struct, update `validateWindowFields`
-- **Approach:** Add three pointer fields with `omitempty` tags to the Window struct: `TickMinutes *int`, `Defaults *bool`, `BeforeEndDefaults *int`. Update `validateWindowFields` to reject `TickMinutes <= 0` when set, reject `Defaults: true` when `TickMinutes` is set and conflicting (adjacent concern — defer to U5), and reject `BeforeEndDefaults <= 0` when `Defaults` is set. Use the existing field-validation pattern (early return on first error).
+- **Approach:** Add three pointer fields with `omitempty` tags to the Window struct: `TickMinutes *int`, `Defaults *bool`, `BeforeEndDefaults *int`. Update `validateWindowFields` to reject `TickMinutes <= 0` when set and reject `BeforeEndDefaults < 0` when `Defaults` is set. A value of `0` is valid — it means set_defaults fires at the exact window end time. Use the existing field-validation pattern (early return on first error).
 - **Patterns to follow:** Existing optional fields `ForecastHorizon` and `ConsumptionHorizon` on Window struct (`pkg/power/window.go:34-41`). The `validateWindowFields` pattern at `pkg/power/window.go:111-132`.
 - **Test scenarios:**
   - Window with no new fields set — passes validation (backward compatible)
@@ -79,7 +79,7 @@ The schedule runner currently decides between legacy single-window and multi-win
   - Window with `tick_minutes: 0` — validation fails
   - Window with `tick_minutes: -1` — validation fails
   - Window with `defaults: true`, `before_end_defaults: 10` — passes validation
-  - Window with `defaults: true`, `before_end_defaults: 0` — validation fails
+  - Window with `defaults: true`, `before_end_defaults: 0` — passes validation (fires at window end)
   - Window with `before_end_defaults` set but `defaults` unset — passes validation (field ignored at runtime but structurally valid)
   - Cross-midnight window with `defaults: true` — passes validation (timer scheduling tested in U5)
 - **Verification:** `make test` passes. `ValidateWindows` accepts windows with new fields and rejects invalid values.

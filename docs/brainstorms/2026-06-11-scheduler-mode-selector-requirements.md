@@ -25,7 +25,7 @@ The schedule runner currently decides between legacy single-window behavior and 
 **Windows mode:**
 - R6. When mode is `windows`, the runner starts an internal `time.Ticker` and does not call `crontabSchedule`. If `crontab` is set to a non-default value, a one-shot WARN is logged naming the ignored field.
 - R7. The default tick interval is 60 minutes. Each window may override this via an optional `tick_minutes` field (integer, minimum 1). When the active window changes, the ticker resets to the new window's interval.
-- R8. Each window may specify `defaults: true` (default `false`) to enable a set_defaults reset. When enabled, the reset fires `before_end_defaults` minutes before the window's end time. `before_end_defaults` defaults to 5 minutes (integer, minimum 1).
+- R8. Each window may specify `defaults: true` (default `false`) to enable a set_defaults reset. When enabled, the reset fires `before_end_defaults` minutes before the window's end time. `before_end_defaults` defaults to 5 minutes (integer, minimum 0). A value of 0 fires set_defaults at the exact window end.
 - R9. When mode is `windows`, `windows:` must contain at least one entry or startup validation fails.
 
 **Auto mode:**
