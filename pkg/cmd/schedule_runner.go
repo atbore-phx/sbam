@@ -76,11 +76,15 @@ var newBatteryWriter = func() batteryWriter {
 // Runner owns serialized schedule and command execution.
 // Single-writer invariant: all Fronius Modbus write operations must be executed by this runner.
 type Runner struct {
-	cfg     RunnerConfig
-	client  mqtt.Client
-	writer  batteryWriter
-	intents chan mqtt.Intent
-	paused  atomic.Pointer[time.Time]
+	cfg           RunnerConfig
+	client        mqtt.Client
+	writer        batteryWriter
+	intents       chan mqtt.Intent
+	paused        atomic.Pointer[time.Time]
+	tickerCh      <-chan time.Time // nil when not in windows mode
+	defaultsTimer *time.Timer
+	defaultsFired atomic.Bool
+	activeWindow  string // name of active window for change detection
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -126,6 +130,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-r.tickerCh:
+			if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+				u.Log.Warn("windows tick dropped because runner queue is full")
+			}
 		case intent := <-r.intents:
 			r.handleIntent(ctx, intent)
 			if intent.Kind == mqtt.IntentShutdown {
@@ -133,6 +141,95 @@ func (r *Runner) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// StartWindowsTicker initializes the internal ticker for windows mode.
+// It computes the tick interval from the active window's tick_minutes (or 60
+// min default), creates a time.Ticker, and schedules a set_defaults timer if
+// the active window has defaults enabled. Callers in crontab mode must not
+// call this method — it is only valid when SchedulerMode is "windows".
+func (r *Runner) StartWindowsTicker(now time.Time) {
+	r.startWindowsTicker(now)
+}
+
+func (r *Runner) startWindowsTicker(now time.Time) {
+	r.stopWindowsTicker()
+
+	active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+	if active != nil {
+		r.activeWindow = active.Name
+	} else {
+		r.activeWindow = ""
+	}
+
+	interval := 60 * time.Minute
+	if active != nil && active.TickMinutes != nil {
+		interval = time.Duration(*active.TickMinutes) * time.Minute
+	}
+
+	t := time.NewTicker(interval)
+	r.tickerCh = t.C
+
+	// Schedule per-window set_defaults if enabled.
+	if active != nil && active.Defaults != nil && *active.Defaults {
+		r.scheduleDefaults(active, now)
+	}
+}
+
+func (r *Runner) stopWindowsTicker() {
+	r.tickerCh = nil
+	// We cannot stop the underlying ticker without storing a reference, but
+	// setting tickerCh to nil prevents further selects from firing. The GC
+	// will collect the orphaned ticker after its next fire (within interval).
+	if r.defaultsTimer != nil {
+		r.defaultsTimer.Stop()
+		r.defaultsTimer = nil
+	}
+	r.defaultsFired.Store(false)
+	r.activeWindow = ""
+}
+
+// scheduleDefaults parses the active window's end time and schedules a
+// one-shot time.AfterFunc that fires set_defaults at
+// (window.end - before_end_defaults). The timer is tracked in r.defaultsTimer
+// so it can be cancelled on window change.
+func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
+	beforeEnd := 5 // default minutes
+	if active.BeforeEndDefaults != nil {
+		beforeEnd = *active.BeforeEndDefaults
+	}
+
+	endTime, err := parseScheduleClock(active.End, "end")
+	if err != nil {
+		u.Log.Warnw("cannot parse window end for set_defaults timer", "window", active.Name, "end", active.End, "error", err)
+		return
+	}
+
+	endAt := time.Date(now.Year(), now.Month(), now.Day(),
+		endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
+
+	// If endAt is before or equal to now, advance by 24h (cross-midnight window).
+	if !endAt.After(now) {
+		endAt = endAt.Add(24 * time.Hour)
+	}
+
+	resetAt := endAt.Add(-time.Duration(beforeEnd) * time.Minute)
+	delay := resetAt.Sub(now)
+	if delay < 0 {
+		delay = 0 // fire immediately if reset time already passed
+	}
+
+	u.Log.Infow("scheduling set_defaults for window",
+		"window", active.Name, "end", active.End, "before_end_minutes", beforeEnd,
+		"reset_at", resetAt.Format(time.RFC3339), "delay", delay.Round(time.Second))
+
+	r.defaultsTimer = time.AfterFunc(delay, func() {
+		u.Log.Infow("set_defaults timer fired", "window", active.Name)
+		r.defaultsFired.Store(true)
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
+			u.Log.Warn("set_defaults dropped because runner queue is full")
+		}
+	})
 }
 
 // HandleCommand parses an MQTT command payload into an Intent and submits
@@ -170,6 +267,15 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	// Resolve active window and derive effective charge parameters.
 	// When no windows are configured, falls back to legacy StartHR/EndHR.
 	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName := r.resolveActiveWindow(now)
+
+	// In windows mode, restart the ticker when the active window changes.
+	if r.cfg.SchedulerMode == "windows" {
+		prevWindow := r.activeWindow
+		if activeWindowName != prevWindow {
+			u.Log.Infow("active window changed", "from", prevWindow, "to", activeWindowName)
+			r.startWindowsTicker(now)
+		}
+	}
 
 	reserveWindowActive, err := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if err != nil {
@@ -212,7 +318,22 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
-	inCooldown, cooldownErr := isInCooldown(now, r.cfg.StartHR, r.cfg.EndHR, chargeCooldownMinutes)
+	// Cooldown check: in windows mode use the active window's end time and
+	// before_end_defaults (or default 5 min); in crontab mode use legacy params.
+	var inCooldown bool
+	var cooldownErr error
+	if r.cfg.SchedulerMode == "windows" && len(r.cfg.Windows) > 0 {
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+		if active != nil {
+			cooldownDuration := chargeCooldownMinutes
+			if active.Defaults != nil && *active.Defaults && active.BeforeEndDefaults != nil {
+				cooldownDuration = *active.BeforeEndDefaults
+			}
+			inCooldown, cooldownErr = isInCooldown(now, active.Start, active.End, cooldownDuration)
+		}
+	} else {
+		inCooldown, cooldownErr = isInCooldown(now, r.cfg.StartHR, r.cfg.EndHR, chargeCooldownMinutes)
+	}
 	if cooldownErr != nil {
 		r.publishError(ctx, "tick", cooldownErr)
 		return cooldownErr

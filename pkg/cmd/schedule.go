@@ -273,7 +273,8 @@ var scdCmd = &cobra.Command{
 			if crontab != const_ct {
 				u.Log.Warn("crontab is set but scheduler_mode=windows; crontab will be ignored")
 			}
-			u.Log.Info("scheduler_mode=windows active; internal ticker starts via runner")
+			u.Log.Info("scheduler_mode=windows active; starting internal ticker")
+			runner.StartWindowsTicker(time.Now())
 
 		default:
 			u.Log.Errorf("unexpected scheduler_mode %q", scheduler_mode)
