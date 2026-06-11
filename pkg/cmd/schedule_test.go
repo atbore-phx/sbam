@@ -444,7 +444,7 @@ func TestSchedule_ForecastErrorDisablesForecastButStillCallsFronius(t *testing.T
 }
 
 func TestMakeBasePayloadSetsCommonFields(t *testing.T) {
-	p := makeBasePayload("idle", "outside window", true, false)
+	p := makeBasePayload("idle", "outside window", true, false, "crontab")
 
 	assert.Equal(t, "idle", p.LastDecision)
 	assert.Equal(t, "outside window", p.LastDecisionReason)

@@ -46,6 +46,7 @@ type RunnerConfig struct {
 	Defaults           bool
 	ForecastHorizon    string
 	ConsumptionHorizon string
+	SchedulerMode      string
 	Windows            []pw.Window
 	MQTT               mqtt.Config
 	Now                func() time.Time
@@ -181,7 +182,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if storageErr != nil {
 		u.HandleError(storageErr, "storage handler failed, skipping schedule run")
 
-		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("storage read failed: %v", storageErr), inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("storage read failed: %v", storageErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		paused, pauseUntil := r.pauseStateAt(now)
 		payload.Paused = paused
 		payload.NextRun = pauseUntil
@@ -191,7 +192,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if paused, pauseUntil := r.pauseStateAt(now); paused {
-		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
 		payload.Paused = true
@@ -204,7 +205,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		u.Log.Infof("The current time is outside all configured charge windows")
 		capMax := capacityMax
 
-		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
 		r.publishState(payload)
@@ -219,7 +220,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if inCooldown {
 		u.Log.Info("cooldown active — charge decisions suppressed near window end")
 		capMax := capacityMax
-		payload := makeBasePayload("cooldown", "charge decisions suppressed near window end", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload("cooldown", "charge decisions suppressed near window end", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
 		r.publishState(payload)
@@ -269,7 +270,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if froniusErr != nil {
 		u.HandleError(froniusErr, "fronius handler failed, skipping schedule run")
 
-		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
 		payload.Paused = false
@@ -278,7 +279,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return froniusErr
 	}
 
-	payload := makeBasePayload(decision.String(), reason.String(), inChargeWindow, reserveWindowActive)
+	payload := makeBasePayload(decision.String(), reason.String(), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 	payload.BatterySOCPct = &socPct
 	payload.BatteryCapacityWh = &capacityMax
 	payload.ForecastTodayWh = &solarPowerProduction
@@ -467,7 +468,7 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 		reserveWindowActive = false
 	}
 
-	return makeBasePayload(lastDecision, reason, inChargeWindow, reserveWindowActive)
+	return makeBasePayload(lastDecision, reason, inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 }
 
 // publishState publishes the provided state payload via MQTT using the

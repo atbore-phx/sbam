@@ -35,6 +35,8 @@ type StatePayload struct {
 	ActiveWindowForecastHorizon *string    `json:"active_window_forecast_horizon,omitempty"`
 	ChargeWindowActive          *bool      `json:"charge_window_active"`
 	ReserveWindowActive         *bool      `json:"batt_reserve_window_active"`
+	SchedulerMode               *string    `json:"scheduler_mode,omitempty"`
+	DeprecationWarning          *string    `json:"deprecation_warning,omitempty"`
 	Paused                      bool       `json:"paused"`
 	NextRun                     *time.Time `json:"next_run"`
 	Timestamp                   time.Time  `json:"ts"`

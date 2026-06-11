@@ -222,6 +222,7 @@ var scdCmd = &cobra.Command{
 			Defaults:           s_defaults,
 			ForecastHorizon:    forecast_horizon,
 			ConsumptionHorizon: consumption_horizon,
+			SchedulerMode:      scheduler_mode,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
 		}
@@ -539,14 +540,16 @@ func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqtt
 // scheduler publish points. It returns a payload with the provided
 // decision/reason and pointerized window flags; callers may set extra
 // telemetry fields before publishing.
-func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWindowActive bool) mqtt.StatePayload {
+func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWindowActive bool, schedulerMode string) mqtt.StatePayload {
 	ic := inChargeWindow
 	rw := reserveWindowActive
+	sm := schedulerMode
 	return mqtt.StatePayload{
 		LastDecision:        lastDecision,
 		LastDecisionReason:  lastReason,
 		ChargeWindowActive:  &ic,
 		ReserveWindowActive: &rw,
+		SchedulerMode:       &sm,
 		Paused:              false,
 		Timestamp:           time.Now().UTC(),
 	}
