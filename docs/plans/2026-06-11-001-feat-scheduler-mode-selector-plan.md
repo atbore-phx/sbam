@@ -50,7 +50,7 @@ The schedule runner currently decides between legacy single-window and multi-win
 
 - **Per-window tick interval, default 60 min.** A single global tick would over-tick short windows or under-tick long ones. Per-window override gives each window the cadence it needs. The value is optional on the Window struct and only used in windows mode.
 
-- **Set_defaults in windows mode uses `time.AfterFunc`, not the periodic ticker.** A 60-minute ticker cannot reliably hit the 5-minute-before-end boundary. When a window with `defaults: true` becomes active, the runner schedules a one-shot `time.AfterFunc` for `window.end - before_end_defaults`. The timer is canceled and re-scheduled when the active window changes. In crontab mode, set_defaults continues through the existing `crontabSchedule` cron entry with no change.
+- **Set_defaults in windows mode uses `time.AfterFunc`, with the cooldown keeping the reset in place.** A periodic ticker cannot reliably hit the exact `before_end_defaults` boundary. When a window with `defaults: true` becomes active, the runner schedules a one-shot `time.AfterFunc` for `window.end - before_end_defaults`. The existing `isInCooldown` check in Tick must be extended to use the active window's end time and `before_end_defaults` as the cooldown duration — so after set_defaults fires at end−N minutes, any subsequent tick within the same window is suppressed by the cooldown and cannot override the reset. The timer is canceled and re-scheduled when the active window changes. In crontab mode, set_defaults continues through the existing `crontabSchedule` cron entry with no change.
 
 - **Window fields `defaults` and `before_end_defaults` are windows-mode only.** In crontab mode these fields are ignored — the existing `crontabSchedule` end_hr-based set_defaults cron handles the reset. This keeps crontab-mode behavior identical to v2.1.
 
@@ -156,6 +156,7 @@ The schedule runner currently decides between legacy single-window and multi-win
   - On each Tick, re-resolve the active window. If the window changed (name differs), stop the current ticker + timer and call `startWindowsTicker` with the new window's parameters.
   - The set_defaults `AfterFunc` fires exactly once per window activation. A `defaultsFired` flag on Runner prevents re-firing on subsequent ticks within the same window. The flag is cleared when the active window changes.
   - When no window is active (nil from `resolveActiveWindow`), set the ticker to the default 60-minute interval and do not schedule a set_defaults timer.
+  - **Cooldown integration:** Extend `isInCooldown` to accept the active window's end time and a cooldown-duration parameter. In windows mode, the Tick method passes the active window's end time and `before_end_defaults` (or 5 when `defaults` is unset) as the cooldown duration. This ensures that after set_defaults fires at end−N minutes, any subsequent tick within the same window finds the cooldown active and returns early without making a new charge decision — the reset is not overridden. In crontab mode, `isInCooldown` continues to use the legacy `StartHR`/`EndHR` and the hardcoded 5-minute constant.
 - **Patterns to follow:** The `Runner` struct at `pkg/cmd/schedule_runner.go:77-83`. The `Run` loop select at line 124-134. The `resolveActiveWindow` call at line 171. Use `sync/atomic` for the `defaultsFired` flag (matching the existing `paused` atomic pointer pattern).
 - **Test scenarios:**
   - Windows mode starts ticker at 60 min default when no window has `tick_minutes`
@@ -167,6 +168,7 @@ The schedule runner currently decides between legacy single-window and multi-win
   - No active window → ticker runs at 60 min default, no set_defaults timer
   - Ticker stops on context cancellation (shutdown)
   - Cross-midnight window with `defaults: true` → set_defaults timer computed correctly across the midnight boundary
+  - Window 06:00-07:00, `tick_minutes: 1`, `defaults: true`, `before_end_defaults: 5` — at 06:55, set_defaults fires; at 06:56, tick finds cooldown active (end=07:00 minus 5 min = 06:55→07:00 window) and returns early without a new charge decision
 - **Verification:** `make test` passes. Ticker fires periodic ticks in windows mode. Set_defaults fires at the correct boundary. `go test -race ./pkg/cmd` passes.
 
 ### U6. MQTT discovery entity and HA add-on schema
