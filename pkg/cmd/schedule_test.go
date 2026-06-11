@@ -11,6 +11,7 @@ import (
 
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	pw "sbam/pkg/power"
 	u "sbam/src/utils"
 
 	"github.com/stretchr/testify/assert"
@@ -708,4 +709,140 @@ func TestFinalizeRunnerMode_NilStop(t *testing.T) {
 
 	err := finalizeRunnerMode(false, runner, runDone, nil)
 	require.NoError(t, err)
+}
+
+func TestCrontabSchedule_DefaultsEnabled(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- crontabSchedule(ctx, runner, "*/1 * * * *", true, "23:59")
+	}()
+
+	// Allow the cron scheduler to start and add both functions.
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("crontabSchedule did not return after cancel")
+	}
+}
+
+func TestCrontabSchedule_AddFuncError(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	// An invalid cron expression should cause c.AddFunc to return an error.
+	err := crontabSchedule(context.Background(), runner, "not-a-valid-cron", false, "23:59")
+	require.Error(t, err)
+}
+
+func TestCheckScheduleschedule_NegativePWLWT(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwLwt := pw_lwt
+	pw_lwt = -1
+	defer func() { pw_lwt = oldPwLwt }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_lwt")
+}
+
+func TestCheckScheduleschedule_NegativePWUPT(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwUpt := pw_upt
+	pw_upt = -1
+	defer func() { pw_upt = oldPwUpt }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_upt")
+}
+
+func TestCheckScheduleschedule_NegativePWBattReserve(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwBR := pw_batt_reserve
+	pw_batt_reserve = -1
+	defer func() { pw_batt_reserve = oldPwBR }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, -1, "00:00", "23:59", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_batt_reserve")
+}
+
+func TestCheckScheduleschedule_WithWindowsValidates(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	// Valid windows bypass legacy start_hr/end_hr validation.
+	// batt_reserve containment still checked against passed start/end hours.
+	windows := []pw.Window{
+		{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 3500},
+	}
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", windows)
+	require.NoError(t, err)
+}
+
+func TestCheckScheduleschedule_InvalidWindows(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	// Empty name windows trigger validation error.
+	windows := []pw.Window{
+		{Start: "bad", End: "also_bad", MaxCharge: -1},
+	}
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "", "", windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "windows")
 }
