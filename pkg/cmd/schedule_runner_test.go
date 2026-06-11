@@ -10,6 +10,7 @@ import (
 
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	pw "sbam/pkg/power"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1468,4 +1469,202 @@ func TestCheckTimeRangeAt_BoundariesAndErrors(t *testing.T) {
 			assert.Equal(t, tt.want, inRange)
 		})
 	}
+}
+
+// --- resolveActiveWindow tests ---
+
+func TestRunner_ResolveActiveWindow_WindowsNoneActive(t *testing.T) {
+	loc := time.FixedZone("UTC+1", 1*60*60)
+	runner := NewRunner(RunnerConfig{
+		StartHR: "00:00",
+		EndHR:   "23:59",
+		Windows: []pw.Window{
+			{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 3500},
+			{Name: "evening", Start: "22:00", End: "23:00", MaxCharge: 3000},
+		},
+		MaxCharge:          5000,
+		ForecastHorizon:    "default",
+		ConsumptionHorizon: "full_day",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 12, 0, 0, 0, loc)
+		},
+	}, nil)
+
+	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	assert.False(t, inWindow)
+	assert.Equal(t, 5000.0, maxCharge)
+	assert.Equal(t, "default", fh)
+	assert.Equal(t, "full_day", ch)
+	assert.Empty(t, windowName)
+}
+
+func TestRunner_ResolveActiveWindow_WindowsWithCustomHorizons(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR: "00:00",
+		EndHR:   "23:59",
+		Windows: []pw.Window{
+			{Name: "sunrise", Start: "06:00", End: "14:00", MaxCharge: 3000,
+				ForecastHorizon: "today", ConsumptionHorizon: "remaining_today"},
+		},
+		MaxCharge:          5000,
+		ForecastHorizon:    "default",
+		ConsumptionHorizon: "full_day",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 10, 0, 0, 0, time.UTC)
+		},
+	}, nil)
+
+	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	assert.True(t, inWindow)
+	assert.Equal(t, 3000.0, maxCharge)
+	assert.Equal(t, "today", fh)
+	assert.Equal(t, "remaining_today", ch)
+	assert.Equal(t, "sunrise", windowName)
+}
+
+func TestRunner_ResolveActiveWindow_LegacyError(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR: "bad",
+		EndHR:   "also_bad",
+		Now:     time.Now,
+	}, nil)
+
+	inWindow, _, _, _, windowName := runner.resolveActiveWindow(runner.now())
+	assert.False(t, inWindow)
+	assert.Empty(t, windowName)
+}
+
+func TestRunner_ResolveActiveWindow_LegacyOutsideWindow(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR: "06:00",
+		EndHR:   "08:00",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 12, 0, 0, 0, time.UTC)
+		},
+	}, nil)
+
+	inWindow, _, _, _, windowName := runner.resolveActiveWindow(runner.now())
+	assert.False(t, inWindow)
+	assert.Empty(t, windowName)
+}
+
+func TestRunner_ResolveActiveWindow_WindowWithEmptyHorizonsFallsBack(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR: "00:00",
+		EndHR:   "23:59",
+		Windows: []pw.Window{
+			{Name: "plain", Start: "06:00", End: "14:00", MaxCharge: 3000},
+		},
+		MaxCharge:          5000,
+		ForecastHorizon:    "tomorrow",
+		ConsumptionHorizon: "remaining_today",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 10, 0, 0, 0, time.UTC)
+		},
+	}, nil)
+
+	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	assert.True(t, inWindow)
+	assert.Equal(t, 3000.0, maxCharge)
+	assert.Equal(t, "tomorrow", fh)
+	assert.Equal(t, "remaining_today", ch)
+	assert.Equal(t, "plain", windowName)
+}
+
+func TestRunner_ResolveActiveWindow_LegacyInWindow(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR:            "06:00",
+		EndHR:              "23:59",
+		MaxCharge:          3500,
+		ForecastHorizon:    "next_solar_day",
+		ConsumptionHorizon: "full_day",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 12, 0, 0, 0, time.UTC)
+		},
+	}, nil)
+
+	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	assert.True(t, inWindow)
+	assert.Equal(t, 3500.0, maxCharge)
+	assert.Equal(t, "next_solar_day", fh)
+	assert.Equal(t, "full_day", ch)
+	assert.Equal(t, "legacy", windowName)
+}
+
+func TestRunner_ResolveActiveWindow_CrossMidnightWindowActive(t *testing.T) {
+	runner := NewRunner(RunnerConfig{
+		StartHR: "00:00",
+		EndHR:   "23:59",
+		Windows: []pw.Window{
+			{Name: "night", Start: "22:00", End: "06:00", MaxCharge: 2500,
+				ForecastHorizon: "remaining_today"},
+		},
+		MaxCharge:          5000,
+		ForecastHorizon:    "default",
+		ConsumptionHorizon: "full_day",
+		Now: func() time.Time {
+			return time.Date(2026, time.June, 11, 2, 0, 0, 0, time.UTC)
+		},
+	}, nil)
+
+	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	assert.True(t, inWindow)
+	assert.Equal(t, 2500.0, maxCharge)
+	assert.Equal(t, "remaining_today", fh)
+	assert.Equal(t, "full_day", ch)
+	assert.Equal(t, "night", windowName)
+}
+
+func TestNewRunner_DefaultNowFunc(t *testing.T) {
+	runner := NewRunner(RunnerConfig{}, nil)
+	assert.NotNil(t, runner.cfg.Now)
+	now := runner.now()
+	assert.False(t, now.IsZero(), "default Now func should return a non-zero time")
+}
+
+func TestFinalizeRunnerMode_MQTTEnabled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runner := NewRunner(RunnerConfig{Now: time.Now}, nil)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	// Submit shutdown so Run exits cleanly.
+	runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+
+	err := finalizeRunnerMode(true, runner, runDone, cancel)
+	require.NoError(t, err)
+}
+
+func TestRunner_HandleIntentTriggerNow(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.handleIntent(context.Background(), mqtt.Intent{
+		Kind:         mqtt.IntentTriggerNow,
+		CommandTopic: "sbam/cmd/trigger_now",
+	})
+
+	assert.Equal(t, 1, stub.calls)
+	msgs := drainPublishes(client)
+	ackMsg, ok := findPublishedBySuffix(msgs, "/ack")
+	require.True(t, ok, "expected ack publish for trigger_now")
+	ack := decodeAckPayload(t, ackMsg.payload)
+	assert.True(t, ack.Accepted)
 }
