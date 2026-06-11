@@ -245,16 +245,39 @@ var scdCmd = &cobra.Command{
 			})
 		}
 
-		if crontab != const_ct {
-			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
-				u.Log.Error(err)
-				_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
-				stop()
-				if waitErr := waitForRunnerDone(runDone); waitErr != nil {
-					u.Log.Error(waitErr)
+		switch scheduler_mode {
+		case "crontab":
+			u.Log.Warn("scheduler_mode=crontab is deprecated and will be removed in v3.0.0; migrate to scheduler_mode=windows")
+			if mqttCfg.Enabled && mqttClient != nil {
+				deprecationPayload := mqtt.StatePayload{
+					SchedulerMode:      strPtr("crontab"),
+					DeprecationWarning: strPtr("scheduler_mode=crontab is deprecated and will be removed in v3.0.0; migrate to scheduler_mode=windows"),
+					Timestamp:          time.Now().UTC(),
 				}
-				return
+				publishStateSnapshot(mqttClient, mqttCfg, deprecationPayload)
 			}
+
+			if crontab != const_ct {
+				if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
+					u.Log.Error(err)
+					_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+					stop()
+					if waitErr := waitForRunnerDone(runDone); waitErr != nil {
+						u.Log.Error(waitErr)
+					}
+					return
+				}
+			}
+
+		case "windows":
+			if crontab != const_ct {
+				u.Log.Warn("crontab is set but scheduler_mode=windows; crontab will be ignored")
+			}
+			u.Log.Info("scheduler_mode=windows active; internal ticker starts via runner")
+
+		default:
+			u.Log.Errorf("unexpected scheduler_mode %q", scheduler_mode)
+			return
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
@@ -588,6 +611,9 @@ func waitForRunnerDone(runDone <-chan error) error {
 
 	return nil
 }
+
+// crontabSchedule installs the `schedule` function into a cron scheduler
+func strPtr(s string) *string { return &s }
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
 // using the provided cron expression. Callbacks submit intents and return
