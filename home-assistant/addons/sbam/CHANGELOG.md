@@ -1,3 +1,13 @@
+## What's New in v2.0.2
+
+### Battery Reset at End of Charge Window
+
+Fixed a race condition where the battery could remain in force-charge mode after the charging window ended. The periodic schedule tick and the end-of-window reset could fire at the same minute (e.g., both at 06:50 when `end_hr: 06:55` with `*/5 * * * *`). If the tick processed after the reset, the tick's charge decision overrode the reset, leaving the battery stuck in force charge.
+
+The fix adds a 5-minute cooldown at the tail of the charging window: no new charge decisions are made in the last 5 minutes before `end_hr`, ensuring the reset cannot be overridden.
+
+Thanks [@travellingkiwi](https://github.com/travellingkiwi) for reporting this in [#165](https://github.com/atbore-phx/sbam/issues/165).
+
 ## What's New in v2.0.1
 
 ### ARM64/aarch64 Build Fix
