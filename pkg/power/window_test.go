@@ -250,7 +250,7 @@ func TestValidateWindows_CrossMidnightValid(t *testing.T) {
 
 // --- Windows-mode field validation tests ---
 
-func intPtr(v int) *int   { return &v }
+func intPtr(v int) *int    { return &v }
 func boolPtr(v bool) *bool { return &v }
 
 func TestValidateWindows_TickMinutesValid(t *testing.T) {

@@ -8,30 +8,30 @@ import (
 )
 
 type scheduleValidationArgs struct {
-	crontab        string
-	apiKey         string
-	url            string
-	froniusIP      string
-	pwConsumption  float64
-	maxCharge      float64
-	pwBattReserve  float64
-	startHr        string
-	endHr          string
-	schedulerMode  string
+	crontab       string
+	apiKey        string
+	url           string
+	froniusIP     string
+	pwConsumption float64
+	maxCharge     float64
+	pwBattReserve float64
+	startHr       string
+	endHr         string
+	schedulerMode string
 }
 
 func validScheduleValidationArgs() scheduleValidationArgs {
 	return scheduleValidationArgs{
-		crontab:        "0 0 * * *",
-		apiKey:         "key",
-		url:            "https://example.test/forecast",
-		froniusIP:      "127.0.0.1",
-		pwConsumption:  1000,
-		maxCharge:      3500,
-		pwBattReserve:  200,
-		startHr:        "00:00",
-		endHr:          "23:59",
-		schedulerMode:  "crontab",
+		crontab:       "0 0 * * *",
+		apiKey:        "key",
+		url:           "https://example.test/forecast",
+		froniusIP:     "127.0.0.1",
+		pwConsumption: 1000,
+		maxCharge:     3500,
+		pwBattReserve: 200,
+		startHr:       "00:00",
+		endHr:         "23:59",
+		schedulerMode: "crontab",
 	}
 }
 
