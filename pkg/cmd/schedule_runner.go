@@ -71,6 +71,10 @@ var newBatteryWriter = func() batteryWriter {
 	return froniusBatteryWriter{}
 }
 
+// newTimerFunc is a package-level factory for one-shot timers. Tests may
+// override it to inject deterministic timer behavior.
+var newTimerFunc = time.AfterFunc
+
 // latest state caching was removed; the runner publishes state directly.
 
 // Runner owns serialized schedule and command execution.
@@ -83,6 +87,7 @@ type Runner struct {
 	paused        atomic.Pointer[time.Time]
 	tickerCh      <-chan time.Time // nil when not in windows mode
 	defaultsTimer *time.Timer
+	boundaryTimer *time.Timer
 	defaultsFired atomic.Bool
 	activeWindow  string // name of active window for change detection
 }
@@ -149,6 +154,9 @@ func (r *Runner) Run(ctx context.Context) error {
 // the active window has defaults enabled. Callers in crontab mode must not
 // call this method — it is only valid when SchedulerMode is "windows".
 func (r *Runner) StartWindowsTicker(now time.Time) {
+	if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+		u.Log.Warn("immediate tick dropped because runner queue is full")
+	}
 	r.startWindowsTicker(now)
 }
 
@@ -174,6 +182,9 @@ func (r *Runner) startWindowsTicker(now time.Time) {
 	if active != nil && active.Defaults != nil && *active.Defaults {
 		r.scheduleDefaults(active, now)
 	}
+
+	// Schedule a one-shot timer at the next window's start boundary.
+	r.scheduleBoundaryTick(now)
 }
 
 func (r *Runner) stopWindowsTicker() {
@@ -184,6 +195,10 @@ func (r *Runner) stopWindowsTicker() {
 	if r.defaultsTimer != nil {
 		r.defaultsTimer.Stop()
 		r.defaultsTimer = nil
+	}
+	if r.boundaryTimer != nil {
+		r.boundaryTimer.Stop()
+		r.boundaryTimer = nil
 	}
 	r.defaultsFired.Store(false)
 	r.activeWindow = ""
@@ -228,6 +243,103 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 		r.defaultsFired.Store(true)
 		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
 			u.Log.Warn("set_defaults dropped because runner queue is full")
+		}
+	})
+}
+
+// scheduleBoundaryTick schedules a one-shot timer that fires an IntentTick
+// at the start of the next window in the ordered list. For the last window,
+// the boundary wraps to the first window's next start + 24h. When no window
+// is active (gapped coverage), it finds the next upcoming window start
+// from all windows.
+func (r *Runner) scheduleBoundaryTick(now time.Time) {
+	windows := r.cfg.Windows
+	if len(windows) == 0 {
+		return
+	}
+
+	active := pw.ResolveActiveWindow(windows, now)
+
+	var next pw.Window
+
+	if active == nil {
+		// No window active — find the next window whose start is after now.
+		var best *pw.Window
+		var bestStart time.Time
+		for i := range windows {
+			startTime, err := parseScheduleClock(windows[i].Start, "start")
+			if err != nil {
+				continue
+			}
+			startAt := time.Date(now.Year(), now.Month(), now.Day(),
+				startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
+			if !startAt.After(now) {
+				startAt = startAt.Add(24 * time.Hour)
+			}
+			if best == nil || startAt.Before(bestStart) {
+				best = &windows[i]
+				bestStart = startAt
+			}
+		}
+		if best != nil {
+			next = *best
+		} else {
+			return
+		}
+	} else {
+		// Find the active window's index in the ordered list.
+		activeIdx := -1
+		for i := range windows {
+			name := pw.WindowNameOrDefault(windows[i], i)
+			if name == active.Name || (active.Name == "" && name == pw.WindowNameOrDefault(windows[i], i)) {
+				activeIdx = i
+				break
+			}
+		}
+		// Fall back to name comparison if the active window was resolved.
+		if activeIdx < 0 {
+			for i := range windows {
+				if windows[i].Name == active.Name || windows[i].Start == active.Start {
+					activeIdx = i
+					break
+				}
+			}
+		}
+		if activeIdx < 0 {
+			return
+		}
+
+		// Select the next window (wrap for last).
+		nextIdx := (activeIdx + 1) % len(windows)
+		next = windows[nextIdx]
+	}
+
+	nextStart, err := parseScheduleClock(next.Start, "start")
+	if err != nil {
+		u.Log.Warnw("cannot parse next window start for boundary timer",
+			"window", next.Name, "start", next.Start, "error", err)
+		return
+	}
+
+	nextAt := time.Date(now.Year(), now.Month(), now.Day(),
+		nextStart.Hour(), nextStart.Minute(), 0, 0, now.Location())
+
+	// If nextAt is before or equal to now, advance by 24h.
+	if !nextAt.After(now) {
+		nextAt = nextAt.Add(24 * time.Hour)
+	}
+
+	delay := nextAt.Sub(now)
+
+	u.Log.Infow("scheduling boundary tick",
+		"next_window", pw.WindowNameOrDefault(next, 0),
+		"at", nextAt.Format(time.RFC3339),
+		"delay", delay.Round(time.Second))
+
+	r.boundaryTimer = newTimerFunc(delay, func() {
+		u.Log.Infow("boundary timer fired, submitting tick")
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+			u.Log.Warn("boundary tick dropped because runner queue is full")
 		}
 	})
 }

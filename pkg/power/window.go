@@ -118,6 +118,24 @@ func ValidateWindows(windows []Window) error {
 		}
 	}
 
+	// Reject configurations where one window's end equals another window's start.
+	for i := range windows {
+		endTime, _ := parseClock(windows[i].End)
+		endMin := clockMinute(endTime)
+		for j := range windows {
+			if i == j {
+				continue
+			}
+			startTime, _ := parseClock(windows[j].Start)
+			if clockMinute(startTime) == endMin {
+				ni := WindowNameOrDefault(windows[i], i)
+				nj := WindowNameOrDefault(windows[j], j)
+				return fmt.Errorf("window %q end %s equals window %q start %s",
+					ni, windows[i].End, nj, windows[j].Start)
+			}
+		}
+	}
+
 	return nil
 }
 

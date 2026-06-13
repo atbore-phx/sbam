@@ -135,23 +135,66 @@ func TestValidateWindows_CrossMidnightOverlapRejected(t *testing.T) {
 }
 
 func TestValidateWindows_AdjacentNonOverlapping(t *testing.T) {
-	// Adjacent windows sharing a boundary point are NOT overlapping
-	// because half-open intervals are used for overlap detection.
+	// Adjacent windows sharing a boundary point are now rejected (R6).
 	windows := []Window{
 		{Name: "A", Start: "02:00", End: "06:00", MaxCharge: 1000},
 		{Name: "B", Start: "06:00", End: "10:00", MaxCharge: 2000},
 	}
 	err := ValidateWindows(windows)
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "end 06:00 equals window \"B\" start 06:00")
 }
 
 func TestValidateWindows_CrossMidnightAdjacentNonOverlapping(t *testing.T) {
+	// Adjacent windows sharing a boundary point across midnight are now rejected (R6).
 	windows := []Window{
 		{Name: "night", Start: "22:00", End: "04:00", MaxCharge: 3000},
 		{Name: "early", Start: "04:00", End: "08:00", MaxCharge: 2000},
 	}
 	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "end 04:00 equals window \"early\" start 04:00")
+}
+
+func TestValidateWindows_EqualBoundaryBetweenFirstAndSecond(t *testing.T) {
+	windows := []Window{
+		{Name: "A", Start: "06:00", End: "12:00", MaxCharge: 1000},
+		{Name: "B", Start: "12:00", End: "18:00", MaxCharge: 2000},
+		{Name: "C", Start: "18:01", End: "22:00", MaxCharge: 1500},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "equals")
+}
+
+func TestValidateWindows_AdjacentNonEqualBoundariesPasses(t *testing.T) {
+	windows := []Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+	err := ValidateWindows(windows)
 	assert.NoError(t, err)
+}
+
+func TestValidateWindows_SingleWindowPasses(t *testing.T) {
+	windows := []Window{
+		{Name: "only", Start: "06:00", End: "22:00", MaxCharge: 3000},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_EqualBoundaryNonAdjacentRejected(t *testing.T) {
+	// Non-adjacent windows in list order can still share a boundary.
+	// A and C share a boundary; B sits between them in list order with no overlap.
+	windows := []Window{
+		{Name: "A", Start: "06:00", End: "10:00", MaxCharge: 1000},
+		{Name: "B", Start: "14:00", End: "18:00", MaxCharge: 2000},
+		{Name: "C", Start: "10:00", End: "12:00", MaxCharge: 1500},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "equals")
 }
 
 // --- Individual field validation tests ---
