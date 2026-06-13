@@ -101,7 +101,7 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
           image-tags: |
             ${{ env.VERSION }}
-            ${{ needs.determine-release.outputs.release == 'latest' && 'latest' || 'dev' }}
+            ${{ needs.determine-release.outputs.release == 'latest' && 'latest' || 'pre-release' }}
           version: ${{ env.VERSION }}
           context: home-assistant/addons/sbam
           cosign: "false"
