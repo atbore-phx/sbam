@@ -24,7 +24,8 @@ import (
 var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, w_start_hr, w_end_hr,
 	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
-	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon string
+	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
+	scheduler_mode string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip bool
@@ -45,6 +46,7 @@ const (
 	const_mqtt_op_timeout     = 5 * time.Second
 	const_forecast_horizon    = "default"
 	const_consumption_horizon = "full_day"
+	const_scheduler_mode      = "crontab"
 	scheduleClockLayout       = "15:04"
 )
 
@@ -117,6 +119,7 @@ var scdCmd = &cobra.Command{
 		mqtt_ha_discovery_prefix = viper.GetString("mqtt_ha_discovery_prefix")
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
+		scheduler_mode = viper.GetString("scheduler_mode")
 
 		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
@@ -193,7 +196,7 @@ var scdCmd = &cobra.Command{
 		}
 		u.LogStartupParams(cmd, extras)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -219,6 +222,7 @@ var scdCmd = &cobra.Command{
 			Defaults:           s_defaults,
 			ForecastHorizon:    forecast_horizon,
 			ConsumptionHorizon: consumption_horizon,
+			SchedulerMode:      scheduler_mode,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
 		}
@@ -241,16 +245,40 @@ var scdCmd = &cobra.Command{
 			})
 		}
 
-		if crontab != const_ct {
-			if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
-				u.Log.Error(err)
-				_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
-				stop()
-				if waitErr := waitForRunnerDone(runDone); waitErr != nil {
-					u.Log.Error(waitErr)
+		switch scheduler_mode {
+		case "crontab":
+			u.Log.Warn("scheduler_mode=crontab is deprecated and will be removed in v3.0.0; migrate to scheduler_mode=windows")
+			if mqttCfg.Enabled && mqttClient != nil {
+				deprecationPayload := mqtt.StatePayload{
+					SchedulerMode:      strPtr("crontab"),
+					DeprecationWarning: strPtr("scheduler_mode=crontab is deprecated and will be removed in v3.0.0; migrate to scheduler_mode=windows"),
+					Timestamp:          time.Now().UTC(),
 				}
-				return
+				publishStateSnapshot(mqttClient, mqttCfg, deprecationPayload)
 			}
+
+			if crontab != const_ct {
+				if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
+					u.Log.Error(err)
+					_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+					stop()
+					if waitErr := waitForRunnerDone(runDone); waitErr != nil {
+						u.Log.Error(waitErr)
+					}
+					return
+				}
+			}
+
+		case "windows":
+			if crontab != const_ct {
+				u.Log.Warn("crontab is set but scheduler_mode=windows; crontab will be ignored")
+			}
+			u.Log.Info("scheduler_mode=windows active; starting internal ticker")
+			runner.StartWindowsTicker(time.Now())
+
+		default:
+			u.Log.Errorf("unexpected scheduler_mode %q", scheduler_mode)
+			return
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
@@ -298,6 +326,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
+	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)
@@ -412,13 +441,27 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 // The function intentionally keeps validation local to the command so the
 // runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
-	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window) error {
+	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string) error {
 
 	if len(windows) > 0 {
 		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
 		if err := pw.ValidateWindows(windows); err != nil {
 			return fmt.Errorf("invalid windows configuration: %w", err)
 		}
+	}
+
+	// Validate scheduler_mode.
+	switch scheduler_mode {
+	case "crontab":
+		// Valid; crontab + windows is compatible (cron drives ticks, windows parameterize them).
+	case "windows":
+		if len(windows) == 0 {
+			return errors.New("scheduler_mode is 'windows' but no windows are configured; add at least one entry to windows:")
+		}
+	case "auto":
+		return fmt.Errorf("scheduler_mode 'auto' is not yet available — see issue #149")
+	default:
+		return fmt.Errorf("unknown scheduler_mode %q: must be crontab, windows, or auto", scheduler_mode)
 	}
 
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
@@ -521,14 +564,16 @@ func subscribeScheduleCommands(ctx context.Context, mqttClient mqtt.Client, mqtt
 // scheduler publish points. It returns a payload with the provided
 // decision/reason and pointerized window flags; callers may set extra
 // telemetry fields before publishing.
-func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWindowActive bool) mqtt.StatePayload {
+func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWindowActive bool, schedulerMode string) mqtt.StatePayload {
 	ic := inChargeWindow
 	rw := reserveWindowActive
+	sm := schedulerMode
 	return mqtt.StatePayload{
 		LastDecision:        lastDecision,
 		LastDecisionReason:  lastReason,
 		ChargeWindowActive:  &ic,
 		ReserveWindowActive: &rw,
+		SchedulerMode:       &sm,
 		Paused:              false,
 		Timestamp:           time.Now().UTC(),
 	}
@@ -567,6 +612,9 @@ func waitForRunnerDone(runDone <-chan error) error {
 
 	return nil
 }
+
+// crontabSchedule installs the `schedule` function into a cron scheduler
+func strPtr(s string) *string { return &s }
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
 // using the provided cron expression. Callbacks submit intents and return

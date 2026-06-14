@@ -135,23 +135,66 @@ func TestValidateWindows_CrossMidnightOverlapRejected(t *testing.T) {
 }
 
 func TestValidateWindows_AdjacentNonOverlapping(t *testing.T) {
-	// Adjacent windows sharing a boundary point are NOT overlapping
-	// because half-open intervals are used for overlap detection.
+	// Adjacent windows sharing a boundary point are now rejected (R6).
 	windows := []Window{
 		{Name: "A", Start: "02:00", End: "06:00", MaxCharge: 1000},
 		{Name: "B", Start: "06:00", End: "10:00", MaxCharge: 2000},
 	}
 	err := ValidateWindows(windows)
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "end 06:00 equals window \"B\" start 06:00")
 }
 
 func TestValidateWindows_CrossMidnightAdjacentNonOverlapping(t *testing.T) {
+	// Adjacent windows sharing a boundary point across midnight are now rejected (R6).
 	windows := []Window{
 		{Name: "night", Start: "22:00", End: "04:00", MaxCharge: 3000},
 		{Name: "early", Start: "04:00", End: "08:00", MaxCharge: 2000},
 	}
 	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "end 04:00 equals window \"early\" start 04:00")
+}
+
+func TestValidateWindows_EqualBoundaryBetweenFirstAndSecond(t *testing.T) {
+	windows := []Window{
+		{Name: "A", Start: "06:00", End: "12:00", MaxCharge: 1000},
+		{Name: "B", Start: "12:00", End: "18:00", MaxCharge: 2000},
+		{Name: "C", Start: "18:01", End: "22:00", MaxCharge: 1500},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "equals")
+}
+
+func TestValidateWindows_AdjacentNonEqualBoundariesPasses(t *testing.T) {
+	windows := []Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+	err := ValidateWindows(windows)
 	assert.NoError(t, err)
+}
+
+func TestValidateWindows_SingleWindowPasses(t *testing.T) {
+	windows := []Window{
+		{Name: "only", Start: "06:00", End: "22:00", MaxCharge: 3000},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_EqualBoundaryNonAdjacentRejected(t *testing.T) {
+	// Non-adjacent windows in list order can still share a boundary.
+	// A and C share a boundary; B sits between them in list order with no overlap.
+	windows := []Window{
+		{Name: "A", Start: "06:00", End: "10:00", MaxCharge: 1000},
+		{Name: "B", Start: "14:00", End: "18:00", MaxCharge: 2000},
+		{Name: "C", Start: "10:00", End: "12:00", MaxCharge: 1500},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "equals")
 }
 
 // --- Individual field validation tests ---
@@ -243,6 +286,74 @@ func TestSyntheticLegacyWindow(t *testing.T) {
 func TestValidateWindows_CrossMidnightValid(t *testing.T) {
 	windows := []Window{
 		{Name: "night", Start: "22:00", End: "04:00", MaxCharge: 3000},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+// --- Windows-mode field validation tests ---
+
+func intPtr(v int) *int    { return &v }
+func boolPtr(v bool) *bool { return &v }
+
+func TestValidateWindows_TickMinutesValid(t *testing.T) {
+	windows := []Window{
+		{Name: "fast", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(30)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_TickMinutesZeroRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(0)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tick_minutes")
+}
+
+func TestValidateWindows_TickMinutesNegativeRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500, TickMinutes: intPtr(-1)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tick_minutes")
+}
+
+func TestValidateWindows_DefaultsAndBeforeEndValid(t *testing.T) {
+	windows := []Window{
+		{Name: "with-defaults", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(10)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_BeforeEndDefaultsZeroValid(t *testing.T) {
+	windows := []Window{
+		{Name: "at-end", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(0)},
+	}
+	err := ValidateWindows(windows)
+	assert.NoError(t, err)
+}
+
+func TestValidateWindows_BeforeEndDefaultsNegativeRejected(t *testing.T) {
+	windows := []Window{
+		{Name: "bad", Start: "06:00", End: "07:00", MaxCharge: 3500,
+			Defaults: boolPtr(true), BeforeEndDefaults: intPtr(-1)},
+	}
+	err := ValidateWindows(windows)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "before_end_defaults")
+}
+
+func TestValidateWindows_NewFieldsOptional(t *testing.T) {
+	// A window without any of the new fields should still validate.
+	windows := []Window{
+		{Name: "plain", Start: "06:00", End: "07:00", MaxCharge: 3500},
 	}
 	err := ValidateWindows(windows)
 	assert.NoError(t, err)

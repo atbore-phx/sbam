@@ -1668,3 +1668,273 @@ func TestRunner_HandleIntentTriggerNow(t *testing.T) {
 	ack := decodeAckPayload(t, ackMsg.payload)
 	assert.True(t, ack.Accepted)
 }
+
+// --- U2: immediate tick on StartWindowsTicker ---
+
+func TestRunner_StartWindowsTicker_FiresImmediateTick(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+	}
+
+	drainPublishes(client)
+
+	now := time.Date(2026, time.May, 10, 6, 20, 0, 0, time.UTC)
+	runner.StartWindowsTicker(now)
+
+	// Verify an IntentTick was submitted to the intent queue.
+	select {
+	case intent := <-runner.intents:
+		assert.Equal(t, mqtt.IntentTick, intent.Kind)
+	default:
+		t.Fatal("expected immediate IntentTick in queue, got none")
+	}
+}
+
+func TestRunner_StartWindowsTicker_NoDuplicateTickOnRestart(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+	}
+
+	drainPublishes(client)
+
+	// Call startWindowsTicker directly (simulates window-change restart).
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.startWindowsTicker(now)
+
+	// The queue should be empty -- startWindowsTicker must not submit an IntentTick.
+	select {
+	case intent := <-runner.intents:
+		t.Fatalf("unexpected intent in queue on restart: %s", intent.Kind)
+	default:
+		// Expected: no intent.
+	}
+}
+
+func TestRunner_ImmediateTick_IntegratesWithRunLoop(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+	}
+
+	now := time.Date(2026, time.May, 10, 6, 20, 0, 0, time.UTC)
+	runner.StartWindowsTicker(now)
+
+	// Process the immediate tick through the intent handler.
+	select {
+	case intent := <-runner.intents:
+		assert.Equal(t, mqtt.IntentTick, intent.Kind)
+		runner.handleIntent(context.Background(), intent)
+	default:
+		t.Fatal("expected immediate IntentTick")
+	}
+
+	// Verify the tick executed: fronius handler was called.
+	assert.Equal(t, 1, stub.calls)
+
+	// Verify state was published.
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.NotNil(t, state.ChargeWindowActive)
+	assert.True(t, *state.ChargeWindowActive)
+}
+
+// --- U3: boundary timer ---
+
+func TestRunner_ScheduleBoundaryTick_SchedulesForNextWindow(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	var capturedDelay time.Duration
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		capturedDelay = d
+		return nil
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	// 12:00 in day window -- boundary should be at 22:00 (10h from now).
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	assert.Equal(t, 10*time.Hour, capturedDelay)
+}
+
+func TestRunner_ScheduleBoundaryTick_WrapAround(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	var capturedDelay time.Duration
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		capturedDelay = d
+		return nil
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	// 23:00 in night window -- boundary should wrap to day start at 06:00 tomorrow (7h).
+	now := time.Date(2026, time.May, 10, 23, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	assert.Equal(t, 7*time.Hour, capturedDelay)
+}
+
+func TestRunner_ScheduleBoundaryTick_ExactBoundary(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	var capturedDelay time.Duration
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		capturedDelay = d
+		return nil
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	// Start at exactly 06:00 -- boundary should be at 22:00 today (16h), not 06:00.
+	now := time.Date(2026, time.May, 10, 6, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	assert.Equal(t, 16*time.Hour, capturedDelay)
+}
+
+func TestRunner_StopWindowsTicker_CancelsBoundaryTimer(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+	}
+
+	var timerCallback func()
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		timerCallback = f
+		// Return a real but short-lived timer so Stop() doesn't panic.
+		return time.NewTimer(24 * time.Hour)
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	require.NotNil(t, runner.boundaryTimer, "boundary timer should be set")
+	_ = timerCallback
+
+	runner.stopWindowsTicker()
+
+	assert.Nil(t, runner.boundaryTimer, "boundary timer should be nil after stop")
+}
+
+func TestRunner_StopWindowsTicker_NilTimerNoPanic(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	// stopWindowsTicker should not panic when boundaryTimer is nil.
+	runner.stopWindowsTicker()
+
+	assert.Nil(t, runner.boundaryTimer)
+}
+
+func TestRunner_ScheduleBoundaryTick_FiresIntentTick(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	var timerCallback func()
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		timerCallback = f
+		return &time.Timer{}
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	require.NotNil(t, timerCallback, "timer callback should be captured")
+
+	// Fire the timer callback -- it should submit an IntentTick.
+	timerCallback()
+
+	select {
+	case intent := <-runner.intents:
+		assert.Equal(t, mqtt.IntentTick, intent.Kind)
+	default:
+		t.Fatal("expected IntentTick from boundary timer callback")
+	}
+}
+
+func TestRunner_ScheduleBoundaryTick_SingleWindow(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "only", Start: "06:00", End: "22:00", MaxCharge: 2000},
+	}
+
+	var capturedDelay time.Duration
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		capturedDelay = d
+		return nil
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	// 12:00 -- next boundary is the same window's next start at 06:00 tomorrow.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	assert.Equal(t, 18*time.Hour, capturedDelay)
+}
+
+func TestRunner_ScheduleBoundaryTick_NoWindows(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	called := false
+	oldTimerFunc := newTimerFunc
+	newTimerFunc = func(d time.Duration, f func()) *time.Timer {
+		called = true
+		return nil
+	}
+	defer func() { newTimerFunc = oldTimerFunc }()
+
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	runner.scheduleBoundaryTick(now)
+
+	assert.False(t, called, "timer should not be created when no windows configured")
+}

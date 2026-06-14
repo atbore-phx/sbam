@@ -31,6 +31,18 @@ type clockSegment struct {
 //
 // ForecastHorizon and ConsumptionHorizon are optional per-window overrides.
 // When empty the top-level forecast_horizon / consumption_horizon is used.
+//
+// TickMinutes is an optional per-window tick interval override (minutes).
+// Only used when scheduler_mode is "windows". Defaults to 60 when unset.
+// Must be ≥ 1 when set.
+//
+// Defaults enables a per-window set_defaults reset. Only used when
+// scheduler_mode is "windows". When true, BeforeEndDefaults controls how
+// many minutes before the window's end the reset fires.
+//
+// BeforeEndDefaults is the number of minutes before the window's end time
+// to fire the set_defaults reset. Only meaningful when Defaults is true.
+// Defaults to 5 when unset. Must be ≥ 0 when set (0 = at window end).
 type Window struct {
 	Name               string  `json:"name" yaml:"name" mapstructure:"name"`
 	Start              string  `json:"start" yaml:"start" mapstructure:"start"`
@@ -38,6 +50,9 @@ type Window struct {
 	MaxCharge          float64 `json:"max_charge" yaml:"max_charge" mapstructure:"max_charge"`
 	ForecastHorizon    string  `json:"forecast_horizon,omitempty" yaml:"forecast_horizon,omitempty" mapstructure:"forecast_horizon,omitempty"`
 	ConsumptionHorizon string  `json:"consumption_horizon,omitempty" yaml:"consumption_horizon,omitempty" mapstructure:"consumption_horizon,omitempty"`
+	TickMinutes        *int    `json:"tick_minutes,omitempty" yaml:"tick_minutes,omitempty" mapstructure:"tick_minutes,omitempty"`
+	Defaults           *bool   `json:"set_defaults,omitempty" yaml:"set_defaults,omitempty" mapstructure:"set_defaults,omitempty"`
+	BeforeEndDefaults  *int    `json:"before_end_defaults_minutes,omitempty" yaml:"before_end_defaults_minutes,omitempty" mapstructure:"before_end_defaults_minutes,omitempty"`
 }
 
 // ValidateWindows checks a non-empty ordered list of charge windows and
@@ -103,6 +118,24 @@ func ValidateWindows(windows []Window) error {
 		}
 	}
 
+	// Reject configurations where one window's end equals another window's start.
+	for i := range windows {
+		endTime, _ := parseClock(windows[i].End)
+		endMin := clockMinute(endTime)
+		for j := range windows {
+			if i == j {
+				continue
+			}
+			startTime, _ := parseClock(windows[j].Start)
+			if clockMinute(startTime) == endMin {
+				ni := WindowNameOrDefault(windows[i], i)
+				nj := WindowNameOrDefault(windows[j], j)
+				return fmt.Errorf("window %q end %s equals window %q start %s",
+					ni, windows[i].End, nj, windows[j].Start)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -127,6 +160,12 @@ func validateWindowFields(w Window) error {
 		if _, err := ValidateConsumptionHorizon(w.ConsumptionHorizon); err != nil {
 			return err
 		}
+	}
+	if w.TickMinutes != nil && *w.TickMinutes <= 0 {
+		return fmt.Errorf("tick_minutes must be >= 1, got %d", *w.TickMinutes)
+	}
+	if w.BeforeEndDefaults != nil && *w.BeforeEndDefaults < 0 {
+		return fmt.Errorf("before_end_defaults must be >= 0, got %d", *w.BeforeEndDefaults)
 	}
 	return nil
 }
