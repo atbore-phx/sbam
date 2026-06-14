@@ -51,7 +51,7 @@ type Window struct {
 	ForecastHorizon    string  `json:"forecast_horizon,omitempty" yaml:"forecast_horizon,omitempty" mapstructure:"forecast_horizon,omitempty"`
 	ConsumptionHorizon string  `json:"consumption_horizon,omitempty" yaml:"consumption_horizon,omitempty" mapstructure:"consumption_horizon,omitempty"`
 	TickMinutes        *int    `json:"tick_minutes,omitempty" yaml:"tick_minutes,omitempty" mapstructure:"tick_minutes,omitempty"`
-	Defaults           *bool   `json:"defaults,omitempty" yaml:"defaults,omitempty" mapstructure:"defaults,omitempty"`
+	Defaults           *bool   `json:"set_defaults,omitempty" yaml:"set_defaults,omitempty" mapstructure:"set_defaults,omitempty"`
 	BeforeEndDefaults  *int    `json:"before_end_defaults,omitempty" yaml:"before_end_defaults,omitempty" mapstructure:"before_end_defaults,omitempty"`
 }
 
