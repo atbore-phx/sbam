@@ -138,7 +138,7 @@ src/
 config.yaml                  - Configuration file
 Makefile                     - Build targets (test, build, test-build)
 Dockerfile                   - Standalone container image
-home-assistant/addons/sbam/  - Home Assistant add-on files
+home-assistant/addons/sbam/  - Home Assistant add-on files (config.yaml)
 ```
 
 Important:
