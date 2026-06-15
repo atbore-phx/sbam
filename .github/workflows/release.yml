@@ -26,7 +26,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "Tag detected: $VERSION"
-          VERSION_FROM_FILE=$(jq -r '.version' home-assistant/addons/sbam/config.json)
+          VERSION_FROM_FILE=$(yq '.version' home-assistant/addons/sbam/config.yaml)
           echo "Config file version: $VERSION_FROM_FILE"
           if [ "$VERSION_FROM_FILE" = "$VERSION" ]; then
             echo "Stable release detected: $VERSION"

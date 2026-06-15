@@ -22,13 +22,35 @@ import (
 )
 
 var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_hr, w_start_hr, w_end_hr,
-	crontab, s_cache_file_prefix, mqtt_broker, mqtt_client_id, mqtt_username,
-	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
-	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
-	scheduler_mode string
+	crontab, s_cache_file_prefix, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
+	forecast_horizon, consumption_horizon, scheduler_mode string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
 var s_cache_time int32
-var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip bool
+var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_tls_insecure_skip bool
+
+// mqttOptionalConfig carries the nested MQTT parameters from the
+// mqtt_optional_config config key / CLI flag / env var. Fields use both
+// yaml (for flag/env unmarshalling) and mapstructure (for viper.UnmarshalKey)
+// tags.
+type mqttOptionalConfig struct {
+	Broker            string `yaml:"broker" mapstructure:"broker"`
+	ClientID          string `yaml:"client_id" mapstructure:"client_id"`
+	Username          string `yaml:"username" mapstructure:"username"`
+	Password          string `yaml:"password" mapstructure:"password"`
+	TopicPrefix       string `yaml:"topic_prefix" mapstructure:"topic_prefix"`
+	HADiscovery       bool   `yaml:"ha_discovery" mapstructure:"ha_discovery"`
+	HADiscoveryPrefix string `yaml:"ha_discovery_prefix" mapstructure:"ha_discovery_prefix"`
+}
+
+// mqttOptsDefaults returns an mqttOptionalConfig populated with the
+// same default values as the current config.json.
+func mqttOptsDefaults() mqttOptionalConfig {
+	return mqttOptionalConfig{
+		TopicPrefix:       "sbam",
+		HADiscovery:       true,
+		HADiscoveryPrefix: "homeassistant",
+	}
+}
 
 const (
 	const_pc                  = 0.0
@@ -106,17 +128,30 @@ var scdCmd = &cobra.Command{
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
 		mqtt_enabled = viper.GetBool("mqtt_enabled")
-		mqtt_broker = viper.GetString("mqtt_broker")
-		mqtt_client_id = viper.GetString("mqtt_client_id")
-		mqtt_username = viper.GetString("mqtt_username")
-		mqtt_password = viper.GetString("mqtt_password")
 		mqtt_tls_ca_file = viper.GetString("mqtt_tls_ca_file")
 		mqtt_tls_client_cert = viper.GetString("mqtt_tls_client_cert")
 		mqtt_tls_client_cert_key = viper.GetString("mqtt_tls_client_cert_key")
 		mqtt_tls_insecure_skip = viper.GetBool("mqtt_tls_insecure_skip")
-		mqtt_topic_prefix = viper.GetString("mqtt_topic_prefix")
-		mqtt_ha_discovery = viper.GetBool("mqtt_ha_discovery")
-		mqtt_ha_discovery_prefix = viper.GetString("mqtt_ha_discovery_prefix")
+
+		// Resolve mqtt_optional_config with flag > env > config.yaml precedence
+		// (same pattern as --windows).
+		mqttOpts := mqttOptsDefaults()
+		if f := cmd.Flags().Lookup("mqtt_optional_config"); f != nil && f.Changed {
+			if err := yaml.Unmarshal([]byte(f.Value.String()), &mqttOpts); err != nil {
+				u.Log.Errorf("invalid --mqtt_optional_config flag: %v", err)
+				return
+			}
+		} else if env, ok := os.LookupEnv("MQTT_OPTIONAL_CONFIG"); ok {
+			if err := yaml.Unmarshal([]byte(env), &mqttOpts); err != nil {
+				u.Log.Errorf("invalid MQTT_OPTIONAL_CONFIG env var: %v", err)
+				return
+			}
+		} else if viper.InConfig("mqtt_optional_config") {
+			if err := viper.UnmarshalKey("mqtt_optional_config", &mqttOpts); err != nil {
+				u.Log.Errorf("invalid mqtt_optional_config in config.yaml: %v", err)
+				return
+			}
+		}
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
 		scheduler_mode = viper.GetString("scheduler_mode")
@@ -166,17 +201,17 @@ var scdCmd = &cobra.Command{
 
 		mqttCfg := mqtt.Config{
 			Enabled:           mqtt_enabled,
-			Broker:            mqtt_broker,
-			ClientID:          mqtt_client_id,
-			Username:          mqtt_username,
-			Password:          mqtt_password,
+			Broker:            mqttOpts.Broker,
+			ClientID:          mqttOpts.ClientID,
+			Username:          mqttOpts.Username,
+			Password:          mqttOpts.Password,
 			TLSCAFile:         mqtt_tls_ca_file,
 			TLSClientCert:     mqtt_tls_client_cert,
 			TLSClientCertKey:  mqtt_tls_client_cert_key,
 			TLSInsecureSkip:   mqtt_tls_insecure_skip,
-			TopicPrefix:       mqtt_topic_prefix,
-			HADiscovery:       mqtt_ha_discovery,
-			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
+			TopicPrefix:       mqttOpts.TopicPrefix,
+			HADiscovery:       mqttOpts.HADiscovery,
+			HADiscoveryPrefix: mqttOpts.HADiscoveryPrefix,
 			FroniusIP:         fronius_ip,
 		}
 		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion)
@@ -313,17 +348,11 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVarP(&s_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_PREFIX (default 'cached_forecast')")
 	scdCmd.Flags().Int32VarP(&s_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
 	scdCmd.Flags().BoolVar(&mqtt_enabled, "mqtt_enabled", false, "Enable MQTT integration")
-	scdCmd.Flags().StringVar(&mqtt_broker, "mqtt_broker", "", "MQTT broker URL")
-	scdCmd.Flags().StringVar(&mqtt_client_id, "mqtt_client_id", "", "MQTT client identifier")
-	scdCmd.Flags().StringVar(&mqtt_username, "mqtt_username", "", "MQTT username")
-	scdCmd.Flags().StringVar(&mqtt_password, "mqtt_password", "", "MQTT password")
 	scdCmd.Flags().StringVar(&mqtt_tls_ca_file, "mqtt_tls_ca_file", "", "MQTT TLS CA certificate file")
 	scdCmd.Flags().StringVar(&mqtt_tls_client_cert, "mqtt_tls_client_cert", "", "MQTT TLS client certificate file")
 	scdCmd.Flags().StringVar(&mqtt_tls_client_cert_key, "mqtt_tls_client_cert_key", "", "MQTT TLS client key file")
 	scdCmd.Flags().BoolVar(&mqtt_tls_insecure_skip, "mqtt_tls_insecure_skip", false, "Skip MQTT TLS certificate verification")
-	scdCmd.Flags().StringVar(&mqtt_topic_prefix, "mqtt_topic_prefix", const_mqtt_topic_prefix, "MQTT topic prefix")
-	scdCmd.Flags().BoolVar(&mqtt_ha_discovery, "mqtt_ha_discovery", true, "Enable Home Assistant MQTT discovery")
-	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
+	scdCmd.Flags().String("mqtt_optional_config", "", "MQTT optional config in YAML format (broker, client_id, username, password, topic_prefix, ha_discovery, ha_discovery_prefix)")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")

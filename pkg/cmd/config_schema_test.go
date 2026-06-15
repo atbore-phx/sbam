@@ -1,25 +1,25 @@
 package cmd
 
 import (
-	"encoding/json"
 	"os"
 	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	yaml "gopkg.in/yaml.v3"
 )
 
 func TestCrontabSchemaRegex(t *testing.T) {
-	data, err := os.ReadFile("../../home-assistant/addons/sbam/config.json")
-	require.NoError(t, err, "failed to read config.json — ensure test runs from module root")
+	data, err := os.ReadFile("../../home-assistant/addons/sbam/config.yaml")
+	require.NoError(t, err, "failed to read config.yaml — ensure test runs from module root")
 
 	var config struct {
 		Schema struct {
-			Crontab string `json:"crontab"`
-		} `json:"schema"`
+			Crontab string `yaml:"crontab"`
+		} `yaml:"schema"`
 	}
-	err = json.Unmarshal(data, &config)
+	err = yaml.Unmarshal(data, &config)
 	require.NoError(t, err)
 	require.NotEmpty(t, config.Schema.Crontab, "crontab schema entry is missing or empty")
 

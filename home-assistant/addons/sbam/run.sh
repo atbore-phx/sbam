@@ -3,7 +3,7 @@
 # Generate config.yaml from Supervisor options.
 # JSON is valid YAML 1.2, so the Go app's viper reads it natively.
 cd /data
-cp /data/options.json config.yaml
+cp /data/options.yaml config.yaml
 
 # DEBUG and LOG_TYPE are read via os.Getenv (src/utils/log.go), not viper.
 export DEBUG=$(bashio::config 'debug')
@@ -15,7 +15,7 @@ mqtt_autofill_from_ha_service() {
 	local mqtt_enabled mqtt_broker mqtt_user
 	mqtt_enabled=$(bashio::config 'mqtt_enabled')
 	[ "${mqtt_enabled}" = "true" ] || return 0
-	mqtt_broker=$(bashio::config 'mqtt_broker')
+	mqtt_broker=$(bashio::config 'mqtt_optional_config.broker')
 	[ -z "${mqtt_broker}" ] || return 0
 	bashio::services.available 'mqtt' || return 0
 
@@ -26,11 +26,11 @@ mqtt_autofill_from_ha_service() {
 	mqtt_password=$(bashio::services 'mqtt' 'password')
 
 	if [ -n "${mqtt_host}" ] && [ -n "${mqtt_port}" ]; then
-		export MQTT_BROKER="tcp://${mqtt_host}:${mqtt_port}"
+		export MQTT_OPTIONAL_CONFIG_BROKER="tcp://${mqtt_host}:${mqtt_port}"
 	fi
-	mqtt_user=$(bashio::config 'mqtt_username')
-	[ -n "${mqtt_user}" ] || export MQTT_USERNAME="${mqtt_username}"
-	[ -n "$(bashio::config 'mqtt_password')" ] || export MQTT_PASSWORD="${mqtt_password}"
+	mqtt_user=$(bashio::config 'mqtt_optional_config.username')
+	[ -n "${mqtt_user}" ] || export MQTT_OPTIONAL_CONFIG_USERNAME="${mqtt_username}"
+	[ -n "$(bashio::config 'mqtt_optional_config.password')" ] || export MQTT_OPTIONAL_CONFIG_PASSWORD="${mqtt_password}"
 }
 
 mqtt_autofill_from_ha_service
