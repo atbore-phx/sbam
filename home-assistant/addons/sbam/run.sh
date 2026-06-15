@@ -39,7 +39,6 @@ mqtt_autofill_from_ha_service() {
 mqtt_autofill_from_ha_service || cp /data/options.json config.yaml
 
 # Reset inverter to defaults at startup if configured.
-reset=$(bashio::config 'reset')
-[ "$reset" = "true" ] && sbam configure -d
+[ "$(bashio::config 'reset')" = "true" ] && sbam configure -d
 
 sbam schedule
