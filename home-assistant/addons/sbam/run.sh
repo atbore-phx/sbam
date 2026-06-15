@@ -12,12 +12,9 @@ export LOG_TYPE=$(bashio::config 'log_type')
 # services and merge them into /data/options.json.  Only keys that are
 # empty in the user config are filled; existing values are preserved.
 mqtt_autofill_from_ha_service() {
-	local mqtt_enabled mqtt_broker
-	mqtt_enabled=$(bashio::config 'mqtt_enabled')
-	[ "${mqtt_enabled}" = "true" ] || { cp /data/options.json config.yaml; return 0; }
-	mqtt_broker=$(bashio::config 'mqtt_optional_config.broker')
-	[ -z "${mqtt_broker}" ] || { cp /data/options.json config.yaml; return 0; }
-	bashio::services.available 'mqtt' || { cp /data/options.json config.yaml; return 0; }
+	[ "$(bashio::config 'mqtt_enabled')" = "true" ] || return 1
+	[ -z "$(bashio::config 'mqtt_optional_config.broker')" ] || return 1
+	bashio::services.available 'mqtt' || return 1
 
 	local mqtt_host mqtt_port mqtt_username mqtt_password filter
 	mqtt_host=$(bashio::services 'mqtt' 'host')
@@ -39,7 +36,7 @@ mqtt_autofill_from_ha_service() {
 	jq "${filter}" /data/options.json > config.yaml
 }
 
-mqtt_autofill_from_ha_service
+mqtt_autofill_from_ha_service || cp /data/options.json config.yaml
 
 # Reset inverter to defaults at startup if configured.
 reset=$(bashio::config 'reset')
