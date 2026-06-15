@@ -12,7 +12,7 @@ export LOG_TYPE=$(bashio::config 'log_type')
 # MQTT autofill: dynamically discover broker details from Home Assistant services.
 # Exported env vars override config.yaml values via viper's AutomaticEnv().
 mqtt_autofill_from_ha_service() {
-	local mqtt_enabled mqtt_broker mqtt_user
+	local mqtt_enabled mqtt_broker mqtt_user mqtt_yaml
 	mqtt_enabled=$(bashio::config 'mqtt_enabled')
 	[ "${mqtt_enabled}" = "true" ] || return 0
 	mqtt_broker=$(bashio::config 'mqtt_optional_config.broker')
@@ -26,11 +26,18 @@ mqtt_autofill_from_ha_service() {
 	mqtt_password=$(bashio::services 'mqtt' 'password')
 
 	if [ -n "${mqtt_host}" ] && [ -n "${mqtt_port}" ]; then
-		export MQTT_OPTIONAL_CONFIG_BROKER="tcp://${mqtt_host}:${mqtt_port}"
+		mqtt_yaml="broker: tcp://${mqtt_host}:${mqtt_port}"
 	fi
 	mqtt_user=$(bashio::config 'mqtt_optional_config.username')
-	[ -n "${mqtt_user}" ] || export MQTT_OPTIONAL_CONFIG_USERNAME="${mqtt_username}"
-	[ -n "$(bashio::config 'mqtt_optional_config.password')" ] || export MQTT_OPTIONAL_CONFIG_PASSWORD="${mqtt_password}"
+	if [ -z "${mqtt_user}" ]; then
+		mqtt_yaml="${mqtt_yaml}${mqtt_yaml:+
+}username: ${mqtt_username}"
+	fi
+	if [ -z "$(bashio::config 'mqtt_optional_config.password')" ]; then
+		mqtt_yaml="${mqtt_yaml}${mqtt_yaml:+
+}password: ${mqtt_password}"
+	fi
+	[ -n "${mqtt_yaml}" ] && export MQTT_OPTIONAL_CONFIG="${mqtt_yaml}"
 }
 
 mqtt_autofill_from_ha_service
