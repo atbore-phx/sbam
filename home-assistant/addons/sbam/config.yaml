@@ -33,14 +33,13 @@ options:
   cache_time: 7200
   cache_file_prefix: cached_forecast
   mqtt_enabled: false
-  mqtt_optional_config:
-    broker: ""
-    client_id: ""
-    username: ""
-    password: ""
-    topic_prefix: sbam
-    ha_discovery: true
-    ha_discovery_prefix: homeassistant
+  mqtt_broker: ""
+  mqtt_client_id: ""
+  mqtt_username: ""
+  mqtt_password: ""
+  mqtt_topic_prefix: sbam
+  mqtt_ha_discovery: true
+  mqtt_ha_discovery_prefix: homeassistant
   scheduler_mode: crontab
   windows: []
 
@@ -66,14 +65,13 @@ schema:
   cache_time: int
   cache_file_prefix: str
   mqtt_enabled: bool
-  mqtt_optional_config:
-    broker: str?
-    client_id: str?
-    username: str?
-    password: password?
-    topic_prefix: str
-    ha_discovery: bool
-    ha_discovery_prefix: str
+  mqtt_broker: str?
+  mqtt_client_id: str?
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_topic_prefix: str
+  mqtt_ha_discovery: bool
+  mqtt_ha_discovery_prefix: str
   scheduler_mode: list(crontab|windows)
   windows:
     - name: str

@@ -194,9 +194,15 @@ func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
 			envVal  string
 			flagVal string
 		}{
+			{key: "mqtt_broker", env: "MQTT_BROKER", def: "", yamlVal: "yaml-broker", envVal: "env-broker", flagVal: "flag-broker"},
+			{key: "mqtt_client_id", env: "MQTT_CLIENT_ID", def: "", yamlVal: "yaml-client", envVal: "env-client", flagVal: "flag-client"},
+			{key: "mqtt_username", env: "MQTT_USERNAME", def: "", yamlVal: "yaml-user", envVal: "env-user", flagVal: "flag-user"},
+			{key: "mqtt_password", env: "MQTT_PASSWORD", def: "", yamlVal: "yaml-pass", envVal: "env-pass", flagVal: "flag-pass"},
 			{key: "mqtt_tls_ca_file", env: "MQTT_TLS_CA_FILE", def: "", yamlVal: "yaml-ca", envVal: "env-ca", flagVal: "flag-ca"},
 			{key: "mqtt_tls_client_cert", env: "MQTT_TLS_CLIENT_CERT", def: "", yamlVal: "yaml-cert", envVal: "env-cert", flagVal: "flag-cert"},
 			{key: "mqtt_tls_client_cert_key", env: "MQTT_TLS_CLIENT_CERT_KEY", def: "", yamlVal: "yaml-key", envVal: "env-key", flagVal: "flag-key"},
+			{key: "mqtt_topic_prefix", env: "MQTT_TOPIC_PREFIX", def: const_mqtt_topic_prefix, yamlVal: "yaml-prefix", envVal: "env-prefix", flagVal: "flag-prefix"},
+			{key: "mqtt_ha_discovery_prefix", env: "MQTT_HA_DISCOVERY_PREFIX", def: const_ha_discovery_prefix, yamlVal: "yaml-ha-prefix", envVal: "env-ha-prefix", flagVal: "flag-ha-prefix"},
 		}
 
 		for _, tc := range cases {
@@ -244,6 +250,7 @@ func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
 		}{
 			{key: "mqtt_enabled", env: "MQTT_ENABLED", def: false, yamlVal: true, envVal: false, flagVal: true},
 			{key: "mqtt_tls_insecure_skip", env: "MQTT_TLS_INSECURE_SKIP", def: false, yamlVal: true, envVal: false, flagVal: true},
+			{key: "mqtt_ha_discovery", env: "MQTT_HA_DISCOVERY", def: true, yamlVal: false, envVal: true, flagVal: false},
 		}
 
 		for _, tc := range cases {
@@ -278,16 +285,5 @@ func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
 				assert.Equal(t, tc.flagVal, viper.GetBool(tc.key))
 			})
 		}
-	})
-
-	t.Run("mqtt_optional_config from config file", func(t *testing.T) {
-		resetViper(t)
-		writeConfig(t, "mqtt_optional_config:\n  broker: yaml-broker\n  topic_prefix: yaml-prefix\n")
-		require.NoError(t, bindFlags(scdCmd))
-		require.True(t, viper.InConfig("mqtt_optional_config"), "nested key must be present in config file")
-		var opts mqttOptionalConfig
-		require.NoError(t, viper.UnmarshalKey("mqtt_optional_config", &opts))
-		assert.Equal(t, "yaml-broker", opts.Broker)
-		assert.Equal(t, "yaml-prefix", opts.TopicPrefix)
 	})
 }

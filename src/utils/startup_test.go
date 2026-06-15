@@ -134,10 +134,10 @@ func TestDumpStartupParams_RedactsRegisteredSecret(t *testing.T) {
 func TestDumpStartupParams_RedactsMQTTSecrets(t *testing.T) {
 	resetViper(t)
 
-	writeConfig(t, "mqtt_optional_config:\n  password: top-secret-password\nmqtt_tls_client_cert_key: top-secret-key\n")
-
 	cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().String("mqtt_password", "", "MQTT password")
 	cmd.Flags().String("mqtt_tls_client_cert_key", "", "MQTT client cert key")
+	require.NoError(t, cmd.Flags().Set("mqtt_password", "top-secret-password"))
 	require.NoError(t, cmd.Flags().Set("mqtt_tls_client_cert_key", "top-secret-key"))
 	require.NoError(t, bindFlags(cmd))
 
@@ -145,7 +145,7 @@ func TestDumpStartupParams_RedactsMQTTSecrets(t *testing.T) {
 
 	assert.NotContains(t, out, "top-secret-password")
 	assert.NotContains(t, out, "top-secret-key")
-	assert.Regexp(t, `mqtt_optional_config\.password\s+=\s+\*\*\*\s+source=yaml`, out)
+	assert.Regexp(t, `mqtt_password\s+=\s+\*\*\*\s+source=flag`, out)
 	assert.Regexp(t, `mqtt_tls_client_cert_key\s+=\s+\*\*\*\s+source=flag`, out)
 }
 

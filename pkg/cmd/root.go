@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	u "sbam/src/utils"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -41,7 +40,6 @@ func Execute() error {
 
 func init() {
 	viper.AutomaticEnv()
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")

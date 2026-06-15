@@ -30,10 +30,9 @@ import (
 // any user-visible dump. Append to this map when introducing a new flag that
 // carries sensitive material.
 var SecretKeys = map[string]struct{}{
-	"apikey":                        {},
-	"mqtt_password":                 {},
-	"mqtt_optional_config.password": {},
-	"mqtt_tls_client_cert_key":      {},
+	"apikey":                   {},
+	"mqtt_password":            {},
+	"mqtt_tls_client_cert_key": {},
 }
 
 const redacted = "***"
