@@ -3,7 +3,7 @@
 # Generate config.yaml from Supervisor options.
 # JSON is valid YAML 1.2, so the Go app's viper reads it natively.
 cd /data
-cp /data/options.yaml config.yaml
+cp /data/options.json config.yaml
 
 # DEBUG and LOG_TYPE are read via os.Getenv (src/utils/log.go), not viper.
 export DEBUG=$(bashio::config 'debug')
