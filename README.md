@@ -29,6 +29,23 @@ In Solar.web, the energy balance does not display grid charge information to pre
 
 Here **sbam** is all this and much more :)
 
+## Documentation
+
+Full documentation is available at **[atbore-phx.github.io/sbam](https://atbore-phx.github.io/sbam/)**:
+
+| Section | |
+|---------|--|
+| [Prerequisites](https://atbore-phx.github.io/sbam/prerequisites/) | Inverter setup, Solcast API |
+| [Installation](https://atbore-phx.github.io/sbam/installation/) | Home Assistant add-on, Docker, standalone |
+| [Configuration](https://atbore-phx.github.io/sbam/configuration/) | Every config option with deployment-specific notes |
+| [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/) | Topic map, payload schemas, commands |
+| [CLI Reference](https://atbore-phx.github.io/sbam/cli/) | Full command-line reference |
+| [Changelog](https://atbore-phx.github.io/sbam/changelog/) | Release history |
+
+### Home Assistant Add-on
+
+sbam is available as an App (add-on) for Home Assistant OS. [Installation guide](https://atbore-phx.github.io/sbam/installation/)
+
 ### Contributions
 ----
 sbam is an open-source, community-driven project so contributions are welcome
@@ -38,7 +55,7 @@ changes. For larger features please open an issue first to discuss scope;
 small fixes and documentation updates can be submitted directly as PRs.
 When submitting code, include tests where applicable and keep changes focused so reviews are easy.
 
-#### Support 💖
+#### Support :heart:
 
 If you don't code but want to support the project, you can sponsor the project on GitHub Sponsors:
 
@@ -47,204 +64,3 @@ If you don't code but want to support the project, you can sponsor the project o
 #### Compound Engineering
 
 This project uses [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin) skills for feature development — brainstorm, plan, implement, review, and ship with a consistent, quality-gated workflow. Contributor guidance and examples live in [docs/vibe](docs/vibe). Always validate generated code, run tests, and require human review before merging.
-
-### Prerequisites
-----
-sbam requires the following prerequisites to function correctly: [link](docs/prereq.md)
-
-### Home Assistant:
-----
-Sbam is available as an App (formerly known as add-on) for HAOS (Home Assistant OS).
-
-**N.B. HAOS must be able to reach the Fronius inverter on its LAN IP.**
-
-follow this guide to install and configure in HAOS: [link](home-assistant/addons/sbam/DOCS.md)
-
-### MQTT Feed
-----
-sbam can publish schedule telemetry and accept control commands over MQTT when
-`mqtt_enabled=true`.
-
-For full setup, topic mapping, payload schemas, command examples, and migration
-details, see [MQTT documentation](docs/mqtt.md).
-
-
-### Stand Alone:
-----
-**sbam** can be run via cli with the following parameters:
-
-```bash
-sbam - Smart Battery Advanced Manager.
-        Charge Fronius© battery using weather forecast.
-        Initiate parameters from command line, env variables or config.yaml file.
-
-Usage:
-  sbam [command]
-
-Available Commands:
-  completion  Generate the autocompletion script for the specified shell
-  configure   Configure Battery Storage Charge
-  estimate    Estimate Forecast Solar Power
-  help        Help about any command
-  schedule    Schedule Battery Storage Charge
-
-Flags:
-  -h, --help      help for sbam
-  -v, --version   version for sbam
-
-Use "sbam [command] --help" for more information about a command.
-```
-
-#### Configure
-
-Connect to the fronius inverter via modbus and set charging
-
-```bash
-Usage:
-  sbam configure [flags]
-
-Flags:
-  -d, --defaults            set DEFAULTS
-  -f, --force_charge        set FORCE_CHARGE
-  -H, --fronius_ip string   set FRONIUS_IP
-  -h, --help                help for configure
-  -p, --power int           set percent of nominal POWER
-```
-
-#### Estimate
-
-Print the solar forecast and the battery storage power
-
-```bash
-Usage:
-  sbam estimate [flags]
-
-Flags:
-  -k, --apikey string              set APIKEY
-  -f, --cache_file_prefix string   CACHE_FILE_NAME (default 'cached_forecast') (default "cached_forecast")
-  -n, --cache_forecast             CACHE_FORECAST (default false)
-  -l, --cache_time int32           CACHE_TIME (default 7200) (default 7200)
-      --forecast_horizon string    Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off) (default "default")
-  -H, --fronius_ip string          set FRONIUS_IP
-  -h, --help                       help for estimate
-  -u, --url string                 Set the forecast URL. For multiple URLs, use a comma (,) to separate them
-```
-
-#### Schedule
-
-Workflow to Check Forecast and Battery residual Capacity and decide if it has to be charged in a definited time range.
-
-```bash
-Usage:
-  sbam schedule [flags]
-
-Flags:
-  -k, --apikey string                     APIKEY
-  -E, --batt_reserve_end_hr string        BATT_RESERVE_END_HR (default END_HR)
-  -S, --batt_reserve_start_hr string      BATT_RESERVE_START_HR (default START_HR)
-  -f, --cache_file_prefix string          CACHE_FILE_PREFIX (default 'cached_forecast') (default "cached_forecast")
-  -n, --cache_forecast                    CACHE_FORECAST (default false)
-  -l, --cache_time int32                  CACHE_TIME (default 7200) (default 7200)
-  -t, --crontab string                    CRONTAB (default "0 0 0 0 0")
-      --consumption_horizon string        Consumption horizon mode (full_day, remaining_today) (default "full_day")
-  -d, --defaults                          DEFAULTS (default true)
-  -e, --end_hr string                     END_HR (default "00:55")
-      --forecast_horizon string           Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off) (default "default")
-  -H, --fronius_ip string                 FRONIUS_IP
-  -h, --help                              help for schedule
-  -m, --max_charge float                  MAX_CHARGE (default 3500)
-      --mqtt_broker string                MQTT broker URL
-      --mqtt_client_id string             MQTT client identifier
-      --mqtt_enabled                      Enable MQTT integration
-      --mqtt_ha_discovery                 Enable Home Assistant MQTT discovery (default true)
-      --mqtt_ha_discovery_prefix string   Home Assistant MQTT discovery prefix (default "homeassistant")
-      --mqtt_password string              MQTT password
-      --mqtt_tls_ca_file string           MQTT TLS CA certificate file
-      --mqtt_tls_client_cert string       MQTT TLS client certificate file
-      --mqtt_tls_client_cert_key string   MQTT TLS client key file
-      --mqtt_tls_insecure_skip            Skip MQTT TLS certificate verification
-      --mqtt_topic_prefix string          MQTT topic prefix (default "sbam")
-      --mqtt_username string              MQTT username
-  -r, --pw_batt_reserve float             PW_BATT_RESERVE
-  -c, --pw_consumption float              PW_CONSUMPTION
-  -L, --pw_lwt float                      PW_LWT
-  -U, --pw_upt float                      PW_UPT
-  -s, --start_hr string                   START_HR (default "00:00")
-      --windows string                     Charge windows in YAML format (same as config.yaml windows: key)
-  -u, --url string                        Set the Forecast URL. For multiple URLs, use a comma (,) to separate them
-```
-
-Charge windows can be defined either as a single legacy window (`--start_hr`,`--end_hr`,`--max_charge`) or as a multi-window list (`--windows` or the `windows:` key in `config.yaml`). The two forms are mutually exclusive.\
-
-**Legacy single window:**\
-Time windows can span midnight for both charge (`--start_hr`,`--end_hr`) and reserve (`--batt_reserve_start_hr`,`--batt_reserve_end_hr`) ranges.\
-Example:\
-`--start_hr 22:00 --end_hr 06:00` and optionally:\
-`--batt_reserve_start_hr 23:00 --batt_reserve_end_hr 05:00` (if omitted defaults to the same as `start_hr`/`end_hr`).\
-
-**Multi-window list (YAML):**\
-The `windows:` key in `config.yaml` (or `--windows` flag / `WINDOWS` env var) accepts an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon`. List order defines the daily sequence: the first entry starts first, the last entry ends last. Cross-midnight windows are supported.\
-Example:\
-`--windows '[{name: night, start: "02:00", end: "06:00", max_charge: 3500, forecast_horizon: tomorrow}, {name: midday, start: "12:00", end: "15:00", max_charge: 2000}]'`
-Equal start/end values remain invalid.
-
-Crontab syntax is supported to repeat programmatically the execution of the `schedule` command. By default, it is set to `0 0 0 0 0` which means that the command will be executed once at startup without any repetition or action waiting for mqtt commands (if mqtt is enabled).\
-For eg. to run it every hour, set it to `0 * * * *`. For more information on crontab syntax, see [crontab.guru](https://crontab.guru/).
-
-Forecast and consumption windows are controlled by two new options:
-
-- `--forecast_horizon` / `FORECAST_HORIZON` / `forecast_horizon` — selects which
-  forecast window to use (default: `default`):
-  - `default` — current behavior: today before 12:00, tomorrow from 12:00 onward.
-  - `next_solar_day` — same as `default`; targets the upcoming solar day.
-  - `remaining_today` — only forecast intervals from now through end of local day.
-  - `today` — full local calendar day.
-  - `tomorrow` — full next local calendar day.
-  - `off` — skip forecast retrieval entirely; only reserve charging is active.
-
-- `--consumption_horizon` / `CONSUMPTION_HORIZON` / `consumption_horizon` — selects
-  how the daily consumption value is applied (default: `full_day`):
-  - `full_day` — use `pw_consumption` as-is (current behavior).
-  - `remaining_today` — scale `pw_consumption` proportionally to the fraction of
-    the local day remaining.
-
-#### Debug Logs
-
-To increase the log level to debug, just set the DEBUG environment variable to true.
-
-```bash
-export DEBUG=true
-❯ bin/sbam --help
-2026-04-29T11:15:19+02:00       DEBUG   Debug Logs activated: true
-...
-```
-
-#### Log Format
-
-sbam supports two log output formats: `console` (human-friendly) and `json` (machine-readable). The default is `console`.
-
-When `LOG_TYPE=json` the logger emits JSON structured logs suitable for collectors.
-
-Set the `LOG_TYPE` environment variable to choose the format:
-
-```bash
-export LOG_TYPE=json
-export DEBUG=true
-bin/sbam --help
-{"level":"debug","ts":"2026-04-29T11:16:24+02:00","msg":"Debug Logs activated: true"}
-...
-```
-The Home Assistant add-on exposes the same option as `log_type` in the add-on
-Options (default: `console`).
-
-#### Config file and env vars
-
-A configuration file config.yaml and/or environment variables are also supported.
-
-Configuration values are resolved with the following precedence (highest first):
-
-1. CLI flag (e.g. `--url http://example/`)
-2. Environment variable (e.g. `URL=http://example/`)
-3. `config.yaml` in the working directory
-4. Built-in default
-

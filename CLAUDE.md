@@ -59,13 +59,27 @@ The application must be:
     config.yml                - Issue template chooser policy (blank issues disabled)
   dependabot.yml              - Dependabot updates for Go modules, GitHub Actions, and Dockerfiles
   workflows/                  - CI/CD workflow definitions
+    test.yml                  # Go tests on every push
+    release.yml               # Tag-based release (HA add-on + GoReleaser binaries)
+    dev-image.yml             # Dev Docker image on release branches
+    docs-deploy.yml           # MkDocs build + GitHub Pages deploy (main) / preview artifact (branches)
   actions/
     build-ha-addon/           - Composite action: build Go binary + HA add-on Docker image
 
+mkdocs.yml                    # MkDocs configuration (Material theme, GitHub Pages deploy)
 docs/
-  prereq.md                   - Prerequisites required to run sbam
-  mqtt.md                     - Detailed MQTT feed and Home Assistant discovery documentation
+  site/                         # MkDocs source — user-facing documentation
+    index.md                    # Landing page
+    prerequisites.md            # Inverter setup and Solcast prerequisites
+    installation.md             # HA add-on, Docker, and standalone installation
+    configuration.md            # Single config reference with deployment annotations
+    mqtt.md                     # MQTT guide (topic map, payloads, commands, discovery)
+    cli.md                      # Full CLI command and flag reference
+    changelog.md                # Release history
   vibe/                       - Contributor workflow docs for Compound Engineering skills
+  brainstorms/                # CE brainstorm artifacts
+  plans/                      # CE implementation plans
+  implementations/            # Archived pre-CE implementation plans
 
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests

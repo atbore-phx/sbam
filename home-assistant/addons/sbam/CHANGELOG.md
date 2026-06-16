@@ -1,4 +1,4 @@
-## Unreleased
+## What's New in v2.1.0
 
 ### Multi-window charging schedule
 
@@ -10,7 +10,6 @@ New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_
 - Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
 - Mixing `windows` with legacy keys is rejected with a clear error.
 - MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
-- CLI flags: `--windows` (repeatable CSV) and `--windows-json` (JSON array). Env var: `WINDOWS_JSON`.
 
 ### Configurable forecast and consumption horizons
 
@@ -20,6 +19,14 @@ New `forecast_horizon` and `consumption_horizon` options replace the hardcoded n
 - `consumption_horizon`: `full_day` (current behavior), `remaining_today`
 
 Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
+
+### Scheduler mode selector
+
+New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured. Mixing `mode: crontab` with `windows:` is rejected at startup.
+
+### HA add-on YAML config
+
+The Home Assistant add-on configuration is now defined in YAML format (`config.yaml`) with nested MQTT configuration, matching the standalone `config.yaml` structure. All options are documented in the [sbam documentation site](https://atbore-phx.github.io/sbam/configuration/).
 
 ### Crontab default validation fix
 
@@ -68,7 +75,7 @@ When MQTT discovery is enabled `mqtt_ha_discovery=true`, sbam publishes automati
 
 For complete MQTT reference (topic map, payload schemas, command examples,
 and migration notes), see:
-[MQTT Feed and Home Assistant Discovery](https://github.com/atbore-phx/sbam/blob/main/docs/mqtt.md)
+[MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/)
 
 ### Cross-midnight time window configuration
 
