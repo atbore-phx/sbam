@@ -65,6 +65,7 @@ func newRunnerForTests(client mqtt.Client) *Runner {
 		CacheForecast:      false,
 		CacheFilePrefix:    "cached_forecast",
 		CacheTime:          7200,
+		WeekdayFeature:     true,
 		MQTT: mqtt.Config{
 			Enabled:     true,
 			TopicPrefix: "sbam",

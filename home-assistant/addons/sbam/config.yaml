@@ -41,6 +41,7 @@ options:
   mqtt_ha_discovery: true
   mqtt_ha_discovery_prefix: homeassistant
   scheduler_mode: crontab
+  weekday_feature: true
   windows: []
 
 schema:
@@ -73,6 +74,7 @@ schema:
   mqtt_ha_discovery: bool
   mqtt_ha_discovery_prefix: str
   scheduler_mode: list(crontab|windows)
+  weekday_feature: bool
   windows:
     - name: str
       start: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
@@ -83,3 +85,4 @@ schema:
       tick_minutes: int?
       set_defaults: bool?
       before_end_defaults_minutes: int?
+      weekdays: str?

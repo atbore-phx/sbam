@@ -48,6 +48,7 @@ type RunnerConfig struct {
 	ConsumptionHorizon string
 	SchedulerMode      string
 	Windows            []pw.Window
+	WeekdayFeature     bool
 	MQTT               mqtt.Config
 	Now                func() time.Time
 }
@@ -163,7 +164,7 @@ func (r *Runner) StartWindowsTicker(now time.Time) {
 func (r *Runner) startWindowsTicker(now time.Time) {
 	r.stopWindowsTicker()
 
-	active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+	active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 	if active != nil {
 		r.activeWindow = active.Name
 	} else {
@@ -258,7 +259,7 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 		return
 	}
 
-	active := pw.ResolveActiveWindow(windows, now)
+	active := pw.ResolveActiveWindow(windows, now, r.cfg.WeekdayFeature)
 
 	var next pw.Window
 
@@ -275,6 +276,11 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 				startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 			if !startAt.After(now) {
 				startAt = startAt.Add(24 * time.Hour)
+			}
+			if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
+				if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
+					startAt = nextMatchingWeekday(startAt, wdSet)
+				}
 			}
 			if best == nil || startAt.Before(bestStart) {
 				best = &windows[i]
@@ -327,6 +333,12 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 	// If nextAt is before or equal to now, advance by 24h.
 	if !nextAt.After(now) {
 		nextAt = nextAt.Add(24 * time.Hour)
+	}
+
+	if r.cfg.WeekdayFeature && next.Weekdays != "" {
+		if wdSet, err := pw.ParseWeekdays(next.Weekdays); err == nil && len(wdSet) > 0 {
+			nextAt = nextMatchingWeekday(nextAt, wdSet)
+		}
 	}
 
 	delay := nextAt.Sub(now)
@@ -435,7 +447,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var inCooldown bool
 	var cooldownErr error
 	if r.cfg.SchedulerMode == "windows" && len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 		if active != nil {
 			cooldownDuration := chargeCooldownMinutes
 			if active.Defaults != nil && *active.Defaults && active.BeforeEndDefaults != nil {
@@ -782,7 +794,7 @@ func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge fl
 	consumptionHorizon = r.cfg.ConsumptionHorizon
 
 	if len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now)
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 		if active == nil {
 			return false, maxCharge, forecastHorizon, consumptionHorizon, ""
 		}
@@ -883,4 +895,18 @@ func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 
 	inRange := (now.After(startAt) || now.Equal(startAt)) && (now.Before(endAt) || now.Equal(endAt))
 	return inRange, nil
+}
+
+// nextMatchingWeekday advances t by 24h increments until its weekday is in
+// the provided set. The set must be non-empty; the function loops at most 7
+// times before returning (since a non-empty set guarantees a match within 7
+// days).
+func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time {
+	for i := 0; i < 7; i++ {
+		if weekdays[t.Weekday()] {
+			return t
+		}
+		t = t.Add(24 * time.Hour)
+	}
+	return t
 }
