@@ -2,7 +2,7 @@
 
 Charge your Fronius Gen24+ battery intelligently using Solcast weather forecasts.
 
-[Get started](installation.md){ .md-button .md-button--primary }
+[Get started](prerequisites.md){ .md-button .md-button--primary }
 [View on GitHub](https://github.com/atbore-phx/sbam){ .md-button }
 
 ---
@@ -15,17 +15,6 @@ sbam combines three signals your inverter ignores — weather forecasts, daily c
 - **MQTT-wired** — publishes state and accepts commands for Home Assistant automations
 - **Multi-window** — define multiple charge windows per day, each with its own power limit
 - **Open source** — no black box, no vendor lock-in
-
-## Quick navigation
-
-| Section | What you'll find |
-|---------|-----------------|
-| [Prerequisites](prerequisites.md) | Inverter settings, Solcast API setup |
-| [Installation](installation.md) | Home Assistant add-on, Docker, standalone binary |
-| [Configuration](configuration.md) | Every config option, deployment-specific notes |
-| [MQTT Guide](mqtt.md) | Topic map, payload schemas, command examples |
-| [CLI Reference](cli.md) | Full command-line reference |
-| [Changelog](changelog.md) | Release history |
 
 !!! warning
 
