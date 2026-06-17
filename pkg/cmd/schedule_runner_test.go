@@ -1636,7 +1636,7 @@ func TestFinalizeRunnerMode_MQTTEnabled(t *testing.T) {
 	// Submit shutdown so Run exits cleanly.
 	runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 
-	err := finalizeRunnerMode(true, runner, runDone, cancel)
+	err := finalizeRunnerMode(true, "crontab", runner, runDone, cancel)
 	require.NoError(t, err)
 }
 

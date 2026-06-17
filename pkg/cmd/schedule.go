@@ -284,7 +284,7 @@ var scdCmd = &cobra.Command{
 			return
 		}
 
-		if err := finalizeRunnerMode(mqtt_enabled, runner, runDone, stop); err != nil {
+		if err := finalizeRunnerMode(mqtt_enabled, scheduler_mode, runner, runDone, stop); err != nil {
 			u.Log.Error(err)
 		}
 	},
@@ -583,13 +583,16 @@ func makeBasePayload(lastDecision, lastReason string, inChargeWindow, reserveWin
 	}
 }
 
-// finalizeRunnerMode stops the runner immediately when MQTT is disabled
-// (non-interactive mode) or blocks until the runner completes when MQTT
-// is enabled (interactive mode). When stopping the runner it submits a
-// shutdown intent and waits for the runner goroutine to finish.
-func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, stop context.CancelFunc) error {
-	if !mqttEnabled {
-		u.Log.Info("MQTT integration disabled, stopping runner")
+// finalizeRunnerMode either blocks until the runner completes (interactive
+// mode) or stops the runner immediately (non-interactive mode). The runner
+// is kept alive when MQTT is enabled or when the scheduler mode has its own
+// internal driver (e.g. windows, auto). Only crontab mode reaches this
+// function without an internal driver — when crontab is configured,
+// crontabSchedule blocks and finalizeRunnerMode is never reached. When
+// stopping, it submits a shutdown intent and waits for the runner to finish.
+func finalizeRunnerMode(mqttEnabled bool, schedulerMode string, runner *Runner, runDone <-chan error, stop context.CancelFunc) error {
+	if !mqttEnabled && schedulerMode == "crontab" {
+		u.Log.Info("MQTT integration disabled and no internal driver active, stopping runner")
 		_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 		if stop != nil {
 			stop()
@@ -597,7 +600,7 @@ func finalizeRunnerMode(mqttEnabled bool, runner *Runner, runDone <-chan error, 
 		return waitForRunnerDone(runDone)
 	}
 
-	u.Log.Info("MQTT integration enabled, waiting for commands... press ctrl+c to exit...")
+	u.Log.Info("MQTT integration enabled or internal scheduler active, waiting for commands... press ctrl+c to exit...")
 	return waitForRunnerDone(runDone)
 }
 
