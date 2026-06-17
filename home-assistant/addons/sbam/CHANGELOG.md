@@ -87,7 +87,7 @@ and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
 
 ### v1.6.0
 
-General release. [Full changelog](https://github.com/atbore-phx/sbam/compare/v1.5.0...v1.6.0)
+Go toolchain upgraded to 1.26. Viper config loading hardened — file read errors now surface instead of failing silently. CLI flag precedence enforced (flag > env > yaml). Startup parameter dump in debug mode with secret masking. Copilot agent workflow prompts added. Error helpers consolidated from `pkg/fronius/error.go` into `src/utils/error.go`.
 
 ### v1.5.0
 
