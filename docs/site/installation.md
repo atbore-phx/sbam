@@ -20,10 +20,9 @@ sbam is available as an App (add-on) for Home Assistant OS (HAOS).
 
 1. If the add-on is not visible, refresh the page
 2. Click the **sbam** app
+3. Click **Install**
 
 ![SBAM app](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
-
-3. Click **Install**
 
 ![Install](https://github.com/atbore-phx/sbam/assets/11421185/cb9eafe3-a274-4164-a789-1c31a87308e1)
 
@@ -36,14 +35,12 @@ Before starting, open the **Configuration** tab and set options as needed. See t
 ### Start
 
 1. Enable **Start on boot** and **Watchdog**
+2. Click **Start**
+3. Check add-on logs for startup and runtime details.
 
 ![Watchdog](https://github.com/atbore-phx/sbam/assets/11421185/413e2d3d-638b-417c-b906-34d46aee62c0)
 
-2. Click **Start**
-
 ![Start](https://github.com/atbore-phx/sbam/assets/11421185/9575b453-5132-4a24-9166-bc6d385690f1)
-
-3. Check add-on logs for startup and runtime details.
 
 ## Standalone Binary
 
