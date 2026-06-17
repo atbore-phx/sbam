@@ -32,6 +32,7 @@ theme:
     - content.code.copy
 
 markdown_extensions:
+  - attr_list
   - admonition
   - pymdownx.highlight
   - pymdownx.superfences
