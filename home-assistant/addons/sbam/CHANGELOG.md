@@ -83,5 +83,39 @@ Example overnight configuration: `start_hr: 22:00` and `end_hr: 06:00`.
 Reserve windows can also cross midnight, for example `batt_reserve_start_hr: 23:00`
 and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
 
+## Pre-v2.0.0 Releases
+
+### v1.6.0
+
+General release. [Full changelog](https://github.com/atbore-phx/sbam/compare/v1.5.0...v1.6.0)
+
+### v1.5.0
+
+Simple forecast caching added — reduce Solcast API calls by caching forecasts locally with configurable TTL. Contributed by [@travellingkiwi](https://github.com/travellingkiwi) in [#61](https://github.com/atbore-phx/sbam/issues/61).
+
+### v1.4.0
+
+Battery reserve charging now triggers based on time rather than charge level alone. Charging uses hysteresis logic to avoid rapid toggling. Contributed by [@Johnnexto](https://github.com/Johnnexto).
+
+### v1.3.9
+
+HA add-on `reset` switch to restore Fronius defaults at boot. Debug logging for Modbus read/write operations via `DEBUG` env var. Skip force charging when target is below 1%.
+
+### v1.3.5
+
+Fixed battery charging when under reserve and net PV power is insufficient.
+
+### v1.2.0
+
+Minimum battery reserve capacity feature — maintain a configurable floor charge level. Test coverage improvements.
+
+### v1.1.0
+
+Battery maximum capacity now retrieved from the local Fronius API instead of using a hardcoded value. Fronius and Modbus test suite added.
+
+### v1.0.0
+
+Initial release. Static time-of-day battery charging with Solcast weather forecast integration.
+
 ## Full Release Changelog
 [link to sbam latest release](https://github.com/atbore-phx/sbam/releases/latest)
