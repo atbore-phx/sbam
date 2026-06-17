@@ -1,4 +1,4 @@
-## What's New in v2.2.0
+## What's New in v2.1.0
 
 ### Weekday filtering on charge windows
 
@@ -19,8 +19,6 @@ sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
 See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
 for the full format reference, start-day model explanation, and worked
 configuration examples.
-
-## What's New in v2.1.0
 
 ### Multi-window charging schedule
 
