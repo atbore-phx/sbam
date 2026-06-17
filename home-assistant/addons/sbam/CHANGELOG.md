@@ -1,3 +1,28 @@
+## What's New in v2.2.0
+
+### Weekday filtering on charge windows
+
+Each window in the `windows:` list now accepts an optional `weekdays` field
+for day-of-week filtering:
+
+```yaml
+weekdays: "mon-fri"        # Monday through Friday
+weekdays: "mon,fri"        # Monday and Friday only
+weekdays: "mon-fri,sun"    # weekdays plus Sunday
+```
+
+A cross-midnight window uses the start-day model: `start: "22:00", end:
+"04:00", weekdays: "fri"` is active Friday night/Saturday morning but not
+Saturday night. Two windows with the same clock range but different weekday
+sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
+
+The `weekday_feature` global option (default `true`) gates all weekday logic.
+Set it to `false` to disable filtering without editing window definitions.
+
+See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
+for the full format reference, start-day model explanation, and worked
+configuration examples.
+
 ## What's New in v2.1.0
 
 ### Multi-window charging schedule

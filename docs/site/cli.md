@@ -41,6 +41,7 @@ sbam schedule [flags]
 | `-d, --defaults` | `DEFAULTS` | Reconfigure inverter to defaults at cycle end | `true` |
 | `--forecast_horizon` | `FORECAST_HORIZON` | Forecast window mode | `default` |
 | `--consumption_horizon` | `CONSUMPTION_HORIZON` | Consumption model | `full_day` |
+| `--weekday_feature` | `WEEKDAY_FEATURE` | Enable weekday filtering on charge windows | `true` |
 | `--windows` | `WINDOWS` | Charge windows in YAML format | — |
 | `--mqtt_enabled` | `MQTT_ENABLED` | Enable MQTT | `false` |
 | `--mqtt_broker` | `MQTT_BROKER` | MQTT broker URL | — |
@@ -134,3 +135,8 @@ With optional reserve window:
 ```
 
 Equal start/end values are invalid. Overlapping windows are rejected at startup.
+
+Each window can also include a `weekdays` field for day-of-week filtering and
+the `weekday_feature` flag controls the feature globally. See the
+[Weekday Filtering](weekdays.md) guide for the format, start-day model, and
+worked examples.
