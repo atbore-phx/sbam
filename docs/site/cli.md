@@ -41,7 +41,6 @@ sbam schedule [flags]
 | `-d, --defaults` | `DEFAULTS` | Reconfigure inverter to defaults at cycle end | `true` |
 | `--forecast_horizon` | `FORECAST_HORIZON` | Forecast window mode | `default` |
 | `--consumption_horizon` | `CONSUMPTION_HORIZON` | Consumption model | `full_day` |
-| `--weekday_feature` | `WEEKDAY_FEATURE` | Enable weekday filtering on charge windows | `true` |
 | `--windows` | `WINDOWS` | Charge windows in YAML format | — |
 | `--mqtt_enabled` | `MQTT_ENABLED` | Enable MQTT | `false` |
 | `--mqtt_broker` | `MQTT_BROKER` | MQTT broker URL | — |
