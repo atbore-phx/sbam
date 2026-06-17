@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Provide guidance for contributors using Compound Engineering skills to propose and implement changes.
+- Provide guidance for contributors using [Compound Engineering skills](https://github.com/EveryInc/compound-engineering-plugin) to propose and implement changes.
 - Keep the workflow consistent, reviewable, and safe.
 
 ## Principles

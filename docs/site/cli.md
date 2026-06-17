@@ -26,11 +26,11 @@ sbam schedule [flags]
 | `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix | `cached_forecast` |
 | `-n, --cache_forecast` | `CACHE_FORECAST` | Enable forecast caching | `false` |
 | `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds | `7200` |
-| `-t, --crontab` | `CRONTAB` | Cron expression (deprecated) | `0 0 0 0 0` |
+| `-t, --crontab` | `CRONTAB` | Cron expression (deprecated) | `0 0 0 0 0` (crontab disabled)|
 | `--scheduler_mode` | `SCHEDULER_MODE` | Scheduling mode (`crontab` or `windows`) | `crontab` |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
 | `-s, --start_hr` | `START_HR` | Charge window start (HH:MM) | `00:00` |
-| `-e, --end_hr` | `END_HR` | Charge window end (HH:MM) | `00:55` |
+| `-e, --end_hr` | `END_HR` | Charge window end (HH:MM) | `06:00` |
 | `-m, --max_charge` | `MAX_CHARGE` | Max grid charging power (W) | `3500` |
 | `-S, --batt_reserve_start_hr` | `BATT_RESERVE_START_HR` | Reserve window start (HH:MM) | `start_hr` value |
 | `-E, --batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | Reserve window end (HH:MM) | `end_hr` value |

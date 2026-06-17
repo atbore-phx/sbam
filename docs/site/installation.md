@@ -8,18 +8,20 @@ sbam is available as an App (add-on) for Home Assistant OS (HAOS).
 
 ### Add Repository
 
-1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**
+1. In Home Assistant, go to **Settings → Apps → Install app**
 2. Click the three-dot menu → **Repositories**
-3. Add the repository URL: `https://github.com/atbore-phx/sbam`
+3. Click **Add**
+4. Add the repository URL: `https://github.com/atbore-phx/sbam`
+5. Click **Add** to confirm
 
 ![Add repository](https://github.com/user-attachments/assets/ed59cc24-dd50-4e0d-a84d-708643c0994c)
 
 ### Install
 
 1. If the add-on is not visible, refresh the page
-2. Click the **sbam** add-on
+2. Click the **sbam** app
 
-![SBAM add-on](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
+![SBAM app](https://github.com/user-attachments/assets/ec81f283-fc97-4328-8e1e-ffbd3c4d2e29)
 
 3. Click **Install**
 
@@ -42,25 +44,6 @@ Before starting, open the **Configuration** tab and set options as needed. See t
 ![Start](https://github.com/atbore-phx/sbam/assets/11421185/9575b453-5132-4a24-9166-bc6d385690f1)
 
 3. Check add-on logs for startup and runtime details.
-
-## Docker
-
-```bash
-docker run \
-  -e URL="https://api.solcast.com.au/rooftop_sites/your-site/forecasts?format=json" \
-  -e APIKEY="your-api-key" \
-  -e FRONIUS_IP="192.168.1.100" \
-  -e PW_CONSUMPTION="11000" \
-  ghcr.io/atbore-phx/ha-amd64-sbam:latest \
-  sbam schedule
-```
-
-Mount a `config.yaml` for persistent configuration:
-
-```bash
-docker run -v $(pwd)/config.yaml:/config.yaml \
-  ghcr.io/atbore-phx/ha-amd64-sbam:latest
-```
 
 ## Standalone Binary
 

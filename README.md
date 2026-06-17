@@ -31,36 +31,17 @@ Here **sbam** is all this and much more :)
 
 ## Documentation
 
-Full documentation is available at **[atbore-phx.github.io/sbam](https://atbore-phx.github.io/sbam/)**:
+sbam is available as a Home Assistant app (add-on) or standalone application that can be used via CLI. \
+Full documentation, prerequisites, installation screenshots, configuration references, MQTT guide, CLI reference, and changelog are available at this link: **[Documentation](https://atbore-phx.github.io/sbam/)**
 
-| Section | |
-|---------|--|
-| [Prerequisites](https://atbore-phx.github.io/sbam/prerequisites/) | Inverter setup, Solcast API |
-| [Installation](https://atbore-phx.github.io/sbam/installation/) | Home Assistant add-on, Docker, standalone |
-| [Configuration](https://atbore-phx.github.io/sbam/configuration/) | Every config option with deployment-specific notes |
-| [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/) | Topic map, payload schemas, commands |
-| [CLI Reference](https://atbore-phx.github.io/sbam/cli/) | Full command-line reference |
-| [Changelog](https://atbore-phx.github.io/sbam/changelog/) | Release history |
+## Contributions
+sbam is an open-source, community-driven project so contributions are welcome from everyone. \
+You can file issues to report bugs or request features, improve documentation, add tests, or submit pull requests with proposed changes. \
+For larger features please open an issue first to discuss scope; small fixes and documentation updates can be submitted directly as PRs. \
+When submitting code, include tests where applicable and keep changes focused so reviews are easy. See the [contributor guide](https://github.com/atbore-phx/sbam/blob/main/docs/vibe/CONTRIBUTING.md) for workflow details.
 
-### Home Assistant Add-on
-
-sbam is available as an App (add-on) for Home Assistant OS. [Installation guide](https://atbore-phx.github.io/sbam/installation/)
-
-### Contributions
-----
-sbam is an open-source, community-driven project so contributions are welcome
-from everyone. You can file issues to report bugs or request features,
-improve documentation, add tests, or submit pull requests with proposed
-changes. For larger features please open an issue first to discuss scope;
-small fixes and documentation updates can be submitted directly as PRs.
-When submitting code, include tests where applicable and keep changes focused so reviews are easy.
-
-#### Support :heart:
+## Support :heart:
 
 If you don't code but want to support the project, you can sponsor the project on GitHub Sponsors:
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-6f42c1?style=for-the-badge&logo=github)](https://github.com/sponsors/atbore-phx)
-
-#### Compound Engineering
-
-This project uses [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin) skills for feature development — brainstorm, plan, implement, review, and ship with a consistent, quality-gated workflow. Contributor guidance and examples live in [docs/vibe](docs/vibe). Always validate generated code, run tests, and require human review before merging.

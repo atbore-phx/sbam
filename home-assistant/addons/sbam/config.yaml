@@ -15,8 +15,8 @@ options:
   url: https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json
   apikey: ""
   fronius_ip: ""
-  start_hr: ""
-  end_hr: ""
+  start_hr: "00:00"
+  end_hr: "06:00"
   crontab: "00 00-05 * * *"
   pw_consumption: "11000"
   max_charge: "3500"

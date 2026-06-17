@@ -33,7 +33,7 @@ var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_inse
 const (
 	const_pc                  = 0.0
 	const_sh                  = "00:00"
-	const_eh                  = "00:55"
+	const_eh                  = "06:00"
 	const_mc                  = 3500
 	const_plwt                = 0
 	const_pupt                = 0

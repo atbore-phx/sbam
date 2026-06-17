@@ -8,21 +8,19 @@ New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_
 - Cross-midnight windows supported (e.g. 22:00–04:00).
 - Overlap detection rejects misconfigured windows at startup.
 - Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
-- Mixing `windows` with legacy keys is rejected with a clear error.
 - MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
-
-### Configurable forecast and consumption horizons
-
-New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
-
-- `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
-- `consumption_horizon`: `full_day` (current behavior), `remaining_today`
+- New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
+    - `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
+    - `consumption_horizon`: `full_day` (current behavior), `remaining_today`
 
 Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
 
 ### Scheduler mode selector
 
-New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured. Mixing `mode: crontab` with `windows:` is rejected at startup.
+New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured. \
+If scheduler_mode: `windows` is used, the `crontab` field is ignored.\
+If scheduler_mode: `crontab` and `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used.\
+If scheduler_mode: `crontab` and `windows` is non-empty, the `windows` list is used for decisions, but ticks are still driven by the cron schedule.
 
 ### HA add-on YAML config
 

@@ -23,18 +23,15 @@ Where CLI and HA add-on forms differ (different defaults, different validation, 
 
 ### Legacy single window
 
-These options define a single charge window. When `windows` is configured, `start_hr`, `end_hr`, and `max_charge` must not be specified.
+These options define a single charge window. When `windows` is configured, `start_hr`, `end_hr`, and `max_charge` will be ignored.
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
 | `start_hr` | Start time of the advantageous grid rate (HH:MM). Cross-midnight ranges supported. | `--start_hr` | `START_HR` | `start_hr` | `00:00` |
-| `end_hr` | End time of the advantageous grid rate (HH:MM). Cross-midnight ranges supported. | `--end_hr` | `END_HR` | `end_hr` | `00:55` (CLI) / `""` (HA — empty treated as 06:00 by run.sh) |
+| `end_hr` | End time of the advantageous grid rate (HH:MM). Cross-midnight ranges supported. | `--end_hr` | `END_HR` | `end_hr` | `06:00` |
 | `max_charge` | Maximum grid charging power in watts. | `--max_charge` | `MAX_CHARGE` | `max_charge` | `3500` |
 
-!!! note "HA add-on end_hr default"
-    In the HA add-on, `end_hr` defaults to empty string. The `run.sh` launcher interprets an empty `end_hr` as `06:00`. The CLI binary default is `00:55`.
-
-### Multi-window (v2.1.0)
+### Multi-window
 
 The `windows` option replaces the single `start_hr`/`end_hr`/`max_charge` triple with an ordered list of charge windows. List order defines the daily sequence: the first entry starts first, the last entry ends last. Cross-midnight windows are supported.
 
@@ -50,34 +47,11 @@ Each window accepts these fields:
 | `start` | Yes | Window start time (HH:MM). |
 | `end` | Yes | Window end time (HH:MM). Cross-midnight supported. |
 | `max_charge` | Yes | Maximum grid charging power in watts for this window. |
-| `forecast_horizon` | No | Per-window forecast horizon override. Defaults to top-level `forecast_horizon`. |
-| `consumption_horizon` | No | Per-window consumption horizon override. Defaults to top-level `consumption_horizon`. |
+| `forecast_horizon` | No | Per-window forecast horizon override. See [Forecast horizon modes](#forecast-horizon-modes). |
+| `consumption_horizon` | No | Per-window consumption horizon override. See [Consumption horizon modes](#consumption-horizon-modes). |
 | `tick_minutes` | No | Evaluation interval in minutes within this window. |
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
 | `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
-
-**CLI example:**
-
-```bash
-sbam schedule --windows '[{name: night, start: "02:00", end: "06:00", max_charge: 3500, forecast_horizon: tomorrow}, {name: midday, start: "12:00", end: "15:00", max_charge: 2000}]'
-```
-
-**YAML example (config.yaml or HA add-on config):**
-
-```yaml
-windows:
-  - name: "night"
-    start: "02:00"
-    end: "06:00"
-    max_charge: 3500
-    forecast_horizon: "tomorrow"
-  - name: "midday"
-    start: "12:00"
-    end: "15:00"
-    max_charge: 2000
-```
-
-Mixing `windows` with legacy `start_hr`/`end_hr`/`max_charge` keys is rejected.
 
 ## Battery Reserve
 
@@ -99,23 +73,23 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 
 ## Scheduling
 
+`crontab + windows`: cron drives ticks, but each tick uses the window parameters from the windows: list. This is a transitional mode: cron cadence, multi-window decisions.
+
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
-| `scheduler_mode` | Scheduling mode. `crontab` — legacy cron-based scheduling. `windows` — window-based scheduling (recommended). | `--scheduler_mode` | `SCHEDULER_MODE` | `scheduler_mode` | `crontab` |
-| `crontab` | Cron expression for recurring execution. Deprecated — use `scheduler_mode: windows` instead. Set to `0 0 0 0 0` to disable scheduled execution (run once at startup, wait for MQTT commands if MQTT is enabled). | `--crontab` | `CRONTAB` | `crontab` | `0 0 0 0 0` (CLI) / `00 00-05 * * *` (HA) |
+| `scheduler_mode` | Scheduling mode. `crontab` — the legacy cron engine. Uses the global `crontab` field and the top-level `start_hr`/`end_hr` single window. Fully backward-compatible with existing configs. `windows` — the new internal ticker. No cron needed. Ticks fire at per-window intervals (tick_minutes), window transitions are detected at exact boundary times, and a tick fires immediately on startup. This is the recommended mode.. | `--scheduler_mode` | `SCHEDULER_MODE` | `scheduler_mode` | `crontab` |
+| `crontab` | Cron expression for recurring execution. Deprecated use `scheduler_mode: windows` instead.| `--crontab` | `CRONTAB` | `crontab` | `0 0 0 0 0` (CLI) / `00 00-05 * * *` (HA) |
 
 !!! warning "crontab deprecation"
     `crontab` is deprecated and will be removed in v3.0.0. Migrate to `scheduler_mode: windows` before then.
 
+!!! info "crontab vs. windows"
+    - if `scheduler_mode: windows` is used, the `crontab` field is ignored.
+    - If `scheduler_mode: crontab` and `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used.
+    - If `scheduler_mode: crontab` and `windows` is non-empty, the windows list is used for decisions, but ticks are still driven by the cron schedule.
+
 !!! note "HA add-on crontab default"
-    The HA add-on default is `00 00-05 * * *` (runs every minute from midnight to 5 AM). The CLI binary default is `0 0 0 0 0` (runs once, no repetition).
-
-## Forecast and Consumption Horizons (v2.1.0)
-
-| Option | Description | CLI flag | Env var | HA add-on key | Default |
-|--------|-------------|----------|---------|---------------|---------|
-| `forecast_horizon` | Which forecast window to use. See [Forecast horizon modes](#forecast-horizon-modes). | `--forecast_horizon` | `FORECAST_HORIZON` | `forecast_horizon` | `default` |
-| `consumption_horizon` | How daily consumption is applied. See [Consumption horizon modes](#consumption-horizon-modes). | `--consumption_horizon` | `CONSUMPTION_HORIZON` | `consumption_horizon` | `full_day` |
+    The HA add-on default is `00 00-05 * * *` (runs every minute from midnight to 5 AM). The CLI binary default is `0 0 0 0 0` (crontab disabled).
 
 ### Forecast horizon modes
 
@@ -161,6 +135,9 @@ See the [MQTT Guide](mqtt.md) for detailed setup, topic mapping, payload schemas
 | `mqtt_tls_client_cert` | MQTT TLS client certificate file path. CLI/standalone only. | `--mqtt_tls_client_cert` | `MQTT_TLS_CLIENT_CERT` | — | — |
 | `mqtt_tls_client_cert_key` | MQTT TLS client key file path. CLI/standalone only. | `--mqtt_tls_client_cert_key` | `MQTT_TLS_CLIENT_CERT_KEY` | — | — |
 | `mqtt_tls_insecure_skip` | Skip MQTT TLS certificate verification (insecure). CLI/standalone only. | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | — | `false` |
+
+!!! info "HA MQTT auto-fill"
+    When running as a Home Assistant add-on, the MQTT broker, username, and password are automatically filled from the Home Assistant service data if left empty. This allows sbam to connect to the same broker as Home Assistant without requiring manual configuration.
 
 ## Operational
 
