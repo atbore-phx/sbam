@@ -1,5 +1,20 @@
 ## What's New in v2.1.0
 
+### Multi-window charging schedule
+
+New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_charge` triple with an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon` overrides. Key highlights:
+
+- Define multiple charge windows per day (e.g. night 02:00–06:00 and midday 12:00–15:00) with independent power limits and horizons.
+- Cross-midnight windows supported (e.g. 22:00–04:00).
+- Overlap detection rejects misconfigured windows at startup.
+- Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
+- MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
+- New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
+    - `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
+    - `consumption_horizon`: `full_day` (current behavior), `remaining_today`
+
+Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
+
 ### Weekday filtering on charge windows
 
 Each window in the `windows:` list now accepts an optional `weekdays` field
@@ -19,21 +34,6 @@ sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
 See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
 for the full format reference, start-day model explanation, and worked
 configuration examples.
-
-### Multi-window charging schedule
-
-New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_charge` triple with an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon` overrides. Key highlights:
-
-- Define multiple charge windows per day (e.g. night 02:00–06:00 and midday 12:00–15:00) with independent power limits and horizons.
-- Cross-midnight windows supported (e.g. 22:00–04:00).
-- Overlap detection rejects misconfigured windows at startup.
-- Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
-- MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
-- New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
-    - `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
-    - `consumption_horizon`: `full_day` (current behavior), `remaining_today`
-
-Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
 
 ### Scheduler mode selector
 
