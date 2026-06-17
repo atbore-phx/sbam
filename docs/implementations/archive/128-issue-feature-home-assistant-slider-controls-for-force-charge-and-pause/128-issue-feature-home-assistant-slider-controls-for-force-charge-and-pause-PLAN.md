@@ -37,7 +37,7 @@ Acceptance criteria from the TASK are covered by adding two number selector enti
 - [pkg/cmd/schedule_runner.go](../../../pkg/cmd/schedule_runner.go) serializes all schedule ticks and MQTT commands. `handleForceCharge` rejects target percentages outside `1..100`, then calls `resolveForceChargeTargetPct`, which caps requests using live battery capacity and `MaxCharge` before writing through `batteryWriter.ForceCharge`.
 - [pkg/cmd/schedule_runner_test.go](../../../pkg/cmd/schedule_runner_test.go) covers queued command handling, capped force charge, `max_charge=0`, paused rejection, parse-error acks, and storage failure while resolving capped targets.
 - [pkg/fronius/configure.go](../../../pkg/fronius/configure.go) already treats `fronius.ForceCharge(ip, 0)` as a safe defaults reset by delegating to `Setdefaults`; negative values are rejected.
-- [docs/mqtt.md](../../../docs/mqtt.md) documents current MQTT discovery buttons, command topics, payload constraints, examples, and the current `force_charge.target_pct` `1..100` rule.
+- [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/) documents current MQTT discovery buttons, command topics, payload constraints, examples, and the current `force_charge.target_pct` `1..100` rule.
 - [home-assistant/addons/sbam/DOCS.md](../../../home-assistant/addons/sbam/DOCS.md) and [home-assistant/addons/sbam/CHANGELOG.md](../../../home-assistant/addons/sbam/CHANGELOG.md) document add-on MQTT behavior and v2.0.0 changes.
 
 External Home Assistant facts checked on 2026-05-19:
@@ -185,7 +185,7 @@ MQTT discovery changes are data-only and controlled by existing `mqtt_enabled`, 
     - Add a rejected-path test for a manually constructed `mqtt.Intent{Kind: IntentForceCharge, TargetPct: 50, IgnoreMaxCharge: true}` to verify runner defense in depth, even though the parser should reject it.
     - Keep paused rejection tests first in behavior order; paused commands should not write even for `0` or override requests.
 
-11. Update documentation in [docs/mqtt.md](../../../docs/mqtt.md).
+11. Update documentation in [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/).
    - Revise Home Assistant discovery entity counts to include 2 number selectors (box mode) and 5 buttons.
     - Document selector topics `<prefix>/control/force_charge_target_pct` and `<prefix>/control/pause_duration_s` as Home Assistant selector state topics, not sbam command topics.
     - Update discovery button action descriptions: `force_charge` reads the force target selector, maps `101` to `ignore_max_charge`, and publishes to `cmd/force_charge`; `pause` reads the pause duration selector and publishes `{}` or `{"until":"Ns"}`.
@@ -200,7 +200,7 @@ MQTT discovery changes are data-only and controlled by existing `mqtt_enabled`, 
     - No add-on schema or runtime script changes should be made.
 
 13. Review README impact in [README.md](../../../README.md).
-    - The README mostly delegates MQTT details to [docs/mqtt.md](../../../docs/mqtt.md). Only update it if existing text becomes inaccurate after the docs changes; otherwise leave it untouched to avoid duplicate MQTT reference content.
+    - The README mostly delegates MQTT details to [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/). Only update it if existing text becomes inaccurate after the docs changes; otherwise leave it untouched to avoid duplicate MQTT reference content.
 
 ## Test Plan
 
@@ -278,7 +278,7 @@ Mocks:
 
 Expected cases:
 
-- [docs/mqtt.md](../../../docs/mqtt.md) command examples and constraints match parser behavior exactly.
+- [MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/) command examples and constraints match parser behavior exactly.
 - [home-assistant/addons/sbam/DOCS.md](../../../home-assistant/addons/sbam/DOCS.md) describes the Home Assistant add-on user-facing discovery controls.
 - [home-assistant/addons/sbam/CHANGELOG.md](../../../home-assistant/addons/sbam/CHANGELOG.md) includes the feature in v2.0.0 changes.
 

@@ -37,3 +37,7 @@ config.yaml
 
 #ide
 .vscode
+
+# MkDocs build output
+/site/
+.cache/

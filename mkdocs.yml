@@ -1,0 +1,64 @@
+site_name: sbam
+site_description: Smart Battery Advanced Manager — charge your Fronius battery using weather forecasts
+docs_dir: docs/site
+site_url: https://atbore-phx.github.io/sbam/
+repo_url: https://github.com/atbore-phx/sbam
+edit_uri: edit/main/docs/site/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Prerequisites: prerequisites.md
+    - Installation: installation.md
+    - Configuration: configuration.md
+    - MQTT Guide: mqtt.md
+    - CLI Reference: cli.md
+    - Changelog: changelog.md
+  - Help: help.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/atbore-phx/sbam
