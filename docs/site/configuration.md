@@ -52,6 +52,7 @@ Each window accepts these fields:
 | `tick_minutes` | No | Evaluation interval in minutes within this window. |
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
 | `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
+| `weekdays` | No | Day-of-week filter for the window. See [Weekday Filtering](weekdays.md). |
 
 ## Battery Reserve
 

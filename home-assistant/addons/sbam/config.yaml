@@ -83,3 +83,4 @@ schema:
       tick_minutes: int?
       set_defaults: bool?
       before_end_defaults_minutes: int?
+      weekdays: match(^$|^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?(,(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?)*$)

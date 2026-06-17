@@ -3,11 +3,24 @@ package power
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
 // scheduleClockLayout is the expected wall-clock format ("HH:MM").
 const scheduleClockLayout = "15:04"
+
+// weekdayNames maps lowercase 3-letter English weekday abbreviations to
+// time.Weekday values. Used by parseWeekdays for validation and resolution.
+var weekdayNames = map[string]time.Weekday{
+	"mon": time.Monday,
+	"tue": time.Tuesday,
+	"wed": time.Wednesday,
+	"thu": time.Thursday,
+	"fri": time.Friday,
+	"sat": time.Saturday,
+	"sun": time.Sunday,
+}
 
 // clockSegment represents a half-open minute-of-day interval [startMinute, endMinute).
 // endMinute is exclusive; a segment with startMinute == endMinute is zero-width.
@@ -53,12 +66,13 @@ type Window struct {
 	TickMinutes        *int    `json:"tick_minutes,omitempty" yaml:"tick_minutes,omitempty" mapstructure:"tick_minutes,omitempty"`
 	Defaults           *bool   `json:"set_defaults,omitempty" yaml:"set_defaults,omitempty" mapstructure:"set_defaults,omitempty"`
 	BeforeEndDefaults  *int    `json:"before_end_defaults_minutes,omitempty" yaml:"before_end_defaults_minutes,omitempty" mapstructure:"before_end_defaults_minutes,omitempty"`
+	Weekdays           string  `json:"weekdays,omitempty" yaml:"weekdays,omitempty" mapstructure:"weekdays,omitempty"`
 }
 
 // ValidateWindows checks a non-empty ordered list of charge windows and
 // returns nil when every window passes individual field validation and no
 // two windows overlap. Overlap detection supports cross-midnight windows.
-func ValidateWindows(windows []Window) error {
+func ValidateWindows(windows []Window, weekdayFeature bool) error {
 	if len(windows) == 0 {
 		return fmt.Errorf("windows must contain at least one entry")
 	}
@@ -71,7 +85,7 @@ func ValidateWindows(windows []Window) error {
 	var allSegments []namedSegment
 
 	for i, w := range windows {
-		if err := validateWindowFields(w); err != nil {
+		if err := validateWindowFields(w, weekdayFeature); err != nil {
 			return fmt.Errorf("window %q (#%d): %w", WindowNameOrDefault(w, i), i+1, err)
 		}
 
@@ -111,6 +125,14 @@ func ValidateWindows(windows []Window) error {
 			if a.startMinute < b.endMinute && b.startMinute < a.endMinute {
 				wa := windows[allSegments[i].windowN]
 				wb := windows[allSegments[j].windowN]
+
+				// When weekdayFeature is enabled and both windows have
+				// non-empty weekday sets, skip the overlap check if the
+				// sets are disjoint — they never activate on the same day.
+				if weekdayFeature && !weekdaySetsIntersect(wa.Weekdays, wb.Weekdays) {
+					continue
+				}
+
 				na := WindowNameOrDefault(wa, allSegments[i].windowN)
 				nb := WindowNameOrDefault(wb, allSegments[j].windowN)
 				return fmt.Errorf("window %q overlaps with window %q", na, nb)
@@ -118,7 +140,8 @@ func ValidateWindows(windows []Window) error {
 		}
 	}
 
-	// Reject configurations where one window's end equals another window's start.
+	// Reject configurations where one window's end equals another window's start,
+	// unless their weekday sets are disjoint (when weekdayFeature is enabled).
 	for i := range windows {
 		endTime, _ := parseClock(windows[i].End)
 		endMin := clockMinute(endTime)
@@ -126,6 +149,13 @@ func ValidateWindows(windows []Window) error {
 			if i == j {
 				continue
 			}
+
+			// Skip when weekday sets are disjoint — the windows never
+			// activate on the same day, so an equal boundary is safe.
+			if weekdayFeature && !weekdaySetsIntersect(windows[i].Weekdays, windows[j].Weekdays) {
+				continue
+			}
+
 			startTime, _ := parseClock(windows[j].Start)
 			if clockMinute(startTime) == endMin {
 				ni := WindowNameOrDefault(windows[i], i)
@@ -141,7 +171,7 @@ func ValidateWindows(windows []Window) error {
 
 // validateWindowFields checks individual fields of a single Window and
 // returns an error describing the first validation failure.
-func validateWindowFields(w Window) error {
+func validateWindowFields(w Window, weekdayFeature bool) error {
 	if _, err := parseClock(w.Start); err != nil {
 		return fmt.Errorf("invalid start time %q: %w", w.Start, err)
 	}
@@ -167,6 +197,11 @@ func validateWindowFields(w Window) error {
 	if w.BeforeEndDefaults != nil && *w.BeforeEndDefaults < 0 {
 		return fmt.Errorf("before_end_defaults must be >= 0, got %d", *w.BeforeEndDefaults)
 	}
+	if weekdayFeature && w.Weekdays != "" {
+		if err := validateWeekdays(w.Weekdays); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -175,7 +210,7 @@ func validateWindowFields(w Window) error {
 // the existing checkTimeRangeAt semantics).
 //
 // Returns nil when no window contains now.
-func ResolveActiveWindow(windows []Window, now time.Time) *Window {
+func ResolveActiveWindow(windows []Window, now time.Time, weekdayFeature bool) *Window {
 	for i := range windows {
 		startTime, err := parseClock(windows[i].Start)
 		if err != nil {
@@ -195,12 +230,26 @@ func ResolveActiveWindow(windows []Window, now time.Time) *Window {
 			inRange := (now.After(startAt) || now.Equal(startAt)) ||
 				(now.Before(endAt) || now.Equal(endAt))
 			if inRange {
+				if weekdayFeature && windows[i].Weekdays != "" {
+					effectiveDay := now.Weekday()
+					if now.Before(startAt) {
+						effectiveDay = now.Add(-24 * time.Hour).Weekday()
+					}
+					if wdSet, err := parseWeekdays(windows[i].Weekdays); err == nil && !wdSet[effectiveDay] {
+						continue
+					}
+				}
 				return &windows[i]
 			}
 		} else {
 			inRange := (now.After(startAt) || now.Equal(startAt)) &&
 				(now.Before(endAt) || now.Equal(endAt))
 			if inRange {
+				if weekdayFeature && windows[i].Weekdays != "" {
+					if wdSet, err := parseWeekdays(windows[i].Weekdays); err == nil && !wdSet[now.Weekday()] {
+						continue
+					}
+				}
 				return &windows[i]
 			}
 		}
@@ -271,4 +320,92 @@ func expandClockMinutes(startMinute, endMinute int) []clockSegment {
 // after the end clock time, indicating a window that spans midnight.
 func isCrossMidnightWindow(startTime, endTime time.Time) bool {
 	return startTime.After(endTime)
+}
+
+// parseWeekdays parses a weekday expression string into a set of
+// time.Weekday values. It accepts single days ("mon"), comma-separated
+// lists ("mon,fri"), inclusive ranges ("mon-fri"), and combinations
+// ("mon-fri,sun"). Returns an error on unknown tokens or empty elements.
+//
+// An empty string returns (nil, nil) — caller should treat this as "all days".
+// ParseWeekdays is the exported entry point for parsing weekday
+// expressions. See parseWeekdays for the full contract.
+func ParseWeekdays(s string) (map[time.Weekday]bool, error) {
+	return parseWeekdays(s)
+}
+
+func parseWeekdays(s string) (map[time.Weekday]bool, error) {
+	if s == "" {
+		return nil, nil
+	}
+
+	result := make(map[time.Weekday]bool)
+	parts := strings.Split(s, ",")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("invalid weekdays %q: empty element", s)
+		}
+
+		if strings.Contains(part, "-") {
+			rangeParts := strings.SplitN(part, "-", 2)
+			if len(rangeParts) != 2 || rangeParts[0] == "" || rangeParts[1] == "" {
+				return nil, fmt.Errorf("invalid weekdays %q: malformed range %q", s, part)
+			}
+			startWd, startOk := weekdayNames[rangeParts[0]]
+			endWd, endOk := weekdayNames[rangeParts[1]]
+			if !startOk || !endOk {
+				return nil, fmt.Errorf("invalid weekdays %q: unknown token in range %q", s, part)
+			}
+			for wd := startWd; ; wd = (wd + 1) % 7 {
+				result[wd] = true
+				if wd == endWd {
+					break
+				}
+			}
+		} else {
+			wd, ok := weekdayNames[part]
+			if !ok {
+				return nil, fmt.Errorf("invalid weekdays %q: unknown token %q", s, part)
+			}
+			result[wd] = true
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+// validateWeekdays validates a weekday expression string by parsing it and
+// returning any parse error. An empty string (all days) is valid.
+func validateWeekdays(s string) error {
+	_, err := parseWeekdays(s)
+	return err
+}
+
+// weekdaySetsIntersect returns true when the two weekday expressions could
+// activate on the same calendar day. An empty string for either set means
+// "all days" and always intersects.
+func weekdaySetsIntersect(a, b string) bool {
+	if a == "" || b == "" {
+		return true
+	}
+
+	setA, errA := parseWeekdays(a)
+	setB, errB := parseWeekdays(b)
+	if errA != nil || errB != nil {
+		// Parse errors mean the sets can't be meaningfully compared;
+		// default to intersecting so validation still catches real issues.
+		return true
+	}
+
+	for wd := range setA {
+		if setB[wd] {
+			return true
+		}
+	}
+	return false
 }

@@ -28,7 +28,7 @@ var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_h
 	scheduler_mode string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
 var s_cache_time int32
-var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip bool
+var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip, weekday_feature bool
 
 const (
 	const_pc                  = 0.0
@@ -47,6 +47,7 @@ const (
 	const_forecast_horizon    = "default"
 	const_consumption_horizon = "full_day"
 	const_scheduler_mode      = "crontab"
+	const_weekday_feature     = true
 	scheduleClockLayout       = "15:04"
 )
 
@@ -120,6 +121,7 @@ var scdCmd = &cobra.Command{
 		forecast_horizon = viper.GetString("forecast_horizon")
 		consumption_horizon = viper.GetString("consumption_horizon")
 		scheduler_mode = viper.GetString("scheduler_mode")
+		weekday_feature = viper.GetBool("weekday_feature")
 
 		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
@@ -196,7 +198,7 @@ var scdCmd = &cobra.Command{
 		}
 		u.LogStartupParams(cmd, extras)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode)
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature)
 		if err != nil {
 			u.Log.Error(err)
 			return
@@ -223,6 +225,7 @@ var scdCmd = &cobra.Command{
 			ForecastHorizon:    forecast_horizon,
 			ConsumptionHorizon: consumption_horizon,
 			SchedulerMode:      scheduler_mode,
+			WeekdayFeature:     weekday_feature,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
 		}
@@ -327,6 +330,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today)")
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
+	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)
@@ -441,11 +445,11 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 // The function intentionally keeps validation local to the command so the
 // runtime can exit early with user-friendly messages when flags are invalid.
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
-	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string) error {
+	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string, weekdayFeature bool) error {
 
 	if len(windows) > 0 {
 		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
-		if err := pw.ValidateWindows(windows); err != nil {
+		if err := pw.ValidateWindows(windows, weekdayFeature); err != nil {
 			return fmt.Errorf("invalid windows configuration: %w", err)
 		}
 	}

@@ -134,3 +134,8 @@ With optional reserve window:
 ```
 
 Equal start/end values are invalid. Overlapping windows are rejected at startup.
+
+Each window can also include a `weekdays` field for day-of-week filtering and
+the `weekday_feature` flag controls the feature globally. See the
+[Weekday Filtering](weekdays.md) guide for the format, start-day model, and
+worked examples.

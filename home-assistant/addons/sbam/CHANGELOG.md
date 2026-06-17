@@ -15,6 +15,26 @@ New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_
 
 Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
 
+### Weekday filtering on charge windows
+
+Each window in the `windows:` list now accepts an optional `weekdays` field
+for day-of-week filtering:
+
+```yaml
+weekdays: "mon-fri"        # Monday through Friday
+weekdays: "mon,fri"        # Monday and Friday only
+weekdays: "mon-fri,sun"    # weekdays plus Sunday
+```
+
+A cross-midnight window uses the start-day model: `start: "22:00", end:
+"04:00", weekdays: "fri"` is active Friday night/Saturday morning but not
+Saturday night. Two windows with the same clock range but different weekday
+sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
+
+See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
+for the full format reference, start-day model explanation, and worked
+configuration examples.
+
 ### Scheduler mode selector
 
 New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured. \
