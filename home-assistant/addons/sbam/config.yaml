@@ -8,7 +8,7 @@ services:
 arch:
   - amd64
   - aarch64
-url: https://github.com/atbore-phx/sbam
+url: https://atbore-phx.github.io/sbam/
 image: ghcr.io/atbore-phx/ha-{arch}-sbam
 
 options:
