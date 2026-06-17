@@ -4,17 +4,12 @@ Weekday filtering lets you assign each charge window to specific days of the
 week. This is useful when your electricity rates vary between weekdays and
 weekends, or when you have a special-rate day.
 
-The feature is enabled by default via the `weekday_feature` flag. Set it to
-`false` to disable all weekday logic without removing the `weekdays` fields
-from your config.
-
 ## Quick Start
 
 Add `weekdays` to any window in your `windows:` list:
 
 ```yaml
 scheduler_mode: windows
-weekday_feature: true
 windows:
   - name: "weekday-offpeak"
     start: "21:00"
@@ -170,24 +165,6 @@ windows:
 
 On Saturday and Sunday neither window activates. The scheduler runs but
 reports "outside all configured charge windows."
-
-## Feature Flag
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `weekday_feature` | bool | `true` | Enable weekday filtering |
-
-When `weekday_feature` is `false`:
-- All windows are active every day, regardless of their `weekdays` field
-- Weekday token validation is skipped at startup
-- Overlap detection ignores weekday sets
-
-This is a maintainer kill switch. If you encounter a bug, set it to `false`
-to disable weekday logic without editing your window definitions.
-
-The flag is internal (hidden from help output) and enabled by default.
-Advanced users can set `WEEKDAY_FEATURE=false` as an environment variable
-or pass `--weekday_feature=false` on the CLI to disable it.
 
 ## Validation Rules
 

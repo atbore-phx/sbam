@@ -16,9 +16,6 @@ A cross-midnight window uses the start-day model: `start: "22:00", end:
 Saturday night. Two windows with the same clock range but different weekday
 sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
 
-The `weekday_feature` global option (default `true`) gates all weekday logic.
-Set it to `false` to disable filtering without editing window definitions.
-
 See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
 for the full format reference, start-day model explanation, and worked
 configuration examples.
