@@ -80,7 +80,6 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 |--------|-------------|----------|---------|---------------|---------|
 | `scheduler_mode` | Scheduling mode. `crontab` — the legacy cron engine. Uses the global `crontab` field and the top-level `start_hr`/`end_hr` single window. Fully backward-compatible with existing configs. `windows` — the new internal ticker. No cron needed. Ticks fire at per-window intervals (tick_minutes), window transitions are detected at exact boundary times, and a tick fires immediately on startup. This is the recommended mode.. | `--scheduler_mode` | `SCHEDULER_MODE` | `scheduler_mode` | `crontab` |
 | `crontab` | Cron expression for recurring execution. Deprecated use `scheduler_mode: windows` instead.| `--crontab` | `CRONTAB` | `crontab` | `0 0 0 0 0` (CLI) / `00 00-05 * * *` (HA) |
-| `weekday_feature` | Enable weekday filtering on charge windows. Set to `false` to disable all weekday logic. See [Weekday Filtering](weekdays.md). CLI/standalone only. | `--weekday_feature` | `WEEKDAY_FEATURE` | — | `true` |
 
 !!! warning "crontab deprecation"
     `crontab` is deprecated and will be removed in v3.0.0. Migrate to `scheduler_mode: windows` before then.

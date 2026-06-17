@@ -185,10 +185,8 @@ When `weekday_feature` is `false`:
 This is a maintainer kill switch. If you encounter a bug, set it to `false`
 to disable weekday logic without editing your window definitions.
 
-The flag is available as:
-- Config key: `weekday_feature: false`
-- CLI flag: `--weekday_feature=false`
-- Env var: `WEEKDAY_FEATURE=false`
+The flag is available as a CLI flag (`--weekday_feature=false`) and env var
+(`WEEKDAY_FEATURE=false`). See the [CLI Reference](cli.md) for details.
 
 ## Validation Rules
 
