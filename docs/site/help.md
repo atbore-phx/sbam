@@ -6,15 +6,13 @@ sbam is an open-source, community-driven project. Contributions are welcome from
 
 - **Bug reports and feature requests**: [GitHub Issues](https://github.com/atbore-phx/sbam/issues)
 - **Discussions and questions**: [GitHub Discussions](https://github.com/atbore-phx/sbam/discussions)
-- **Release notes**: [Changelog](changelog.md)
+- **Release notes**: [Changelog](https://github.com/atbore-phx/sbam/blob/main/home-assistant/addons/sbam/CHANGELOG.md)
 
 ## Contributing
 
 Pull requests are welcome. For larger features, open an issue first to discuss scope. Small fixes and documentation updates can be submitted directly as PRs.
 
 When submitting code, include tests where applicable and keep changes focused so reviews are easy. See the [contributor guide](https://github.com/atbore-phx/sbam/blob/main/docs/vibe/CONTRIBUTING.md) for workflow details.
-
-This project uses [Compound Engineering](https://github.com/EveryInc/compound-engineering-plugin) skills for feature development.
 
 ## Sponsor
 
@@ -24,4 +22,4 @@ If you don't code but want to support the project:
 
 ## Community
 
-sbam is an unofficial, community-maintained project. It is not sponsored, endorsed, or supported by Fronius.
+sbam is an community-maintained, free and open-source project. It is not sponsored, endorsed, or supported by Fronius.
