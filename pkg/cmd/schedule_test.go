@@ -707,7 +707,7 @@ func TestFinalizeRunnerMode_NilStop(t *testing.T) {
 		runDone <- runner.Run(ctx)
 	}()
 
-	err := finalizeRunnerMode(false, runner, runDone, nil)
+	err := finalizeRunnerMode(false, "crontab", runner, runDone, nil)
 	require.NoError(t, err)
 }
 
