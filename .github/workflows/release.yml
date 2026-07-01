@@ -95,7 +95,7 @@ jobs:
           CGO_ENABLED: 0
 
       - name: Build add-on image ${{ matrix.haarch }}
-        uses: home-assistant/builder/actions/build-image@2026.03.2
+        uses: home-assistant/builder/actions/build-image@2026.06.0
         with:
           arch: ${{ matrix.goarch }}
           image: ghcr.io/${{ github.repository_owner }}/ha-${{ matrix.haarch }}-sbam
