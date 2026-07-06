@@ -15,6 +15,8 @@ New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_
 
 Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
 
+See: [Configuration → Multi-window](https://atbore-phx.github.io/sbam/configuration/#multi-window) · [Forecast horizon modes](https://atbore-phx.github.io/sbam/configuration/#forecast-horizon-modes) · [Consumption horizon modes](https://atbore-phx.github.io/sbam/configuration/#consumption-horizon-modes)
+
 ### Weekday filtering on charge windows
 
 Each window in the `windows:` list now accepts an optional `weekdays` field
@@ -37,18 +39,50 @@ configuration examples.
 
 ### Scheduler mode selector
 
-New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured. \
-If scheduler_mode: `windows` is used, the `crontab` field is ignored.\
-If scheduler_mode: `crontab` and `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used.\
-If scheduler_mode: `crontab` and `windows` is non-empty, the `windows` list is used for decisions, but ticks are still driven by the cron schedule.
+New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured.
+
+- `scheduler_mode: crontab` — legacy cron-driven scheduling. If `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used. If `windows` is non-empty, the windows list drives charge decisions but ticks are still driven by the cron schedule.
+- `scheduler_mode: windows` — the new internal ticker drives charge cycles, the `crontab` field is ignored, and a `windows` list must be provided.
+
+Windows mode adds per-window scheduling controls:
+
+- `tick_minutes` — per-window tick interval override (default 60 min).
+- `defaults` (`true`/`false`) — enable per-window Fronius defaults reset at window end.
+- `before_end_defaults_minutes` — how many minutes before the window end to fire the reset (default 5, minimum 0 for exact end).
+
+The windows-mode ticker fires an immediate tick on startup (no idle gap if sbam starts mid-window) and uses exact boundary timers for window transitions. `ValidateWindows` rejects configurations where one window's end equals another's start to eliminate ambiguity at transitions.
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
 
 ### HA add-on YAML config
 
 The Home Assistant add-on configuration is now defined in YAML format (`config.yaml`) with nested MQTT configuration, matching the standalone `config.yaml` structure. All options are documented in the [sbam documentation site](https://atbore-phx.github.io/sbam/configuration/).
 
+See: [Configuration](https://atbore-phx.github.io/sbam/configuration/) · [Installation](https://atbore-phx.github.io/sbam/installation/)
+
 ### Crontab default validation fix
 
 The Home Assistant add-on configuration schema now accepts `0 0 0 0 0` as a valid crontab value, allowing users to disable scheduled execution through the HA UI. Previously the regex validation rejected this value even though the Go application has always treated it as the disabled sentinel.
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
+
+### Inverter status check before Modbus defaults write
+
+On classifier error (DecisionSkip) the system now reads the StorCtl_Mod register (40349) before writing Fronius defaults. If the inverter is already in normal operating mode (value 0), the write is skipped, avoiding an unnecessary Modbus cycle. A read failure falls through to the existing defaults write so safety is preserved.
+
+See: [Configuration → Operational](https://atbore-phx.github.io/sbam/configuration/#operational)
+
+### Runner lifecycle fix for windows mode without MQTT
+
+Fixed an issue where the runner would shut down immediately when `scheduler_mode=windows` was configured without MQTT enabled. The runner is now correctly kept alive by its internal ticker in windows mode regardless of MQTT state. Only crontab mode without MQTT triggers an immediate shutdown (no internal driver to keep the process alive).
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
+
+### Error stack trace suppression
+
+Error log output is now cleaner by default: stack traces are suppressed unless `DEBUG=true` is set in the environment. When `DEBUG=true`, full stack traces are included as before. Contributed by [@mhornsby](https://github.com/mhornsby) in [#185](https://github.com/atbore-phx/sbam/pull/185).
+
+See: [CLI → Debug Logs](https://atbore-phx.github.io/sbam/cli/#debug-logs)
 
 ## What's New in v2.0.2
 
