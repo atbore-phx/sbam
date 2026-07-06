@@ -1,34 +1,36 @@
-USAGE: Copilot prompt-driven workflow
+# USAGE: Compound Engineering workflow
 
-Purpose
-- Quick reference for contributors who want to use the repository's Copilot
-  prompts to generate TASKs, PLANs and iterate on implementations.
+## Purpose
 
-Prerequisites
-- VS Code with GitHub Copilot Chat enabled and configured.
+- Quick reference for contributors who want to use CE skills to brainstorm, plan, and iterate on implementations.
+
+## Prerequisites
+
+- Claude Code with the Compound Engineering plugin installed and configured.
 - The `sbam` repository checked out locally.
 
-Quick start
-1. Open Copilot Chat in VS Code.
-2. Run the prompt: `/generate-plan-from-issue <issue-number>` to generate a TASK
-   and a PLAN from a GitHub issue.
-3. Answer interactive clarifications from the agent.
-4. Review the generated files under `docs/implementations/<feature>/`.
-5. When the PLAN is ready, run `/implement-plan <feature-slug>` to apply the
-   documented blueprint (this may create docs or example files; implementation
-   of code changes is manual unless the agent is explicitly configured to open
-   PRs).
+## Quick start
 
-Implementer checklist (before opening a PR)
-- Review and confirm the `TASK.md` intent.
-- Ensure the `PLAN.md` contains concrete implementation steps.
+1. Open Claude Code in the repo.
+2. Run `/ce-brainstorm <your idea>` to define requirements and scope.
+3. When the requirements doc is ready, run `/ce-plan` to produce a technical plan (or `/ce-plan` directly from a GitHub issue).
+4. Review the plan under `docs/plans/`.
+5. When the plan is ready, run `/ce-work <plan-path>` to implement.
+6. Run `/ce-code-review` to review the diff before shipping.
+7. Ship with `/ce-commit-push-pr`.
+
+## Implementer checklist (before opening a PR)
+
+- Review and confirm the plan's intent.
+- Ensure the plan contains concrete implementation units with test scenarios.
 - Implement changes on a feature branch.
 - Add/adjust unit and integration tests as appropriate.
 - Run validation commands locally (see below).
-- Open a **draft PR** referencing the issue and generated PLAN and request
-  human review.
+- Run `/ce-code-review` to catch issues before human review.
+- Open a **draft PR** referencing the issue and plan, and request human review.
 
-Validation commands (run locally)
+## Validation commands (run locally)
+
 ```bash
 go mod tidy
 go vet ./...
@@ -36,7 +38,8 @@ make test
 make build
 ```
 
-Notes
-- Prompts live in [.github/prompts/](../../.github/prompts/). Editing prompts changes agent behavior;
-  add examples when you update a prompt.
+## Notes
+
+- Plans live in `docs/plans/` and follow the naming convention `YYYY-MM-DD-NNN-<type>-<name>-plan.md`.
+- The strategy doc (`STRATEGY.md`) is the grounding document read by planning skills.
 - Generated code is a starting point; tests and manual review are required.

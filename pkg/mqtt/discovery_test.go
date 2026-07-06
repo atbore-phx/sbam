@@ -175,11 +175,20 @@ func TestBuildDiscoveryTemplatesAndPublish(t *testing.T) {
 		"charge_pct",
 		"last_decision",
 		"last_decision_reason",
+		"forecast_horizon",
+		"consumption_horizon",
 		"next_run",
 		"paused",
 		"ts",
+		"active_window",
+		"active_window_max_charge",
+		"active_window_forecast_horizon",
 		"charge_window_active",
 		"batt_reserve_window_active",
+		"scheduler_mode",
+		"active_window",
+		"active_window_max_charge",
+		"active_window_forecast_horizon",
 	}
 
 	for _, entity := range entities {
@@ -246,6 +255,35 @@ func decodeDiscoveryPayload(t *testing.T, payload []byte) discoveryPayloadView {
 	var decoded discoveryPayloadView
 	require.NoError(t, json.Unmarshal(payload, &decoded))
 	return decoded
+}
+
+func TestHAStatusTopic(t *testing.T) {
+	assert.Equal(t, "homeassistant/status", haStatusTopic())
+}
+
+func TestDiscoveryDeviceIdentifierFallbackToClientID(t *testing.T) {
+	// With empty FroniusIP, should use ClientID
+	cfg := Config{FroniusIP: "", ClientID: "my-client"}
+	id := discoveryDeviceIdentifier(cfg)
+	assert.True(t, strings.HasPrefix(id, "sbam_"))
+}
+
+func TestDiscoveryDeviceIdentifierFallbackToPrefix(t *testing.T) {
+	// With empty FroniusIP and ClientID, should use normalized prefix
+	cfg := Config{FroniusIP: "", ClientID: "", TopicPrefix: "custom/prefix"}
+	id := discoveryDeviceIdentifier(cfg)
+	assert.True(t, strings.HasPrefix(id, "sbam_"))
+}
+
+func TestDiscoveryDeviceIdentifierAllEmpty(t *testing.T) {
+	cfg := Config{FroniusIP: "", ClientID: "", TopicPrefix: "   "}
+	id := discoveryDeviceIdentifier(cfg)
+	assert.True(t, strings.HasPrefix(id, "sbam_"))
+}
+
+func TestNormalizeDiscoveryPrefix(t *testing.T) {
+	assert.Equal(t, "homeassistant", normalizeDiscoveryPrefix("  "))
+	assert.Equal(t, "custom", normalizeDiscoveryPrefix(" /custom/ "))
 }
 
 func TestDiscoveryConfigTopicDefaults(t *testing.T) {

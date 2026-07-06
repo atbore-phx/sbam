@@ -1,3 +1,89 @@
+## What's New in v2.1.0
+
+### Multi-window charging schedule
+
+New `windows` configuration option replaces the single `start_hr`/`end_hr`/`max_charge` triple with an ordered list of charge windows, each with its own `max_charge` and optional `forecast_horizon`/`consumption_horizon` overrides. Key highlights:
+
+- Define multiple charge windows per day (e.g. night 02:00–06:00 and midday 12:00–15:00) with independent power limits and horizons.
+- Cross-midnight windows supported (e.g. 22:00–04:00).
+- Overlap detection rejects misconfigured windows at startup.
+- Legacy `start_hr`/`end_hr`/`max_charge` keys remain fully supported — they are synthesized into a single window when `windows` is absent.
+- MQTT state payload and Home Assistant discovery now expose the active window name, max charge, and forecast horizon as diagnostic sensors.
+- New `forecast_horizon` and `consumption_horizon` options replace the hardcoded noon-threshold forecast selection with explicit, named modes:
+    - `forecast_horizon`: `default` (current behavior), `next_solar_day`, `remaining_today`, `today`, `tomorrow`, `off`
+    - `consumption_horizon`: `full_day` (current behavior), `remaining_today`
+
+Existing installations keep current behavior under `forecast_horizon=default` and `consumption_horizon=full_day`.
+
+See: [Configuration → Multi-window](https://atbore-phx.github.io/sbam/configuration/#multi-window) · [Forecast horizon modes](https://atbore-phx.github.io/sbam/configuration/#forecast-horizon-modes) · [Consumption horizon modes](https://atbore-phx.github.io/sbam/configuration/#consumption-horizon-modes)
+
+### Weekday filtering on charge windows
+
+Each window in the `windows:` list now accepts an optional `weekdays` field
+for day-of-week filtering:
+
+```yaml
+weekdays: "mon-fri"        # Monday through Friday
+weekdays: "mon,fri"        # Monday and Friday only
+weekdays: "mon-fri,sun"    # weekdays plus Sunday
+```
+
+A cross-midnight window uses the start-day model: `start: "22:00", end:
+"04:00", weekdays: "fri"` is active Friday night/Saturday morning but not
+Saturday night. Two windows with the same clock range but different weekday
+sets (e.g., `mon-fri` vs `sat,sun`) validate without overlap errors.
+
+See the [Weekday Filtering guide](https://atbore-phx.github.io/sbam/weekdays/)
+for the full format reference, start-day model explanation, and worked
+configuration examples.
+
+### Scheduler mode selector
+
+New `scheduler_mode` option (`crontab` | `windows`) replaces the legacy crontab field. The `crontab` key remains functional but is deprecated and will be removed in v3.0.0. A one-shot warning is logged when `mode: crontab` is configured.
+
+- `scheduler_mode: crontab` — legacy cron-driven scheduling. If `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used. If `windows` is non-empty, the windows list drives charge decisions but ticks are still driven by the cron schedule.
+- `scheduler_mode: windows` — the new internal ticker drives charge cycles, the `crontab` field is ignored, and a `windows` list must be provided.
+
+Windows mode adds per-window scheduling controls:
+
+- `tick_minutes` — per-window tick interval override (default 60 min).
+- `defaults` (`true`/`false`) — enable per-window Fronius defaults reset at window end.
+- `before_end_defaults_minutes` — how many minutes before the window end to fire the reset (default 5, minimum 0 for exact end).
+
+The windows-mode ticker fires an immediate tick on startup (no idle gap if sbam starts mid-window) and uses exact boundary timers for window transitions. `ValidateWindows` rejects configurations where one window's end equals another's start to eliminate ambiguity at transitions.
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
+
+### HA add-on YAML config
+
+The Home Assistant add-on configuration is now defined in YAML format (`config.yaml`) with nested MQTT configuration, matching the standalone `config.yaml` structure. All options are documented in the [sbam documentation site](https://atbore-phx.github.io/sbam/configuration/).
+
+See: [Configuration](https://atbore-phx.github.io/sbam/configuration/) · [Installation](https://atbore-phx.github.io/sbam/installation/)
+
+### Crontab default validation fix
+
+The Home Assistant add-on configuration schema now accepts `0 0 0 0 0` as a valid crontab value, allowing users to disable scheduled execution through the HA UI. Previously the regex validation rejected this value even though the Go application has always treated it as the disabled sentinel.
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
+
+### Inverter status check before Modbus defaults write
+
+On classifier error (DecisionSkip) the system now reads the StorCtl_Mod register (40349) before writing Fronius defaults. If the inverter is already in normal operating mode (value 0), the write is skipped, avoiding an unnecessary Modbus cycle. A read failure falls through to the existing defaults write so safety is preserved.
+
+See: [Configuration → Operational](https://atbore-phx.github.io/sbam/configuration/#operational)
+
+### Runner lifecycle fix for windows mode without MQTT
+
+Fixed an issue where the runner would shut down immediately when `scheduler_mode=windows` was configured without MQTT enabled. The runner is now correctly kept alive by its internal ticker in windows mode regardless of MQTT state. Only crontab mode without MQTT triggers an immediate shutdown (no internal driver to keep the process alive).
+
+See: [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling)
+
+### Error stack trace suppression
+
+Error log output is now cleaner by default: stack traces are suppressed unless `DEBUG=true` is set in the environment. When `DEBUG=true`, full stack traces are included as before. Contributed by [@mhornsby](https://github.com/mhornsby) in [#185](https://github.com/atbore-phx/sbam/pull/185).
+
+See: [CLI → Debug Logs](https://atbore-phx.github.io/sbam/cli/#debug-logs)
+
 ## What's New in v2.0.2
 
 ### Battery Reset at End of Charge Window
@@ -41,13 +127,47 @@ When MQTT discovery is enabled `mqtt_ha_discovery=true`, sbam publishes automati
 
 For complete MQTT reference (topic map, payload schemas, command examples,
 and migration notes), see:
-[MQTT Feed and Home Assistant Discovery](https://github.com/atbore-phx/sbam/blob/main/docs/mqtt.md)
+[MQTT Guide](https://atbore-phx.github.io/sbam/mqtt/)
 
 ### Cross-midnight time window configuration
 
 Example overnight configuration: `start_hr: 22:00` and `end_hr: 06:00`.
 Reserve windows can also cross midnight, for example `batt_reserve_start_hr: 23:00`
 and `batt_reserve_end_hr: 05:00`. Equal start and end values are invalid.
+
+## Pre-v2.0.0 Releases
+
+### v1.6.0
+
+Go toolchain upgraded to 1.26. Viper config loading hardened — file read errors now surface instead of failing silently. CLI flag precedence enforced (flag > env > yaml). Startup parameter dump in debug mode with secret masking. Copilot agent workflow prompts added. Error helpers consolidated from `pkg/fronius/error.go` into `src/utils/error.go`.
+
+### v1.5.0
+
+Simple forecast caching added — reduce Solcast API calls by caching forecasts locally with configurable TTL. Contributed by [@travellingkiwi](https://github.com/travellingkiwi) in [#61](https://github.com/atbore-phx/sbam/issues/61).
+
+### v1.4.0
+
+Battery reserve charging now triggers based on time rather than charge level alone. Charging uses hysteresis logic to avoid rapid toggling. Contributed by [@Johnnexto](https://github.com/Johnnexto).
+
+### v1.3.9
+
+HA add-on `reset` switch to restore Fronius defaults at boot. Debug logging for Modbus read/write operations via `DEBUG` env var. Skip force charging when target is below 1%.
+
+### v1.3.5
+
+Fixed battery charging when under reserve and net PV power is insufficient.
+
+### v1.2.0
+
+Minimum battery reserve capacity feature — maintain a configurable floor charge level. Test coverage improvements.
+
+### v1.1.0
+
+Battery maximum capacity now retrieved from the local Fronius API instead of using a hardcoded value. Fronius and Modbus test suite added.
+
+### v1.0.0
+
+Initial release. Static time-of-day battery charging with Solcast weather forecast integration.
 
 ## Full Release Changelog
 [link to sbam latest release](https://github.com/atbore-phx/sbam/releases/latest)

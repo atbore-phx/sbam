@@ -20,6 +20,7 @@ func init() {
 		config.Encoding = "console"
 	}
 	config.DisableCaller = true
+	config.DisableStacktrace = os.Getenv("DEBUG") != "true"
 	if os.Getenv("DEBUG") == "true" {
 		config.Level.SetLevel(zapcore.DebugLevel)
 	} else {

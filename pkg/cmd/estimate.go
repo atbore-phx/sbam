@@ -6,6 +6,7 @@ import (
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -16,6 +17,7 @@ var e_apiKey string
 var e_cache_forecast bool
 var e_cache_file_prefix string
 var e_cache_time int32
+var e_forecast_horizon string
 
 var estCmd = &cobra.Command{
 	Use:   "estimate",
@@ -31,15 +33,16 @@ var estCmd = &cobra.Command{
 		e_cache_forecast = viper.GetBool("cache_forecast")
 		e_cache_file_prefix = viper.GetString("cache_file_prefix")
 		e_cache_time = viper.GetInt32("cache_time")
+		e_forecast_horizon = viper.GetString("forecast_horizon")
 
-		u.LogStartupParams(cmd)
+		u.LogStartupParams(cmd, nil)
 
 		err := CheckEstimate(e_apiKey, e_url, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
 			return
 		}
-		estimate(e_apiKey, e_url, fronius_ip, e_cache_forecast, e_cache_file_prefix, e_cache_time)
+		estimate(e_apiKey, e_url, fronius_ip, e_cache_forecast, e_cache_file_prefix, e_cache_time, e_forecast_horizon)
 
 	},
 }
@@ -51,6 +54,7 @@ func registerEstCmd() {
 	estCmd.Flags().BoolVarP(&e_cache_forecast, "cache_forecast", "n", false, "CACHE_FORECAST (default false)")
 	estCmd.Flags().StringVarP(&e_cache_file_prefix, "cache_file_prefix", "f", "cached_forecast", "CACHE_FILE_NAME (default 'cached_forecast')")
 	estCmd.Flags().Int32VarP(&e_cache_time, "cache_time", "l", 7200, "CACHE_TIME (default 7200)")
+	estCmd.Flags().StringVar(&e_forecast_horizon, "forecast_horizon", "default", "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 
 	rootCmd.AddCommand(estCmd)
 }
@@ -72,9 +76,9 @@ func CheckEstimate(apiKey string, url string, fronius_ip string) error {
 	return nil
 }
 
-func estimate(apiKey string, url string, fronius_ip string, cache_forecast bool, cache_file_prefix string, cache_time int32) {
+func estimate(apiKey string, url string, fronius_ip string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string) {
 	pwr := pw.New()
-	_, _, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time)
+	_, _, err := pwr.Handler(apiKey, url, cache_forecast, cache_file_prefix, cache_time, forecastHorizon, time.Now())
 	if err != nil {
 		u.Log.Error(err)
 		panic(err)

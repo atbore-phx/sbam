@@ -1,27 +1,28 @@
-# Vibe Coding — Prompt-driven contributor workflow
+# Compound Engineering — Contributor workflow
 
-This directory documents the repository's "Vibe Coding" workflow: using GitHub
-Copilot Chat prompts to generate `TASK` and `PLAN` documents and to assist
-contributors during implementation.
+This directory documents the project's **Compound Engineering workflow**: using CE skills to brainstorm, plan, implement, review, and ship changes.
 
-Core idea
-- Use the provided prompts to generate a structured plan from an issue or a
-  local feature slug.
-- Iterate on the generated plan via clarifying questions, then implement on a
-  small feature branch.
+## Core idea
+
+- Use CE skills to generate structured plans from issues or local feature ideas.
+- Iterate on plans via clarifying questions, then implement on a feature branch.
 - Always run validation gates and require human review before merging.
 
-Docs in this folder
+## Docs in this folder
+
 - [USAGE.md](USAGE.md) — Quick start and implementer checklist.
-- [CONTRIBUTING-COPILOT.md](CONTRIBUTING-COPILOT.md) — Guidelines and guardrails for contributors.
-- [PROMPTS.md](PROMPTS.md) — List of available prompts and brief descriptions.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Guidelines and guardrails for contributors.
+- [SKILLS.md](SKILLS.md) — List of available CE skills and project-specific usage.
 - [EXAMPLES.md](EXAMPLES.md) — Worked examples and recommended workflows.
 
-Where the prompts live
-- Prompts are stored under [.github/prompts/](../../.github/prompts/) in this repository. See
-  [PROMPTS.md](PROMPTS.md) for direct links and descriptions.
+## Where things live
 
-Notes
-- This folder intentionally contains contributor-facing documentation only —
-  generated TASKs and PLANs live under [docs/implementations/](../implementations/) per-feature.
+- Plans: `docs/plans/YYYY-MM-DD-NNN-<type>-<name>-plan.md`
+- Strategy: `STRATEGY.md` (product grounding document)
+- Coding standards: `CLAUDE.md`
+- Historical pre-CE plans: `docs/implementations/archive/`
+
+## Notes
+
 - When in doubt, prefer small, test-covered PRs and ask for human review.
+- The old prompts (`/generate-plan-*`, `/implement-plan`, `/create-pr`) have been removed — use CE skills instead.

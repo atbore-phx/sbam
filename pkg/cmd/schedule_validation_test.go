@@ -17,6 +17,7 @@ type scheduleValidationArgs struct {
 	pwBattReserve float64
 	startHr       string
 	endHr         string
+	schedulerMode string
 }
 
 func validScheduleValidationArgs() scheduleValidationArgs {
@@ -30,6 +31,7 @@ func validScheduleValidationArgs() scheduleValidationArgs {
 		pwBattReserve: 200,
 		startHr:       "00:00",
 		endHr:         "23:59",
+		schedulerMode: "crontab",
 	}
 }
 
@@ -70,7 +72,8 @@ func TestCheckScheduleScheduleValid(t *testing.T) {
 		args.pwBattReserve,
 		args.startHr,
 		args.endHr,
-	)
+		nil,
+		args.schedulerMode, true)
 
 	require.NoError(t, err)
 }
@@ -180,6 +183,16 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 			setup:     func(t *testing.T) { withScheduleValidationGlobals(t, "05:00", "06:00", 0, 0, -1) },
 			errSubstr: "cache_time",
 		},
+		{
+			name:      "scheduler_mode auto rejected",
+			prepare:   func(a *scheduleValidationArgs) { a.schedulerMode = "auto" },
+			errSubstr: "#149",
+		},
+		{
+			name:      "scheduler_mode unknown value",
+			prepare:   func(a *scheduleValidationArgs) { a.schedulerMode = "invalid" },
+			errSubstr: "unknown scheduler_mode",
+		},
 	}
 
 	for _, tc := range cases {
@@ -204,7 +217,8 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 				args.pwBattReserve,
 				args.startHr,
 				args.endHr,
-			)
+				nil,
+				args.schedulerMode, true)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.errSubstr)
@@ -228,7 +242,8 @@ func TestCheckScheduleScheduleCrossMidnightChargeWindowValid(t *testing.T) {
 		args.pwBattReserve,
 		args.startHr,
 		args.endHr,
-	)
+		nil,
+		args.schedulerMode, true)
 
 	require.NoError(t, err)
 }
@@ -294,7 +309,8 @@ func TestCheckScheduleScheduleReserveWindowContainment(t *testing.T) {
 				args.pwBattReserve,
 				args.startHr,
 				args.endHr,
-			)
+				nil,
+				args.schedulerMode, true)
 
 			if tt.wantErr {
 				require.Error(t, err)
