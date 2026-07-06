@@ -19,6 +19,7 @@ type recordingMQTTClient struct {
 	subscribeHdlr   mqtt.MessageHandler
 	publishedTopics []string
 	publishedBodies [][]byte
+	onConnectCB     func()
 }
 
 func (c *recordingMQTTClient) Connect(context.Context) error { return nil }
@@ -45,6 +46,10 @@ func (c *recordingMQTTClient) Subscribe(ctx context.Context, topic string, qos b
 
 func (c *recordingMQTTClient) IsConnected() bool {
 	return c.connected
+}
+
+func (c *recordingMQTTClient) OnConnect(cb func()) {
+	c.onConnectCB = cb
 }
 
 func TestSubscribeScheduleCommands_DefaultPrefixRoutesTriggerNow(t *testing.T) {
@@ -111,7 +116,7 @@ func TestSubscribeScheduleCommands_SubscribeError(t *testing.T) {
 	assert.ErrorContains(t, err, "subscribe failed")
 }
 
-func TestSubscribeScheduleCommands_SkipsWhenDisabledOrDisconnected(t *testing.T) {
+func TestSubscribeScheduleCommands_SkipsWhenDisabled(t *testing.T) {
 	client := &recordingMQTTClient{connected: true}
 	runner := newRunnerForTests(client)
 
@@ -119,10 +124,11 @@ func TestSubscribeScheduleCommands_SkipsWhenDisabledOrDisconnected(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, 0, client.subscribeCalls)
 
-	client.connected = false
+	// When MQTT is enabled, subscription proceeds even if not connected
+	// (the function is called from OnConnect callback where connection is guaranteed).
 	err = subscribeScheduleCommands(context.Background(), client, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, runner)
 	require.NoError(t, err)
-	assert.Equal(t, 0, client.subscribeCalls)
+	assert.Equal(t, 1, client.subscribeCalls)
 }
 
 func TestSubscribeScheduleCommands_RequiresRunner(t *testing.T) {

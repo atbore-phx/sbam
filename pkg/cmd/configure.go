@@ -29,7 +29,7 @@ var cfgCmd = &cobra.Command{
 		force_charge = viper.GetBool("force_charge")
 		power = viper.GetInt("power")
 
-		u.LogStartupParams(cmd)
+		u.LogStartupParams(cmd, nil)
 
 		err := checkConfigure(fronius_ip)
 		if err != nil {

@@ -1,29 +1,45 @@
-Examples and worked flows for Vibe Coding
+# Examples and worked flows for Compound Engineering
 
-Example: generate a plan from an issue and iterate
+## Example: plan from an issue and implement
 
-1. Open Copilot Chat in VS Code.
-2. Run: `/generate-plan-from-issue <issue-number>`.
-3. Confirm the suggested slug and answer clarifying questions.
-4. Review the generated `TASK.md` and `PLAN.md` under
-   `docs/implementations/<issue-slug>`.
-5. Update the TASK/PLAN if needed, then implement on a feature branch.
-6. Run: `/implement-plan <issue-slug>`
-7. review the generated code
-8. Run the validation commands and open a draft PR for review.
+1. In Claude Code, run: `/ce-plan #151`
+2. Answer clarifying questions to scope the plan.
+3. Review the generated plan under `docs/plans/`.
+4. Run: `/ce-work docs/plans/<plan-filename>.md`
+5. The work skill executes each implementation unit, runs tests, and commits.
+6. Run: `/ce-code-review`
+7. Run: `/ce-commit-push-pr`
+8. Request human review on the draft PR.
 
-Example: generate a local plan
+## Example: brainstorm a new feature, then plan and implement
 
-1. Open Copilot Chat in VS Code.
-2. Run: `/generate-plan-local my-feature`.
-3. Answer clarifying questions to complete the TASK.
-4. Inspect `docs/implementations/<slug>/` and proceed per the implementer
-   checklist.
-5. Run: `/implement-plan <slug>`
-6. review the generated code
-7. Run the validation commands and open a draft PR for review.
+1. In Claude Code, run: `/ce-brainstorm smart consumption detection`
+2. Answer clarifying questions to define requirements, scope, and acceptance criteria.
+3. Review the requirements doc under `docs/brainstorms/`.
+4. Run: `/ce-plan` — it will pick up the brainstorm doc as the origin.
+5. Review the plan under `docs/plans/`.
+6. Run: `/ce-work docs/plans/<plan-filename>.md`
+7. Run: `/ce-code-review`
+8. Run: `/ce-commit-push-pr`
 
-Tips
+## Example: fix a bug with ce-debug
+
+1. In Claude Code, run: `/ce-debug`
+2. Describe the bug or paste the error.
+3. The debug skill investigates root cause, proposes a fix, and verifies it.
+4. Review the diff and run: `/ce-code-review`
+5. Run: `/ce-commit-push-pr`
+
+## Example: review before opening a PR
+
+1. After implementing changes, run: `/ce-code-review`
+2. The review dispatches correctness, security, performance, and maintainability personas.
+3. Review the findings — safe fixes are auto-applied; gated fixes wait for confirmation.
+4. After accepting fixes, run: `/ce-commit-push-pr`
+
+## Tips
+
 - Keep iterations small: shorter cycles make reviews easier.
-- Add example outputs into the relevant TASK when updating prompts so future
-  contributors know what to expect.
+- `STRATEGY.md` is the grounding document — read it before planning any feature to ensure alignment.
+- `CLAUDE.md` carries coding standards — CE skills read it automatically.
+- Use `/ce-compound` to document solutions and patterns worth reusing.

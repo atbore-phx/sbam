@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	pw "sbam/pkg/power"
 	u "sbam/src/utils"
 	"strings"
 	"sync/atomic"
@@ -43,6 +44,11 @@ type RunnerConfig struct {
 	CacheFilePrefix    string
 	CacheTime          int32
 	Defaults           bool
+	ForecastHorizon    string
+	ConsumptionHorizon string
+	SchedulerMode      string
+	Windows            []pw.Window
+	WeekdayFeature     bool
 	MQTT               mqtt.Config
 	Now                func() time.Time
 }
@@ -66,16 +72,25 @@ var newBatteryWriter = func() batteryWriter {
 	return froniusBatteryWriter{}
 }
 
+// newTimerFunc is a package-level factory for one-shot timers. Tests may
+// override it to inject deterministic timer behavior.
+var newTimerFunc = time.AfterFunc
+
 // latest state caching was removed; the runner publishes state directly.
 
 // Runner owns serialized schedule and command execution.
 // Single-writer invariant: all Fronius Modbus write operations must be executed by this runner.
 type Runner struct {
-	cfg     RunnerConfig
-	client  mqtt.Client
-	writer  batteryWriter
-	intents chan mqtt.Intent
-	paused  atomic.Pointer[time.Time]
+	cfg           RunnerConfig
+	client        mqtt.Client
+	writer        batteryWriter
+	intents       chan mqtt.Intent
+	paused        atomic.Pointer[time.Time]
+	tickerCh      <-chan time.Time // nil when not in windows mode
+	defaultsTimer *time.Timer
+	boundaryTimer *time.Timer
+	defaultsFired atomic.Bool
+	activeWindow  string // name of active window for change detection
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -121,6 +136,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-r.tickerCh:
+			if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+				u.Log.Warn("windows tick dropped because runner queue is full")
+			}
 		case intent := <-r.intents:
 			r.handleIntent(ctx, intent)
 			if intent.Kind == mqtt.IntentShutdown {
@@ -128,6 +147,213 @@ func (r *Runner) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// StartWindowsTicker initializes the internal ticker for windows mode.
+// It computes the tick interval from the active window's tick_minutes (or 60
+// min default), creates a time.Ticker, and schedules a set_defaults timer if
+// the active window has defaults enabled. Callers in crontab mode must not
+// call this method — it is only valid when SchedulerMode is "windows".
+func (r *Runner) StartWindowsTicker(now time.Time) {
+	if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+		u.Log.Warn("immediate tick dropped because runner queue is full")
+	}
+	r.startWindowsTicker(now)
+}
+
+func (r *Runner) startWindowsTicker(now time.Time) {
+	r.stopWindowsTicker()
+
+	active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+	if active != nil {
+		r.activeWindow = active.Name
+	} else {
+		r.activeWindow = ""
+	}
+
+	interval := 60 * time.Minute
+	if active != nil && active.TickMinutes != nil {
+		interval = time.Duration(*active.TickMinutes) * time.Minute
+	}
+
+	t := time.NewTicker(interval)
+	r.tickerCh = t.C
+
+	// Schedule per-window set_defaults if enabled.
+	if active != nil && active.Defaults != nil && *active.Defaults {
+		r.scheduleDefaults(active, now)
+	}
+
+	// Schedule a one-shot timer at the next window's start boundary.
+	r.scheduleBoundaryTick(now)
+}
+
+func (r *Runner) stopWindowsTicker() {
+	r.tickerCh = nil
+	// We cannot stop the underlying ticker without storing a reference, but
+	// setting tickerCh to nil prevents further selects from firing. The GC
+	// will collect the orphaned ticker after its next fire (within interval).
+	if r.defaultsTimer != nil {
+		r.defaultsTimer.Stop()
+		r.defaultsTimer = nil
+	}
+	if r.boundaryTimer != nil {
+		r.boundaryTimer.Stop()
+		r.boundaryTimer = nil
+	}
+	r.defaultsFired.Store(false)
+	r.activeWindow = ""
+}
+
+// scheduleDefaults parses the active window's end time and schedules a
+// one-shot time.AfterFunc that fires set_defaults at
+// (window.end - before_end_defaults). The timer is tracked in r.defaultsTimer
+// so it can be cancelled on window change.
+func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
+	beforeEnd := 5 // default minutes
+	if active.BeforeEndDefaults != nil {
+		beforeEnd = *active.BeforeEndDefaults
+	}
+
+	endTime, err := parseScheduleClock(active.End, "end")
+	if err != nil {
+		u.Log.Warnw("cannot parse window end for set_defaults timer", "window", active.Name, "end", active.End, "error", err)
+		return
+	}
+
+	endAt := time.Date(now.Year(), now.Month(), now.Day(),
+		endTime.Hour(), endTime.Minute(), 0, 0, now.Location())
+
+	// If endAt is before or equal to now, advance by 24h (cross-midnight window).
+	if !endAt.After(now) {
+		endAt = endAt.Add(24 * time.Hour)
+	}
+
+	resetAt := endAt.Add(-time.Duration(beforeEnd) * time.Minute)
+	delay := resetAt.Sub(now)
+	if delay < 0 {
+		delay = 0 // fire immediately if reset time already passed
+	}
+
+	u.Log.Infow("scheduling set_defaults for window",
+		"window", active.Name, "end", active.End, "before_end_minutes", beforeEnd,
+		"reset_at", resetAt.Format(time.RFC3339), "delay", delay.Round(time.Second))
+
+	r.defaultsTimer = time.AfterFunc(delay, func() {
+		u.Log.Infow("set_defaults timer fired", "window", active.Name)
+		r.defaultsFired.Store(true)
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
+			u.Log.Warn("set_defaults dropped because runner queue is full")
+		}
+	})
+}
+
+// scheduleBoundaryTick schedules a one-shot timer that fires an IntentTick
+// at the start of the next window in the ordered list. For the last window,
+// the boundary wraps to the first window's next start + 24h. When no window
+// is active (gapped coverage), it finds the next upcoming window start
+// from all windows.
+func (r *Runner) scheduleBoundaryTick(now time.Time) {
+	windows := r.cfg.Windows
+	if len(windows) == 0 {
+		return
+	}
+
+	active := pw.ResolveActiveWindow(windows, now, r.cfg.WeekdayFeature)
+
+	var next pw.Window
+
+	if active == nil {
+		// No window active — find the next window whose start is after now.
+		var best *pw.Window
+		var bestStart time.Time
+		for i := range windows {
+			startTime, err := parseScheduleClock(windows[i].Start, "start")
+			if err != nil {
+				continue
+			}
+			startAt := time.Date(now.Year(), now.Month(), now.Day(),
+				startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
+			if !startAt.After(now) {
+				startAt = startAt.Add(24 * time.Hour)
+			}
+			if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
+				if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
+					startAt = nextMatchingWeekday(startAt, wdSet)
+				}
+			}
+			if best == nil || startAt.Before(bestStart) {
+				best = &windows[i]
+				bestStart = startAt
+			}
+		}
+		if best != nil {
+			next = *best
+		} else {
+			return
+		}
+	} else {
+		// Find the active window's index in the ordered list.
+		activeIdx := -1
+		for i := range windows {
+			name := pw.WindowNameOrDefault(windows[i], i)
+			if name == active.Name || (active.Name == "" && name == pw.WindowNameOrDefault(windows[i], i)) {
+				activeIdx = i
+				break
+			}
+		}
+		// Fall back to name comparison if the active window was resolved.
+		if activeIdx < 0 {
+			for i := range windows {
+				if windows[i].Name == active.Name || windows[i].Start == active.Start {
+					activeIdx = i
+					break
+				}
+			}
+		}
+		if activeIdx < 0 {
+			return
+		}
+
+		// Select the next window (wrap for last).
+		nextIdx := (activeIdx + 1) % len(windows)
+		next = windows[nextIdx]
+	}
+
+	nextStart, err := parseScheduleClock(next.Start, "start")
+	if err != nil {
+		u.Log.Warnw("cannot parse next window start for boundary timer",
+			"window", next.Name, "start", next.Start, "error", err)
+		return
+	}
+
+	nextAt := time.Date(now.Year(), now.Month(), now.Day(),
+		nextStart.Hour(), nextStart.Minute(), 0, 0, now.Location())
+
+	// If nextAt is before or equal to now, advance by 24h.
+	if !nextAt.After(now) {
+		nextAt = nextAt.Add(24 * time.Hour)
+	}
+
+	if r.cfg.WeekdayFeature && next.Weekdays != "" {
+		if wdSet, err := pw.ParseWeekdays(next.Weekdays); err == nil && len(wdSet) > 0 {
+			nextAt = nextMatchingWeekday(nextAt, wdSet)
+		}
+	}
+
+	delay := nextAt.Sub(now)
+
+	u.Log.Infow("scheduling boundary tick",
+		"next_window", pw.WindowNameOrDefault(next, 0),
+		"at", nextAt.Format(time.RFC3339),
+		"delay", delay.Round(time.Second))
+
+	r.boundaryTimer = newTimerFunc(delay, func() {
+		u.Log.Infow("boundary timer fired, submitting tick")
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+			u.Log.Warn("boundary tick dropped because runner queue is full")
+		}
+	})
 }
 
 // HandleCommand parses an MQTT command payload into an Intent and submits
@@ -162,10 +388,17 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		now = r.now()
 	}
 
-	inChargeWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
-	if err != nil {
-		r.publishError(ctx, "tick", err)
-		return err
+	// Resolve active window and derive effective charge parameters.
+	// When no windows are configured, falls back to legacy StartHR/EndHR.
+	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName := r.resolveActiveWindow(now)
+
+	// In windows mode, restart the ticker when the active window changes.
+	if r.cfg.SchedulerMode == "windows" {
+		prevWindow := r.activeWindow
+		if activeWindowName != prevWindow {
+			u.Log.Infow("active window changed", "from", prevWindow, "to", activeWindowName)
+			r.startWindowsTicker(now)
+		}
 	}
 
 	reserveWindowActive, err := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
@@ -179,7 +412,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if storageErr != nil {
 		u.HandleError(storageErr, "storage handler failed, skipping schedule run")
 
-		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("storage read failed: %v", storageErr), inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("storage read failed: %v", storageErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		paused, pauseUntil := r.pauseStateAt(now)
 		payload.Paused = paused
 		payload.NextRun = pauseUntil
@@ -189,7 +422,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if paused, pauseUntil := r.pauseStateAt(now); paused {
-		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
 		payload.Paused = true
@@ -199,17 +432,32 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if !inChargeWindow {
-		u.Log.Info("The current time is outside the range defined by start_hr and end_hr.: " + r.cfg.StartHR + " <= t <= " + r.cfg.EndHR)
+		u.Log.Infof("The current time is outside all configured charge windows")
 		capMax := capacityMax
 
-		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionIdle.String(), "current time outside configured charging window", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
 		r.publishState(payload)
 		return nil
 	}
 
-	inCooldown, cooldownErr := isInCooldown(now, r.cfg.StartHR, r.cfg.EndHR, chargeCooldownMinutes)
+	// Cooldown check: in windows mode use the active window's end time and
+	// before_end_defaults (or default 5 min); in crontab mode use legacy params.
+	var inCooldown bool
+	var cooldownErr error
+	if r.cfg.SchedulerMode == "windows" && len(r.cfg.Windows) > 0 {
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+		if active != nil {
+			cooldownDuration := chargeCooldownMinutes
+			if active.Defaults != nil && *active.Defaults && active.BeforeEndDefaults != nil {
+				cooldownDuration = *active.BeforeEndDefaults
+			}
+			inCooldown, cooldownErr = isInCooldown(now, active.Start, active.End, cooldownDuration)
+		}
+	} else {
+		inCooldown, cooldownErr = isInCooldown(now, r.cfg.StartHR, r.cfg.EndHR, chargeCooldownMinutes)
+	}
 	if cooldownErr != nil {
 		r.publishError(ctx, "tick", cooldownErr)
 		return cooldownErr
@@ -217,30 +465,43 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if inCooldown {
 		u.Log.Info("cooldown active — charge decisions suppressed near window end")
 		capMax := capacityMax
-		payload := makeBasePayload("cooldown", "charge decisions suppressed near window end", inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload("cooldown", "charge decisions suppressed near window end", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capMax
 		r.publishState(payload)
 		return nil
 	}
 
-	powerHandler := newPower()
-	solarPowerProduction, forecastRetrieved, forecastErr := powerHandler.Handler(r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast, r.cfg.CacheFilePrefix, r.cfg.CacheTime)
-	if forecastErr != nil {
-		u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
-		r.publishError(ctx, "power", forecastErr)
-		solarPowerProduction = 0.0
-		forecastRetrieved = false
+	effectiveConsumption := pw.ResolveConsumption(
+		effectiveConsumptionHorizon, r.cfg.PWConsumption, now)
+
+	var solarPowerProduction float64
+	var forecastRetrieved bool
+	var forecastErr error
+
+	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
+		powerHandler := newPower()
+		solarPowerProduction, forecastRetrieved, forecastErr = powerHandler.Handler(
+			r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast,
+			r.cfg.CacheFilePrefix, r.cfg.CacheTime,
+			effectiveForecastHorizon, now,
+		)
+		if forecastErr != nil {
+			u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
+			r.publishError(ctx, "power", forecastErr)
+			solarPowerProduction = 0.0
+			forecastRetrieved = false
+		}
 	}
 
-	u.Log.Infof("your Daily consumption is:%d Wh", int(r.cfg.PWConsumption))
+	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 
 	froniusHandler := newFronius()
 	chargePct, decision, reason, powerState, froniusErr := froniusHandler.Handler(
 		solarPowerProduction,
 		capacityToCharge,
 		capacityMax,
-		r.cfg.PWConsumption,
+		effectiveConsumption,
 		r.cfg.MaxCharge,
 		r.cfg.PWBattReserve,
 		r.cfg.StartHR,
@@ -254,7 +515,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	if froniusErr != nil {
 		u.HandleError(froniusErr, "fronius handler failed, skipping schedule run")
 
-		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive)
+		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
 		payload.Paused = false
@@ -263,11 +524,21 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return froniusErr
 	}
 
-	payload := makeBasePayload(decision.String(), reason, inChargeWindow, reserveWindowActive)
+	payload := makeBasePayload(decision.String(), reason.String(), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 	payload.BatterySOCPct = &socPct
 	payload.BatteryCapacityWh = &capacityMax
 	payload.ForecastTodayWh = &solarPowerProduction
 	payload.PwNetWh = &powerState.Net
+	payload.ForecastHorizon = effectiveForecastHorizon
+	payload.ConsumptionHorizon = effectiveConsumptionHorizon
+	if activeWindowName != "" {
+		awName := activeWindowName
+		payload.ActiveWindow = &awName
+		awMaxCharge := effectiveMaxCharge
+		payload.ActiveWindowMaxCharge = &awMaxCharge
+		awFH := effectiveForecastHorizon
+		payload.ActiveWindowForecastHorizon = &awFH
+	}
 	payload.ChargePct = &chargePct
 	payload.Paused = false
 	r.publishState(payload)
@@ -434,11 +705,7 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 // computing current window flags and returning a payload ready for
 // callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
-	inChargeWindow, inChargeErr := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
-	if inChargeErr != nil {
-		u.HandleError(inChargeErr, "unable to compute charge window status")
-		inChargeWindow = false
-	}
+	inChargeWindow, _, _, _, _ := r.resolveActiveWindow(now)
 
 	reserveWindowActive, reserveErr := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if reserveErr != nil {
@@ -446,7 +713,7 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 		reserveWindowActive = false
 	}
 
-	return makeBasePayload(lastDecision, reason, inChargeWindow, reserveWindowActive)
+	return makeBasePayload(lastDecision, reason, inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 }
 
 // publishState publishes the provided state payload via MQTT using the
@@ -514,6 +781,44 @@ func (r *Runner) setPause(pauseUntil *time.Time) {
 func (r *Runner) clearPause() {
 	r.paused.Store(nil)
 	u.Log.Info("schedule resumed")
+}
+
+// resolveActiveWindow determines whether the current time falls within any
+// configured charge window and returns the effective charge parameters.
+// When windows are configured it delegates to power.ResolveActiveWindow;
+// otherwise it falls back to the legacy checkTimeRangeAt call using
+// RunnerConfig.StartHR / EndHR.
+func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string) {
+	maxCharge = r.cfg.MaxCharge
+	forecastHorizon = r.cfg.ForecastHorizon
+	consumptionHorizon = r.cfg.ConsumptionHorizon
+
+	if len(r.cfg.Windows) > 0 {
+		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+		if active == nil {
+			return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+		}
+		maxCharge = active.MaxCharge
+		if active.ForecastHorizon != "" {
+			forecastHorizon = active.ForecastHorizon
+		}
+		if active.ConsumptionHorizon != "" {
+			consumptionHorizon = active.ConsumptionHorizon
+		}
+		name := pw.WindowNameOrDefault(*active, 0)
+		return true, maxCharge, forecastHorizon, consumptionHorizon, name
+	}
+
+	// Legacy path: use single StartHR/EndHR window.
+	inWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
+	if err != nil {
+		u.HandleError(err, "checkTimeRangeAt failed in resolveActiveWindow")
+		return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+	}
+	if inWindow {
+		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy"
+	}
+	return false, maxCharge, forecastHorizon, consumptionHorizon, ""
 }
 
 // pauseStateAt reports whether the runner is currently paused at the
@@ -590,4 +895,18 @@ func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 
 	inRange := (now.After(startAt) || now.Equal(startAt)) && (now.Before(endAt) || now.Equal(endAt))
 	return inRange, nil
+}
+
+// nextMatchingWeekday advances t by 24h increments until its weekday is in
+// the provided set. The set must be non-empty; the function loops at most 7
+// times before returning (since a non-empty set guarantees a match within 7
+// days).
+func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time {
+	for i := 0; i < 7; i++ {
+		if weekdays[t.Weekday()] {
+			return t
+		}
+		t = t.Add(24 * time.Hour)
+	}
+	return t
 }

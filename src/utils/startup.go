@@ -59,8 +59,9 @@ func SourceOf(cmd *cobra.Command, key string) string {
 
 // DumpStartupParams returns a deterministic, multi-line block listing every
 // viper key together with its effective value and resolution source. Secret
-// keys are redacted. The function never panics on nil/empty inputs.
-func DumpStartupParams(cmd *cobra.Command) string {
+// keys are redacted. Any entries in extras are appended after the viper keys
+// with source=computed. The function never panics on nil/empty inputs.
+func DumpStartupParams(cmd *cobra.Command, extras map[string]interface{}) string {
 	var b strings.Builder
 
 	header := "effective startup parameters"
@@ -70,33 +71,51 @@ func DumpStartupParams(cmd *cobra.Command) string {
 	b.WriteString(header)
 
 	keys := viper.AllKeys()
-	if len(keys) == 0 {
-		return b.String()
-	}
-	sort.Strings(keys)
-
+	// Determine max key length across viper keys and extras for alignment.
 	maxKeyLen := 0
 	for _, k := range keys {
 		if len(k) > maxKeyLen {
 			maxKeyLen = len(k)
 		}
 	}
-
-	for _, k := range keys {
-		var rendered string
-		if _, secret := SecretKeys[k]; secret {
-			rendered = redacted
-		} else {
-			rendered = fmt.Sprintf("%#v", viper.Get(k))
+	for k := range extras {
+		if len(k) > maxKeyLen {
+			maxKeyLen = len(k)
 		}
-		b.WriteString(fmt.Sprintf("\n  %-*s = %-24s source=%s",
-			maxKeyLen, k, rendered, SourceOf(cmd, k)))
 	}
+
+	if len(keys) > 0 {
+		sort.Strings(keys)
+		for _, k := range keys {
+			var rendered string
+			if _, secret := SecretKeys[k]; secret {
+				rendered = redacted
+			} else {
+				rendered = fmt.Sprintf("%#v", viper.Get(k))
+			}
+			b.WriteString(fmt.Sprintf("\n  %-*s = %-24s source=%s",
+				maxKeyLen, k, rendered, SourceOf(cmd, k)))
+		}
+	}
+
+	if len(extras) > 0 {
+		extraKeys := make([]string, 0, len(extras))
+		for k := range extras {
+			extraKeys = append(extraKeys, k)
+		}
+		sort.Strings(extraKeys)
+		for _, k := range extraKeys {
+			b.WriteString(fmt.Sprintf("\n  %-*s = %-24s source=computed",
+				maxKeyLen, k, fmt.Sprintf("%#v", extras[k])))
+		}
+	}
+
 	return b.String()
 }
 
 // LogStartupParams emits DumpStartupParams via Log.Debug. Safe to call from
 // any subcommand's Run; produces no output when zap level is above Debug.
-func LogStartupParams(cmd *cobra.Command) {
-	Log.Debug("\n" + DumpStartupParams(cmd))
+// extras are appended after the viper keys with source=computed.
+func LogStartupParams(cmd *cobra.Command, extras map[string]interface{}) {
+	Log.Debug("\n" + DumpStartupParams(cmd, extras))
 }

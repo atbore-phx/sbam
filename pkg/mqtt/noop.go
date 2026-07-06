@@ -27,3 +27,5 @@ func (n *Noop) Subscribe(ctx context.Context, topic string, qos byte, handler Me
 func (n *Noop) IsConnected() bool {
 	return false
 }
+
+func (n *Noop) OnConnect(cb func()) {}

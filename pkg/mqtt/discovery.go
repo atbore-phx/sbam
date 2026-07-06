@@ -79,7 +79,7 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	forceChargeCommandTemplate := `{% set target = states('number.sbam_force_charge_target_pct') | int(100) %}{% if target > 100 %}{"target_pct":100,"ignore_max_charge":true}{% elif target < 0 %}{"target_pct":0}{% else %}{"target_pct":{{ target }}}{% endif %}`
 	pauseCommandTemplate := `{% set seconds = states('number.sbam_pause_duration_s') | int(0) %}{% if seconds <= 0 %}{}{% else %}{"until":"{{ seconds }}s"}{% endif %}`
 
-	entities := make([]DiscoveryEntity, 0, 20)
+	entities := make([]DiscoveryEntity, 0, 21)
 
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "battery_soc_pct", sensorPayload(base, deviceID, "battery_soc_pct", "Battery SoC", "{{ value_json.battery_soc_pct }}", "%", "battery", "measurement", ""))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "battery_capacity_wh", sensorPayload(base, deviceID, "battery_capacity_wh", "Battery Capacity", "{{ value_json.battery_capacity_wh }}", "Wh", "", "measurement", ""))
@@ -87,6 +87,12 @@ func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "pw_net_wh", sensorPayload(base, deviceID, "pw_net_wh", "Net Energy", "{{ value_json.pw_net_wh }}", "Wh", "", "measurement", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "charge_pct", sensorPayload(base, deviceID, "charge_pct", "Charge Percent", "{{ value_json.charge_pct }}", "%", "battery", "measurement", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "last_decision", sensorPayload(base, deviceID, "last_decision", "Last Decision", "{{ value_json.last_decision }}", "", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "forecast_horizon", sensorPayload(base, deviceID, "forecast_horizon", "Forecast Horizon", "{{ value_json.forecast_horizon }}", "", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "consumption_horizon", sensorPayload(base, deviceID, "consumption_horizon", "Consumption Horizon", "{{ value_json.consumption_horizon }}", "", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "scheduler_mode", sensorPayload(base, deviceID, "scheduler_mode", "Scheduler Mode", "{{ value_json.scheduler_mode }}", "", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "active_window", sensorPayload(base, deviceID, "active_window", "Active Window", "{{ value_json.active_window }}", "", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "active_window_max_charge", sensorPayload(base, deviceID, "active_window_max_charge", "Active Window Max Charge", "{{ value_json.active_window_max_charge }}", "W", "", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "active_window_forecast_horizon", sensorPayload(base, deviceID, "active_window_forecast_horizon", "Active Window Forecast Horizon", "{{ value_json.active_window_forecast_horizon }}", "", "", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "last_decision_reason", sensorPayload(base, deviceID, "last_decision_reason", "Decision Reason", "{{ value_json.last_decision_reason }}", "", "", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "next_run", sensorPayload(base, deviceID, "next_run", "Next Run", "{{ value_json.next_run }}", "", "timestamp", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "paused_state", sensorPayload(base, deviceID, "paused_state", "Paused State", "{{ value_json.paused }}", "", "", "", "diagnostic"))

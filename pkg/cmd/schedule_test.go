@@ -11,6 +11,7 @@ import (
 
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	pw "sbam/pkg/power"
 	u "sbam/src/utils"
 
 	"github.com/stretchr/testify/assert"
@@ -72,7 +73,8 @@ func (f *fakeClient) Publish(ctx context.Context, topic string, qos byte, retain
 func (f *fakeClient) Subscribe(ctx context.Context, topic string, qos byte, handler mqtt.MessageHandler) error {
 	return nil
 }
-func (f *fakeClient) IsConnected() bool { return true }
+func (f *fakeClient) IsConnected() bool   { return true }
+func (f *fakeClient) OnConnect(cb func()) {}
 
 func drainPublishes(f *fakeClient) []publishedMessage {
 	var out []publishedMessage
@@ -190,7 +192,7 @@ func TestSchedule_FroniusModbusFailurePublishesSkip(t *testing.T) {
 // non-skip payload.
 type fakeFroniusClient struct{}
 
-func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error) {
+func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	ps := fronius.PowerState{PvNet: 0.0, Batt: 0.0, Net: 0.0, BattReserveNet: 0.0}
 	return int16(10), fronius.DecisionIdle, "fake-handler", ps, nil
 }
@@ -273,12 +275,14 @@ type fakePowerClient struct {
 	calls      int
 }
 
-func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32) (float64, bool, error) {
+func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error) {
 	_ = apiKey
 	_ = url
 	_ = cache_forecast
 	_ = cache_file_prefix
 	_ = cache_time
+	_ = forecastHorizon
+	_ = now
 	f.calls++
 	return f.forecastWh, f.retrieved, f.err
 }
@@ -286,7 +290,7 @@ func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool
 type trackingFroniusClient struct {
 	err                  error
 	decision             fronius.Decision
-	reason               string
+	reason               fronius.Reason
 	chargePct            int16
 	powerState           fronius.PowerState
 	calls                int
@@ -295,7 +299,7 @@ type trackingFroniusClient struct {
 	lastReserveWindowArg bool
 }
 
-func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, string, fronius.PowerState, error) {
+func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	_ = pw_batt2charge
 	_ = pw_batt_max
 	_ = pw_consumption
@@ -440,7 +444,7 @@ func TestSchedule_ForecastErrorDisablesForecastButStillCallsFronius(t *testing.T
 }
 
 func TestMakeBasePayloadSetsCommonFields(t *testing.T) {
-	p := makeBasePayload("idle", "outside window", true, false)
+	p := makeBasePayload("idle", "outside window", true, false, "crontab")
 
 	assert.Equal(t, "idle", p.LastDecision)
 	assert.Equal(t, "outside window", p.LastDecisionReason)
@@ -457,4 +461,388 @@ func TestMakeBasePayloadSetsCommonFields(t *testing.T) {
 	assert.Nil(t, p.ForecastTodayWh)
 	assert.Nil(t, p.PwNetWh)
 	assert.Nil(t, p.ChargePct)
+}
+
+// ---------------------------------------------------------------------------
+// checkScheduleschedule validation tests
+// ---------------------------------------------------------------------------
+
+func TestCheckScheduleschedule_EmptyFroniusIP(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fronius_ip")
+}
+
+func TestCheckScheduleschedule_EmptyApiKey(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apikey")
+}
+
+func TestCheckScheduleschedule_EmptyURL(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "url")
+}
+
+func TestCheckScheduleschedule_EmptyCrontab(t *testing.T) {
+	err := checkScheduleschedule("", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "crontab")
+}
+
+func TestCheckScheduleschedule_NegativePWConsumption(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", -1, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_consumption")
+}
+
+func TestCheckScheduleschedule_NegativeMaxCharge(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, -1, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_charge")
+}
+
+func TestCheckScheduleschedule_InvalidWindow(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "bad", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid start_hr")
+}
+
+func TestCheckScheduleschedule_BattReserveNotContained(t *testing.T) {
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "06:00", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "batt_reserve_start_hr")
+}
+
+func TestCheckScheduleschedule_InvalidCacheTime(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	defer func() { batt_reserve_start_hr = oldBRStart; batt_reserve_end_hr = oldBREnd }()
+
+	oldCacheTime := s_cache_time
+	s_cache_time = -1
+	defer func() { s_cache_time = oldCacheTime }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cache_time")
+}
+
+func TestCheckScheduleschedule_CacheTimeTooLarge(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	defer func() { batt_reserve_start_hr = oldBRStart; batt_reserve_end_hr = oldBREnd }()
+
+	oldCacheTime := s_cache_time
+	s_cache_time = 90000
+	defer func() { s_cache_time = oldCacheTime }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cache_time")
+}
+
+func TestCheckScheduleschedule_InvalidForecastHorizon(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldForecastHorizon := forecast_horizon
+	forecast_horizon = "invalid_horizon"
+	defer func() { forecast_horizon = oldForecastHorizon }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forecast_horizon")
+}
+
+func TestCheckScheduleschedule_InvalidConsumptionHorizon(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldConsumptionHorizon := consumption_horizon
+	consumption_horizon = "invalid_horizon"
+	defer func() { consumption_horizon = oldConsumptionHorizon }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "consumption_horizon")
+}
+
+// ---------------------------------------------------------------------------
+// isWindowContainedIn tests
+// ---------------------------------------------------------------------------
+
+func TestIsWindowContainedIn_FalseWhenNotContained(t *testing.T) {
+	contained, err := isWindowContainedIn("12:00", "18:00", "00:00", "06:00")
+	require.NoError(t, err)
+	assert.False(t, contained)
+}
+
+func TestIsWindowContainedIn_CrossMidnightContained(t *testing.T) {
+	contained, err := isWindowContainedIn("22:00", "02:00", "20:00", "06:00")
+	require.NoError(t, err)
+	assert.True(t, contained)
+}
+
+func TestIsWindowContainedIn_InvalidInnerStart(t *testing.T) {
+	_, err := isWindowContainedIn("bad", "06:00", "00:00", "06:00")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid inner_start")
+}
+
+func TestIsWindowContainedIn_InvalidOuterStart(t *testing.T) {
+	_, err := isWindowContainedIn("00:00", "06:00", "bad", "06:00")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid outer_start")
+}
+
+// ---------------------------------------------------------------------------
+// subscribeScheduleCommands tests
+// ---------------------------------------------------------------------------
+
+func TestSubscribeScheduleCommands_NilMQTTClientWhenEnabled(t *testing.T) {
+	runner := newRunnerForTests(newFakeClient())
+	err := subscribeScheduleCommands(context.Background(), nil, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, runner)
+	require.NoError(t, err)
+}
+
+func TestSubscribeScheduleCommands_NilContext(t *testing.T) {
+	client := &recordingMQTTClient{connected: true}
+	runner := newRunnerForTests(client)
+	err := subscribeScheduleCommands(nil, client, mqtt.Config{Enabled: true, TopicPrefix: "sbam"}, runner)
+	require.NoError(t, err)
+	assert.Equal(t, 1, client.subscribeCalls)
+}
+
+// ---------------------------------------------------------------------------
+// crontabSchedule tests
+// ---------------------------------------------------------------------------
+
+func TestCrontabSchedule_NilRunner(t *testing.T) {
+	err := crontabSchedule(context.Background(), nil, "0 0 * * *", false, "00:00")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runner must not be nil")
+}
+
+func TestCrontabSchedule_NilContext(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	// Nil context should use background, cron will start and wait until context is done.
+	// We cancel via a separate mechanism — the test validates no panic.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- crontabSchedule(nil, runner, "*/1 * * * *", false, "23:59")
+	}()
+	// Wait a bit for cron to start, then submit shutdown to unblock.
+	time.Sleep(50 * time.Millisecond)
+	runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
+	select {
+	case <-errCh:
+		// Expected: the crontabSchedule returns when context is done
+	case <-time.After(3 * time.Second):
+		// crontabSchedule blocks on ctx.Done() so nil ctx = context.Background() which never cancels.
+		// This is expected behavior — the goroutine will leak but the test validates no panic.
+	}
+}
+
+func TestCrontabSchedule_InvalidEndHour(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	err := crontabSchedule(context.Background(), runner, "0 0 * * *", false, "bad")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid end_hr")
+}
+
+func TestCrontabSchedule_DefaultsDisabled(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- crontabSchedule(ctx, runner, "*/1 * * * *", false, "23:59")
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("crontabSchedule did not return after cancel")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// finalizeRunnerMode tests
+// ---------------------------------------------------------------------------
+
+func TestFinalizeRunnerMode_NilStop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runner := NewRunner(RunnerConfig{Now: time.Now}, nil)
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	err := finalizeRunnerMode(false, "crontab", runner, runDone, nil)
+	require.NoError(t, err)
+}
+
+func TestCrontabSchedule_DefaultsEnabled(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- crontabSchedule(ctx, runner, "*/1 * * * *", true, "23:59")
+	}()
+
+	// Allow the cron scheduler to start and add both functions.
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("crontabSchedule did not return after cancel")
+	}
+}
+
+func TestCrontabSchedule_AddFuncError(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	// An invalid cron expression should cause c.AddFunc to return an error.
+	err := crontabSchedule(context.Background(), runner, "not-a-valid-cron", false, "23:59")
+	require.Error(t, err)
+}
+
+func TestCheckScheduleschedule_NegativePWLWT(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwLwt := pw_lwt
+	pw_lwt = -1
+	defer func() { pw_lwt = oldPwLwt }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_lwt")
+}
+
+func TestCheckScheduleschedule_NegativePWUPT(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwUpt := pw_upt
+	pw_upt = -1
+	defer func() { pw_upt = oldPwUpt }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_upt")
+}
+
+func TestCheckScheduleschedule_NegativePWBattReserve(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	oldPwBR := pw_batt_reserve
+	pw_batt_reserve = -1
+	defer func() { pw_batt_reserve = oldPwBR }()
+
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, -1, "00:00", "23:59", nil, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_batt_reserve")
+}
+
+func TestCheckScheduleschedule_WithWindowsValidates(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	// Valid windows bypass legacy start_hr/end_hr validation.
+	// batt_reserve containment still checked against passed start/end hours.
+	windows := []pw.Window{
+		{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 3500},
+	}
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", windows, "crontab", true)
+	require.NoError(t, err)
+}
+
+func TestCheckScheduleschedule_InvalidWindows(t *testing.T) {
+	oldBRStart, oldBREnd := batt_reserve_start_hr, batt_reserve_end_hr
+	batt_reserve_start_hr = "00:00"
+	batt_reserve_end_hr = "23:59"
+	oldCacheTime := s_cache_time
+	s_cache_time = 3600
+	defer func() {
+		batt_reserve_start_hr = oldBRStart
+		batt_reserve_end_hr = oldBREnd
+		s_cache_time = oldCacheTime
+	}()
+
+	// Empty name windows trigger validation error.
+	windows := []pw.Window{
+		{Start: "bad", End: "also_bad", MaxCharge: -1},
+	}
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "", "", windows, "crontab", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "windows")
 }

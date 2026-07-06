@@ -1,7 +1,6 @@
-package fronius_test
+package fronius
 
 import (
-	"sbam/pkg/fronius"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,8 +17,8 @@ func TestClassifyDecision(t *testing.T) {
 		pwLwt                    float64
 		forecastChargeEnabled    bool
 		battReserveChargeEnabled bool
-		expectedDecision         fronius.Decision
-		expectedReason           string
+		expectedDecision         Decision
+		expectedReason           Reason
 	}{
 		{
 			name:                     "battery full short-circuits regardless of other inputs",
@@ -31,8 +30,8 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: true,
-			expectedDecision:         fronius.DecisionBatteryFull,
-			expectedReason:           "Battery is full charged",
+			expectedDecision:         decisionBatteryFull,
+			expectedReason:           reasonBatteryFull,
 		},
 		{
 			name:                     "forecast charge fires when net power is below -lwt and forecast enabled",
@@ -44,8 +43,8 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: false,
-			expectedDecision:         fronius.DecisionForecastCharge,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is not enough: -1900.000000 Wh",
+			expectedDecision:         decisionForecastCharge,
+			expectedReason:           reasonForecastCharge,
 		},
 		{
 			name:                     "reserve charge fires when battery is below reserve and reserve charge enabled",
@@ -57,8 +56,8 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    false,
 			battReserveChargeEnabled: true,
-			expectedDecision:         fronius.DecisionReserveCharge,
-			expectedReason:           "battery 1000.000000 Wh < reserve 3000.000000 Wh",
+			expectedDecision:         decisionReserveCharge,
+			expectedReason:           reasonReserveCharge,
 		},
 		{
 			name:                     "idle when net power is fine and reserve is satisfied",
@@ -70,8 +69,21 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: true,
-			expectedDecision:         fronius.DecisionIdle,
-			expectedReason:           "Net Power (actual battery power + Net solar power) is enough: 9400.000000 Wh",
+			expectedDecision:         DecisionIdle,
+			expectedReason:           reasonIdle,
+		},
+		{
+			name:                     "idle with forecast-disabled reason when forecast is off and net power is negative",
+			pwBatt2charge:            2000,
+			pwForecast:               100,
+			pwConsumption:            5000,
+			pwBattMax:                5000,
+			pwBattReserve:            1000,
+			pwLwt:                    100,
+			forecastChargeEnabled:    false,
+			battReserveChargeEnabled: false,
+			expectedDecision:         DecisionIdle,
+			expectedReason:           reasonForecastDisabled,
 		},
 	}
 
@@ -79,7 +91,7 @@ func TestClassifyDecision(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			gotDecision, gotReason, _, err := fronius.ClassifyDecision(
+			gotDecision, gotReason, _, err := classifyDecision(
 				tc.pwBatt2charge, tc.pwForecast, tc.pwConsumption, tc.pwBattMax,
 				tc.pwBattReserve, tc.pwLwt,
 				tc.forecastChargeEnabled, tc.battReserveChargeEnabled,
@@ -90,21 +102,9 @@ func TestClassifyDecision(t *testing.T) {
 		})
 	}
 
-	t.Run("returns skip and error for unexpected power state", func(t *testing.T) {
-		decision, reason, _, err := fronius.ClassifyDecision(
-			2000, 100, 5000, 5000,
-			1000, 100,
-			false, false,
-		)
-
-		assert.Error(t, err)
-		assert.Equal(t, fronius.DecisionSkip, decision)
-		assert.Contains(t, reason, "unexpected power state")
-	})
-
 	t.Run("returns power state snapshot", func(t *testing.T) {
 		// updated signature adds an error return; ensure it's nil
-		_, _, gotPowerState, err := fronius.ClassifyDecision(
+		_, _, gotPowerState, err := classifyDecision(
 			500, 5000, 100, 5000,
 			1000, 100,
 			true, true,
@@ -112,7 +112,7 @@ func TestClassifyDecision(t *testing.T) {
 		assert.NoError(t, err)
 
 		// SoC is provided by the storage package; classifier does not set it.
-		assert.Equal(t, fronius.PowerState{
+		assert.Equal(t, PowerState{
 			PvNet:          4900,
 			Batt:           4500,
 			Net:            9400,

@@ -4,22 +4,22 @@ import (
 	u "sbam/src/utils"
 )
 
-func New() *Storage {
-	return &Storage{}
+func New() *storage {
+	return &storage{}
 }
 
-func (storage *Storage) Handler(fronius_ip string) (float64, float64, float64, error) {
+func (s *storage) Handler(fronius_ip string) (float64, float64, float64, error) {
 	charge := 0.0
 	charge_max := 0.0
 	socPct := 0.0
 
-	batteries, err := GetStorage(fronius_ip)
+	b, err := getStorage(fronius_ip)
 	if err != nil {
 		u.Log.Errorln("Error getting Storage Charge Data:", err)
 		return charge, charge_max, socPct, err
 	}
 
-	charge, charge_max, socPct, err = GetCapacityStorage2Charge(batteries)
+	charge, charge_max, socPct, err = getCapacityStorage2Charge(b)
 	if err != nil {
 		u.Log.Errorln("Error getting Full Storage Capacity to Charge:", err)
 		return charge, charge_max, socPct, err
