@@ -35,6 +35,7 @@ func ValidateForecastHorizon(s string) (string, error) {
 const (
 	ConsumptionHorizonFullDay        = "full_day"
 	ConsumptionHorizonRemainingToday = "remaining_today"
+	ConsumptionHorizonToNextWindow   = "to_next_window"
 )
 
 // ValidateConsumptionHorizon returns s if it names a known consumption
@@ -42,10 +43,11 @@ const (
 func ValidateConsumptionHorizon(s string) (string, error) {
 	switch s {
 	case ConsumptionHorizonFullDay,
-		ConsumptionHorizonRemainingToday:
+		ConsumptionHorizonRemainingToday,
+		ConsumptionHorizonToNextWindow:
 		return s, nil
 	default:
-		return "", fmt.Errorf("unknown consumption_horizon %q: must be one of full_day, remaining_today", s)
+		return "", fmt.Errorf("unknown consumption_horizon %q: must be one of full_day, remaining_today, to_next_window", s)
 	}
 }
 
@@ -101,7 +103,17 @@ func checkSun(now time.Time) time.Time {
 //   - full_day returns pwConsumption unchanged.
 //   - remaining_today returns pwConsumption scaled by the fraction of the
 //     local day that remains (seconds remaining / 86400).
-func ResolveConsumption(h string, pwConsumption float64, now time.Time) float64 {
+//   - to_next_window returns pwConsumption scaled by the duration from now
+//     until nextWindowStart (hours / 24). The span may cross midnight and
+//     may exceed 24h for weekday-gapped windows, in which case the result
+//     exceeds pwConsumption: it is the expected consumption until the next
+//     charge opportunity. When nextWindowStart is the zero value or not
+//     after now (no windows configured, or the start could not be
+//     resolved), it falls back to remaining_today behaviour.
+//
+// nextWindowStart is only consulted by to_next_window; callers using the
+// other modes may pass the zero time.
+func ResolveConsumption(h string, pwConsumption float64, now time.Time, nextWindowStart time.Time) float64 {
 	switch h {
 	case ConsumptionHorizonFullDay:
 		return pwConsumption
@@ -112,6 +124,12 @@ func ResolveConsumption(h string, pwConsumption float64, now time.Time) float64 
 			remaining = 0
 		}
 		return pwConsumption * float64(remaining) / 86400.0
+	case ConsumptionHorizonToNextWindow:
+		if nextWindowStart.After(now) {
+			hours := nextWindowStart.Sub(now).Hours()
+			return pwConsumption * hours / 24.0
+		}
+		return ResolveConsumption(ConsumptionHorizonRemainingToday, pwConsumption, now, time.Time{})
 	default:
 		return pwConsumption
 	}

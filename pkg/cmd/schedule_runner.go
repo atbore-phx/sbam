@@ -248,20 +248,19 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 	})
 }
 
-// scheduleBoundaryTick schedules a one-shot timer that fires an IntentTick
-// at the start of the next window in the ordered list. For the last window,
-// the boundary wraps to the first window's next start + 24h. When no window
+// nextWindowStart resolves the next upcoming window and the instant it
+// starts. When a window is active it selects the following window in the
+// ordered list (wrapping past midnight for the last one); when no window
 // is active (gapped coverage), it finds the next upcoming window start
-// from all windows.
-func (r *Runner) scheduleBoundaryTick(now time.Time) {
+// from all windows. ok is false when no windows are configured or the
+// selected window's start cannot be parsed.
+func (r *Runner) nextWindowStart(now time.Time) (next pw.Window, nextAt time.Time, ok bool) {
 	windows := r.cfg.Windows
 	if len(windows) == 0 {
-		return
+		return pw.Window{}, time.Time{}, false
 	}
 
 	active := pw.ResolveActiveWindow(windows, now, r.cfg.WeekdayFeature)
-
-	var next pw.Window
 
 	if active == nil {
 		// No window active — find the next window whose start is after now.
@@ -290,7 +289,7 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 		if best != nil {
 			next = *best
 		} else {
-			return
+			return pw.Window{}, time.Time{}, false
 		}
 	} else {
 		// Find the active window's index in the ordered list.
@@ -312,7 +311,7 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 			}
 		}
 		if activeIdx < 0 {
-			return
+			return pw.Window{}, time.Time{}, false
 		}
 
 		// Select the next window (wrap for last).
@@ -322,12 +321,12 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 
 	nextStart, err := parseScheduleClock(next.Start, "start")
 	if err != nil {
-		u.Log.Warnw("cannot parse next window start for boundary timer",
+		u.Log.Warnw("cannot parse next window start",
 			"window", next.Name, "start", next.Start, "error", err)
-		return
+		return pw.Window{}, time.Time{}, false
 	}
 
-	nextAt := time.Date(now.Year(), now.Month(), now.Day(),
+	nextAt = time.Date(now.Year(), now.Month(), now.Day(),
 		nextStart.Hour(), nextStart.Minute(), 0, 0, now.Location())
 
 	// If nextAt is before or equal to now, advance by 24h.
@@ -339,6 +338,20 @@ func (r *Runner) scheduleBoundaryTick(now time.Time) {
 		if wdSet, err := pw.ParseWeekdays(next.Weekdays); err == nil && len(wdSet) > 0 {
 			nextAt = nextMatchingWeekday(nextAt, wdSet)
 		}
+	}
+
+	return next, nextAt, true
+}
+
+// scheduleBoundaryTick schedules a one-shot timer that fires an IntentTick
+// at the start of the next window in the ordered list. For the last window,
+// the boundary wraps to the first window's next start + 24h. When no window
+// is active (gapped coverage), it finds the next upcoming window start
+// from all windows.
+func (r *Runner) scheduleBoundaryTick(now time.Time) {
+	next, nextAt, ok := r.nextWindowStart(now)
+	if !ok {
+		return
 	}
 
 	delay := nextAt.Sub(now)
@@ -472,8 +485,19 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
+	// to_next_window scales consumption to the span until the next window
+	// start; resolve that instant only when the mode needs it.
+	var nextWindowStartAt time.Time
+	if effectiveConsumptionHorizon == pw.ConsumptionHorizonToNextWindow {
+		if _, nextAt, ok := r.nextWindowStart(now); ok {
+			nextWindowStartAt = nextAt
+		} else {
+			u.Log.Warn("consumption_horizon to_next_window needs a resolvable next window; falling back to remaining_today")
+		}
+	}
+
 	effectiveConsumption := pw.ResolveConsumption(
-		effectiveConsumptionHorizon, r.cfg.PWConsumption, now)
+		effectiveConsumptionHorizon, r.cfg.PWConsumption, now, nextWindowStartAt)
 
 	var solarPowerProduction float64
 	var forecastRetrieved bool

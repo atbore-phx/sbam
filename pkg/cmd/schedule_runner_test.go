@@ -26,11 +26,16 @@ type fakeBatteryWriter struct {
 }
 
 // stubFroniusClient is a test helper that implements the froniusClient
-// interface and records the number of Handler calls.
-type stubFroniusClient struct{ calls int }
+// interface and records the number of Handler calls and the consumption
+// value it was last invoked with.
+type stubFroniusClient struct {
+	calls           int
+	lastConsumption float64
+}
 
 func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	s.calls++
+	s.lastConsumption = pw_consumption
 	return 0, fronius.DecisionIdle, "stub", fronius.PowerState{}, nil
 }
 
@@ -1938,4 +1943,137 @@ func TestRunner_ScheduleBoundaryTick_NoWindows(t *testing.T) {
 	runner.scheduleBoundaryTick(now)
 
 	assert.False(t, called, "timer should not be created when no windows configured")
+}
+
+// --- next window start resolution (shared by boundary timer and
+// to_next_window consumption horizon) ---
+
+func TestRunner_NextWindowStart_InsideWindow(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 12:00 in day window -- next start is night at 22:00 today.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "night", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 22, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_CrossesMidnight(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 23:00 in night window -- next start wraps to day at 06:00 tomorrow.
+	now := time.Date(2026, time.May, 10, 23, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "day", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 11, 6, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_GappedCoverage(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "morning", Start: "09:00", End: "11:00", MaxCharge: 2000},
+		{Name: "evening", Start: "18:00", End: "20:00", MaxCharge: 2000},
+	}
+
+	// 14:00 is in a gap -- soonest upcoming start is evening at 18:00.
+	now := time.Date(2026, time.May, 10, 14, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "evening", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 18, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_NoWindows(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	_, _, ok := runner.nextWindowStart(now)
+
+	assert.False(t, ok)
+}
+
+// --- to_next_window consumption horizon wiring in Tick ---
+
+func TestRunner_Tick_ToNextWindowConsumption(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0,
+			ConsumptionHorizon: pw.ConsumptionHorizonToNextWindow},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 12:00 in day window, next window starts at 22:00 -- 10h span, so
+	// consumption is PWConsumption (1000) * 10/24.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, runner.Tick(context.Background(), now))
+
+	require.Equal(t, 1, stub.calls)
+	assert.InDelta(t, 1000.0*10.0/24.0, stub.lastConsumption, 0.01)
+
+	// The published state reports the effective horizon.
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, pw.ConsumptionHorizonToNextWindow, state.ConsumptionHorizon)
+}
+
+func TestRunner_Tick_ToNextWindowFallsBackWithoutWindows(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.ConsumptionHorizon = pw.ConsumptionHorizonToNextWindow
+
+	// No windows configured -- to_next_window cannot resolve a start and
+	// falls back to remaining_today: at 12:00 that is half of 1000.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, runner.Tick(context.Background(), now))
+
+	require.Equal(t, 1, stub.calls)
+	assert.InDelta(t, 500.0, stub.lastConsumption, 0.01)
 }

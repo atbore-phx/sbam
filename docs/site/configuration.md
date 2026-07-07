@@ -109,6 +109,7 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 |------|----------|
 | `full_day` | Use `pw_consumption` as-is. |
 | `remaining_today` | Scale `pw_consumption` proportionally to the fraction of the local day remaining. |
+| `to_next_window` | Scale `pw_consumption` by the time from now until the next charge window starts (`pw_consumption × hours / 24`). The span may cross midnight, and may exceed 24 h for weekday-gapped windows — the result is the expected consumption until the next charge opportunity. Falls back to `remaining_today` when no next window can be resolved. |
 
 ## Forecast Caching
 
