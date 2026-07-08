@@ -111,6 +111,29 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 | `remaining_today` | Scale `pw_consumption` proportionally to the fraction of the local day remaining. |
 | `to_next_window` | Scale `pw_consumption` by the time from now until the next charge window starts (`pw_consumption × hours / 24`). The span may cross midnight, and may exceed 24 h for weekday-gapped windows — the result is the expected consumption until the next charge opportunity. Falls back to `remaining_today` when no next window can be resolved. |
 
+!!! info "How `to_next_window` picks the next window"
+    The "next window" is resolved as the window whose **start is soonest
+    after now**, scanned across *all* configured windows and honouring each
+    window's [weekday filter](weekdays.md). It is **not** the next entry in
+    the `windows:` list, so:
+
+    - **Config order does not matter.** Windows may be listed in any order;
+      the nearest upcoming start always wins.
+    - **A later-same-day window is preferred over tomorrow.** With, say, a
+      morning and an afternoon window, sitting inside the morning window
+      sizes consumption only to the afternoon start — not to tomorrow.
+    - **Weekday-gapped coverage lengthens the span.** After a window whose
+      next occurrence is days away (e.g. a `sat`-only or `wed`-only free-power
+      window), the span — and therefore the sized consumption — can be
+      several times `pw_consumption`. This is intended: the battery must
+      carry the load until the next chance to charge. It is bounded in
+      practice by battery capacity, so the effect is simply "charge toward
+      full."
+    - **DST:** day advancement uses fixed 24 h steps. In timezones that
+      observe daylight-saving, a span that crosses a DST boundary can be off
+      by an hour. Timezones without DST (e.g. `Australia/Perth`) are
+      unaffected.
+
 ## Forecast Caching
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |

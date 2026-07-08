@@ -248,106 +248,66 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 	})
 }
 
-// nextWindowStart resolves the next upcoming window and the instant it
-// starts. When a window is active it selects the following window in the
-// ordered list (wrapping past midnight for the last one); when no window
-// is active (gapped coverage), it finds the next upcoming window start
-// from all windows. ok is false when no windows are configured or the
-// selected window's start cannot be parsed.
+// nextWindowStart resolves the next upcoming charge window and the instant
+// it starts. It scans every configured window for its next start strictly
+// after now — advancing a day at a time to honour per-window weekday
+// filters — and returns the one whose start is earliest.
+//
+// Selecting by nearest instant, rather than by position in the ordered
+// list, makes the result correct regardless of how the windows are ordered
+// in the config, how many there are, or how their weekday sets differ. The
+// currently-active window's own next start naturally falls after any window
+// that recurs sooner, so it is only chosen when it genuinely is the next
+// one (e.g. a single configured window, which wraps to its own next start).
+//
+// ok is false only when no window is configured or none has a parseable
+// start; a single malformed window is skipped rather than abandoning the
+// whole resolution.
 func (r *Runner) nextWindowStart(now time.Time) (next pw.Window, nextAt time.Time, ok bool) {
 	windows := r.cfg.Windows
 	if len(windows) == 0 {
 		return pw.Window{}, time.Time{}, false
 	}
 
-	active := pw.ResolveActiveWindow(windows, now, r.cfg.WeekdayFeature)
-
-	if active == nil {
-		// No window active — find the next window whose start is after now.
-		var best *pw.Window
-		var bestStart time.Time
-		for i := range windows {
-			startTime, err := parseScheduleClock(windows[i].Start, "start")
-			if err != nil {
-				continue
-			}
-			startAt := time.Date(now.Year(), now.Month(), now.Day(),
-				startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
-			if !startAt.After(now) {
-				startAt = startAt.Add(24 * time.Hour)
-			}
-			if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
-				if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
-					startAt = nextMatchingWeekday(startAt, wdSet)
-				}
-			}
-			if best == nil || startAt.Before(bestStart) {
-				best = &windows[i]
-				bestStart = startAt
+	var best *pw.Window
+	var bestStart time.Time
+	for i := range windows {
+		startTime, err := parseScheduleClock(windows[i].Start, "start")
+		if err != nil {
+			u.Log.Warnw("cannot parse window start",
+				"window", windows[i].Name, "start", windows[i].Start, "error", err)
+			continue
+		}
+		startAt := time.Date(now.Year(), now.Month(), now.Day(),
+			startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
+		// Only future starts count; a start at or before now is that
+		// window's next occurrence tomorrow.
+		if !startAt.After(now) {
+			startAt = startAt.Add(24 * time.Hour)
+		}
+		if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
+			if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
+				startAt = nextMatchingWeekday(startAt, wdSet)
 			}
 		}
-		if best != nil {
-			next = *best
-		} else {
-			return pw.Window{}, time.Time{}, false
+		if best == nil || startAt.Before(bestStart) {
+			best = &windows[i]
+			bestStart = startAt
 		}
-	} else {
-		// Find the active window's index in the ordered list.
-		activeIdx := -1
-		for i := range windows {
-			name := pw.WindowNameOrDefault(windows[i], i)
-			if name == active.Name || (active.Name == "" && name == pw.WindowNameOrDefault(windows[i], i)) {
-				activeIdx = i
-				break
-			}
-		}
-		// Fall back to name comparison if the active window was resolved.
-		if activeIdx < 0 {
-			for i := range windows {
-				if windows[i].Name == active.Name || windows[i].Start == active.Start {
-					activeIdx = i
-					break
-				}
-			}
-		}
-		if activeIdx < 0 {
-			return pw.Window{}, time.Time{}, false
-		}
-
-		// Select the next window (wrap for last).
-		nextIdx := (activeIdx + 1) % len(windows)
-		next = windows[nextIdx]
 	}
 
-	nextStart, err := parseScheduleClock(next.Start, "start")
-	if err != nil {
-		u.Log.Warnw("cannot parse next window start",
-			"window", next.Name, "start", next.Start, "error", err)
+	if best == nil {
 		return pw.Window{}, time.Time{}, false
 	}
 
-	nextAt = time.Date(now.Year(), now.Month(), now.Day(),
-		nextStart.Hour(), nextStart.Minute(), 0, 0, now.Location())
-
-	// If nextAt is before or equal to now, advance by 24h.
-	if !nextAt.After(now) {
-		nextAt = nextAt.Add(24 * time.Hour)
-	}
-
-	if r.cfg.WeekdayFeature && next.Weekdays != "" {
-		if wdSet, err := pw.ParseWeekdays(next.Weekdays); err == nil && len(wdSet) > 0 {
-			nextAt = nextMatchingWeekday(nextAt, wdSet)
-		}
-	}
-
-	return next, nextAt, true
+	return *best, bestStart, true
 }
 
 // scheduleBoundaryTick schedules a one-shot timer that fires an IntentTick
-// at the start of the next window in the ordered list. For the last window,
-// the boundary wraps to the first window's next start + 24h. When no window
-// is active (gapped coverage), it finds the next upcoming window start
-// from all windows.
+// at the start of the next upcoming window, as resolved by nextWindowStart
+// (the nearest window start after now across all configured windows,
+// honouring weekday filters). This is what makes a later-same-day window
+// activate on time even while an earlier window is still running.
 func (r *Runner) scheduleBoundaryTick(now time.Time) {
 	next, nextAt, ok := r.nextWindowStart(now)
 	if !ok {
