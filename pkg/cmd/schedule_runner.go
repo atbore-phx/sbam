@@ -453,6 +453,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			nextWindowStartAt = nextAt
 		} else {
 			u.Log.Warn("consumption_horizon to_next_window needs a resolvable next window; falling back to remaining_today")
+			effectiveConsumptionHorizon = pw.ConsumptionHorizonRemainingToday
 		}
 	}
 

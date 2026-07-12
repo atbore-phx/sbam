@@ -2133,4 +2133,12 @@ func TestRunner_Tick_ToNextWindowFallsBackWithoutWindows(t *testing.T) {
 
 	require.Equal(t, 1, stub.calls)
 	assert.InDelta(t, 500.0, stub.lastConsumption, 0.01)
+
+	// The published state reports the actually-applied horizon, not the
+	// configured one.
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, pw.ConsumptionHorizonRemainingToday, state.ConsumptionHorizon)
 }
