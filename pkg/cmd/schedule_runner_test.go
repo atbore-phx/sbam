@@ -2009,6 +2009,27 @@ func TestRunner_NextWindowStart_NoWindows(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestRunner_NextWindowStart_OutOfOrderList(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 2000},
+		{Name: "night", Start: "22:00", End: "23:59", MaxCharge: 2000},
+		{Name: "midday", Start: "12:00", End: "14:00", MaxCharge: 2000},
+	}
+
+	// 07:00 inside morning -- the nearest upcoming start is midday at
+	// 12:00, not night at 22:00, which follows morning in list order.
+	// Guards the scan-by-nearest-instant behaviour against a regression
+	// to list-position advancement.
+	now := time.Date(2026, time.May, 10, 7, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "midday", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC), nextAt)
+}
+
 // 2026-07-10 is a Friday; 07-11 Saturday, 07-13 Monday, 07-17 Friday.
 
 func TestRunner_NextWindowStart_WeekdayGapSpansWeekend(t *testing.T) {
