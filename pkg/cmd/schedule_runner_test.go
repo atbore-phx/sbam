@@ -2009,6 +2009,63 @@ func TestRunner_NextWindowStart_NoWindows(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// 2026-07-10 is a Friday; 07-11 Saturday, 07-13 Monday, 07-17 Friday.
+
+func TestRunner_NextWindowStart_WeekdayGapSpansWeekend(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "wd-night", Start: "01:00", End: "05:00", MaxCharge: 2000, Weekdays: "mon-fri"},
+	}
+
+	// Friday 06:00, after today's run -- next occurrence is Monday 01:00,
+	// skipping the weekend. Under to_next_window this is the >24h span.
+	now := time.Date(2026, time.July, 10, 6, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "wd-night", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 13, 1, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_WeekendWeekdayInterleave(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "wd", Start: "06:00", End: "08:00", MaxCharge: 2000, Weekdays: "mon-fri"},
+		{Name: "we", Start: "01:00", End: "03:00", MaxCharge: 2000, Weekdays: "sat-sun"},
+	}
+
+	// Friday 07:00 inside wd -- next is Saturday's we window at 01:00,
+	// not wd's own Monday recurrence, regardless of list order.
+	now := time.Date(2026, time.July, 10, 7, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "we", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 11, 1, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_CrossMidnightWeekdayFilter(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "fri-night", Start: "23:00", End: "06:00", MaxCharge: 2000, Weekdays: "fri"},
+	}
+
+	// Saturday 01:00, inside Friday's cross-midnight run -- the weekday
+	// filter applies to the start day, so the next start is NEXT Friday.
+	now := time.Date(2026, time.July, 11, 1, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "fri-night", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 17, 23, 0, 0, 0, time.UTC), nextAt)
+}
+
 // --- to_next_window consumption horizon wiring in Tick ---
 
 func TestRunner_Tick_ToNextWindowConsumption(t *testing.T) {
