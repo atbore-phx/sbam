@@ -166,6 +166,28 @@ windows:
 On Saturday and Sunday neither window activates. The scheduler runs but
 reports "outside all configured charge windows."
 
+## Interaction with the `to_next_window` consumption horizon
+
+When any window uses the [`to_next_window` consumption horizon](configuration.md#consumption-horizon-modes),
+sbam sizes consumption to the gap until the **next window that actually
+runs**, weekday filters included. The next window is chosen by nearest
+upcoming start across all windows — never by list position — so weekday and
+weekend windows interleave correctly no matter how they are ordered.
+
+Two consequences worth planning for:
+
+- **Weekend/weekday interleaving works automatically.** Inside a Friday
+  weekday window, the next window is Saturday's weekend window (if one
+  exists); inside a Sunday weekend window, it is Monday's weekday window.
+  You do not need to order the list a particular way.
+- **A sparse day filter widens the span.** After a window that only runs on
+  one weekday (e.g. `weekdays: "wed"` free-power), the next occurrence may be
+  up to a week away. Under `to_next_window` that produces a large sized
+  consumption (up to ~7× `pw_consumption`) — by design, since the battery
+  must last until that next window. If you do **not** want the battery
+  charging toward full to cover a whole week, pair sparse-day windows with a
+  `full_day` or `remaining_today` consumption horizon instead.
+
 ## Validation Rules
 
 - Unknown weekday tokens (`mon,xyz`) are rejected at startup
