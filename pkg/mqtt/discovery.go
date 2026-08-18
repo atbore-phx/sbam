@@ -49,13 +49,22 @@ type discoveryPayload struct {
 // selector entities used by templated buttons. It normalizes prefixes and
 // falls back to "dev" when the version string is empty.
 func BuildDiscovery(cfg Config, version string) []DiscoveryEntity {
+	return BuildDiscoveryWithDeviceID(cfg, version, "")
+}
+
+// BuildDiscoveryWithDeviceID is BuildDiscovery with an explicit device
+// identifier; empty deviceID falls back to the config-derived value.
+func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []DiscoveryEntity {
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
 
 	prefix := normalizePrefix(cfg.TopicPrefix)
 	discoveryPrefix := normalizeDiscoveryPrefix(cfg.HADiscoveryPrefix)
-	deviceID := discoveryDeviceIdentifier(cfg)
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		deviceID = discoveryDeviceIdentifier(cfg)
+	}
 
 	device := discoveryDevice{
 		Identifiers:  []string{deviceID},
