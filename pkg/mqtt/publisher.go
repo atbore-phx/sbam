@@ -52,7 +52,7 @@ func PublishDiscovery(ctx context.Context, client Client, cfg Config, version st
 		return
 	}
 
-	entities := BuildDiscovery(cfg, version)
+	entities := BuildDiscoveryWithDeviceID(cfg, version, EnsureStableDeviceID(cfg))
 	for _, entity := range entities {
 		utils.Log.Debugw("mqtt publish discovery requested", "topic", entity.Topic, "size", len(entity.Payload))
 		if err := client.Publish(ctx, entity.Topic, qosAtLeastOnce, true, entity.Payload); err != nil {
