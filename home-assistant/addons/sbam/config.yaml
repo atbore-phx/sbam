@@ -1,5 +1,5 @@
 name: sbam
-version: "2.1.0"
+version: "2.2.0"
 slug: sbam
 init: false
 description: Smart Battery Advanced Manager
@@ -79,7 +79,7 @@ schema:
       end: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
       max_charge: float
       forecast_horizon: list(default|next_solar_day|remaining_today|today|tomorrow|off)?
-      consumption_horizon: list(full_day|remaining_today)?
+      consumption_horizon: list(full_day|remaining_today|to_next_window)?
       tick_minutes: int?
       set_defaults: bool?
       before_end_defaults_minutes: int?

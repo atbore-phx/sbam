@@ -26,11 +26,16 @@ type fakeBatteryWriter struct {
 }
 
 // stubFroniusClient is a test helper that implements the froniusClient
-// interface and records the number of Handler calls.
-type stubFroniusClient struct{ calls int }
+// interface and records the number of Handler calls and the consumption
+// value it was last invoked with.
+type stubFroniusClient struct {
+	calls           int
+	lastConsumption float64
+}
 
 func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	s.calls++
+	s.lastConsumption = pw_consumption
 	return 0, fronius.DecisionIdle, "stub", fronius.PowerState{}, nil
 }
 
@@ -1938,4 +1943,223 @@ func TestRunner_ScheduleBoundaryTick_NoWindows(t *testing.T) {
 	runner.scheduleBoundaryTick(now)
 
 	assert.False(t, called, "timer should not be created when no windows configured")
+}
+
+// --- next window start resolution (shared by boundary timer and
+// to_next_window consumption horizon) ---
+
+func TestRunner_NextWindowStart_InsideWindow(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 12:00 in day window -- next start is night at 22:00 today.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "night", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 22, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_CrossesMidnight(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 23:00 in night window -- next start wraps to day at 06:00 tomorrow.
+	now := time.Date(2026, time.May, 10, 23, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "day", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 11, 6, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_GappedCoverage(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "morning", Start: "09:00", End: "11:00", MaxCharge: 2000},
+		{Name: "evening", Start: "18:00", End: "20:00", MaxCharge: 2000},
+	}
+
+	// 14:00 is in a gap -- soonest upcoming start is evening at 18:00.
+	now := time.Date(2026, time.May, 10, 14, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "evening", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 18, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_NoWindows(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	_, _, ok := runner.nextWindowStart(now)
+
+	assert.False(t, ok)
+}
+
+func TestRunner_NextWindowStart_OutOfOrderList(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 2000},
+		{Name: "night", Start: "22:00", End: "23:59", MaxCharge: 2000},
+		{Name: "midday", Start: "12:00", End: "14:00", MaxCharge: 2000},
+	}
+
+	// 07:00 inside morning -- the nearest upcoming start is midday at
+	// 12:00, not night at 22:00, which follows morning in list order.
+	// Guards the scan-by-nearest-instant behaviour against a regression
+	// to list-position advancement.
+	now := time.Date(2026, time.May, 10, 7, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "midday", next.Name)
+	assert.Equal(t, time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC), nextAt)
+}
+
+// 2026-07-10 is a Friday; 07-11 Saturday, 07-13 Monday, 07-17 Friday.
+
+func TestRunner_NextWindowStart_WeekdayGapSpansWeekend(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "wd-night", Start: "01:00", End: "05:00", MaxCharge: 2000, Weekdays: "mon-fri"},
+	}
+
+	// Friday 06:00, after today's run -- next occurrence is Monday 01:00,
+	// skipping the weekend. Under to_next_window this is the >24h span.
+	now := time.Date(2026, time.July, 10, 6, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "wd-night", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 13, 1, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_WeekendWeekdayInterleave(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "wd", Start: "06:00", End: "08:00", MaxCharge: 2000, Weekdays: "mon-fri"},
+		{Name: "we", Start: "01:00", End: "03:00", MaxCharge: 2000, Weekdays: "sat-sun"},
+	}
+
+	// Friday 07:00 inside wd -- next is Saturday's we window at 01:00,
+	// not wd's own Monday recurrence, regardless of list order.
+	now := time.Date(2026, time.July, 10, 7, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "we", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 11, 1, 0, 0, 0, time.UTC), nextAt)
+}
+
+func TestRunner_NextWindowStart_CrossMidnightWeekdayFilter(t *testing.T) {
+	client := newFakeClient()
+	runner := newRunnerForTests(client)
+	runner.cfg.WeekdayFeature = true
+	runner.cfg.Windows = []pw.Window{
+		{Name: "fri-night", Start: "23:00", End: "06:00", MaxCharge: 2000, Weekdays: "fri"},
+	}
+
+	// Saturday 01:00, inside Friday's cross-midnight run -- the weekday
+	// filter applies to the start day, so the next start is NEXT Friday.
+	now := time.Date(2026, time.July, 11, 1, 0, 0, 0, time.UTC)
+	next, nextAt, ok := runner.nextWindowStart(now)
+
+	require.True(t, ok)
+	assert.Equal(t, "fri-night", next.Name)
+	assert.Equal(t, time.Date(2026, time.July, 17, 23, 0, 0, 0, time.UTC), nextAt)
+}
+
+// --- to_next_window consumption horizon wiring in Tick ---
+
+func TestRunner_Tick_ToNextWindowConsumption(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.Windows = []pw.Window{
+		{Name: "day", Start: "06:00", End: "21:59", MaxCharge: 0,
+			ConsumptionHorizon: pw.ConsumptionHorizonToNextWindow},
+		{Name: "night", Start: "22:00", End: "05:59", MaxCharge: 2000},
+	}
+
+	// 12:00 in day window, next window starts at 22:00 -- 10h span, so
+	// consumption is PWConsumption (1000) * 10/24.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, runner.Tick(context.Background(), now))
+
+	require.Equal(t, 1, stub.calls)
+	assert.InDelta(t, 1000.0*10.0/24.0, stub.lastConsumption, 0.01)
+
+	// The published state reports the effective horizon.
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, pw.ConsumptionHorizonToNextWindow, state.ConsumptionHorizon)
+}
+
+func TestRunner_Tick_ToNextWindowFallsBackWithoutWindows(t *testing.T) {
+	client := newFakeClient()
+	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
+	oldStorageFactory := newStorage
+	newStorage = func() storageClient { return fakeStorage }
+	defer func() { newStorage = oldStorageFactory }()
+
+	oldPowerFactory := newPower
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 0, retrieved: false} }
+	defer func() { newPower = oldPowerFactory }()
+
+	stub := &stubFroniusClient{}
+	oldFroniusFactory := newFronius
+	newFronius = func() froniusClient { return stub }
+	defer func() { newFronius = oldFroniusFactory }()
+
+	runner := newRunnerForTests(client)
+	runner.cfg.ConsumptionHorizon = pw.ConsumptionHorizonToNextWindow
+
+	// No windows configured -- to_next_window cannot resolve a start and
+	// falls back to remaining_today: at 12:00 that is half of 1000.
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, runner.Tick(context.Background(), now))
+
+	require.Equal(t, 1, stub.calls)
+	assert.InDelta(t, 500.0, stub.lastConsumption, 0.01)
+
+	// The published state reports the actually-applied horizon, not the
+	// configured one.
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok, "expected state publish")
+	state := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, pw.ConsumptionHorizonRemainingToday, state.ConsumptionHorizon)
 }

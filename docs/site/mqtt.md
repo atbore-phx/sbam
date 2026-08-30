@@ -61,6 +61,16 @@ When MQTT is enabled and `mqtt_ha_discovery=true`, SBAM publishes retained Home 
 
 SBAM subscribes to `homeassistant/status` and republishes discovery when Home Assistant publishes `online`.
 
+### Device Identity
+
+Every discovery payload shares one device identifier (`sbam_<hash>`), which also prefixes each entity `unique_id`. The hash is derived from `fronius_ip` (falling back to `mqtt_client_id`, then the topic prefix), and is **persisted to a `mqtt_device_id` file in the working directory** (`/data` for the Home Assistant add-on) the first time discovery is published. From then on the persisted value always wins.
+
+Without persistence, changing `fronius_ip` (a VLAN move, DHCP renumbering) re-identified the device: Home Assistant kept the old entities as permanently-unavailable ghosts and created a duplicate `_2` set that no automation or dashboard referenced.
+
+- **Manual override**: edit `mqtt_device_id` to any single `sbam_...` token (letters, digits, `_`, `-`) and restart SBAM. Useful to re-adopt a previous identity after an unwanted change.
+- **Re-derive**: delete the file and restart; SBAM re-computes from the current configuration and persists the result.
+- If the file is unreadable or unwritable, SBAM logs a warning and uses the derived value, so discovery still publishes.
+
 ### Main Sensors
 
 These three primary sensors are intended for quick at-a-glance state and are used by the scheduler and UI. All discovery sensors read their value from the state topic (`<prefix>/state`) using JSON templates (e.g., `{{ value_json.battery_soc_pct }}`).

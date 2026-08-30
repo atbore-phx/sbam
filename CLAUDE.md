@@ -118,6 +118,7 @@ pkg/
     client.go                 - MQTT client interface, factory, and topic helpers
     commands.go               - MQTT command topic parser, payload validation, and ack publisher
     discovery.go              - Home Assistant MQTT discovery payload builder
+    identity.go               - Persisted discovery device identity (stable across fronius_ip changes)
     noop.go                   - Disabled MQTT client implementation
     paho.go                   - Paho-backed MQTT client with reconnect, TLS, and helpers
     init.go                   - Client initialization, non-blocking connect, cleanup
@@ -125,6 +126,7 @@ pkg/
     mqtt_test.go              - In-process MQTT broker tests
     commands_test.go          - Unit tests for command parsing and ack publishing
     discovery_test.go         - Unit tests for Home Assistant discovery generation
+    identity_test.go          - Unit tests for identity persistence, override, and fallback
     init_test.go              - Unit tests for client initialization and async connect
   power/
     types.go                  - Solcast forecast struct definitions
