@@ -1,6 +1,6 @@
 ---
 name: sbam
-last_updated: 2026-06-09
+last_updated: 2026-08-30
 ---
 
 # sbam Strategy
@@ -53,14 +53,17 @@ Home Assistant add-on packaging, Docker image, standalone binary, documentation,
 
 ## Milestones
 
-- **v2.1.0 (Foundation)** — in progress; umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
+- **v2.1.0 (Foundation)** — shipped; umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
   - [#145](https://github.com/atbore-phx/sbam/issues/145) Configurable forecast/consumption horizons ✅
   - [#146](https://github.com/atbore-phx/sbam/issues/146) Multi-window charging schedule ✅
-  - [#147](https://github.com/atbore-phx/sbam/issues/147) `scheduler.mode` selector with crontab deprecation path
-- **v2.2.0 (Smart)** — umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
+  - [#147](https://github.com/atbore-phx/sbam/issues/147) `scheduler.mode` selector with crontab deprecation path ✅
+- **v2.2.0** — shipped; content arrived outside the original roadmap:
+  - [#187](https://github.com/atbore-phx/sbam/issues/187) `to_next_window` consumption horizon ([#188](https://github.com/atbore-phx/sbam/pull/188)) ✅
+  - [#194](https://github.com/atbore-phx/sbam/issues/194) Stable HA discovery device identity across `fronius_ip` changes ([#195](https://github.com/atbore-phx/sbam/pull/195)) ✅
+- **v2.3.0 (Smart)** — next; umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
   - [#148](https://github.com/atbore-phx/sbam/issues/148) Smart consumption from Fronius Solar API
   - [#149](https://github.com/atbore-phx/sbam/issues/149) `scheduler.mode: auto` — derive windows from forecast/consumption/SoC
-- **v2.3.0 (Tariff-aware)** — umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
+- **v2.4.0 (Tariff-aware)** — umbrella [#151](https://github.com/atbore-phx/sbam/issues/151). Sub-issues:
   - [#150](https://github.com/atbore-phx/sbam/issues/150) Price-driven scheduler (Tibber / aWATTar / evcc / MQTT)
   - [#152](https://github.com/atbore-phx/sbam/issues/152) HA add-on ingress UI (placeholder)
 - **v3.0.0 (Cleanup)** — not yet scoped (no issue); aggregates cleanup from [#151](https://github.com/atbore-phx/sbam/issues/151), [#150](https://github.com/atbore-phx/sbam/issues/150), [#152](https://github.com/atbore-phx/sbam/issues/152). Remove deprecated `crontab` mode and legacy single-window shim.
