@@ -25,7 +25,7 @@ func TestValidateForecastHorizon_Invalid(t *testing.T) {
 }
 
 func TestValidateConsumptionHorizon_Valid(t *testing.T) {
-	valid := []string{"full_day", "remaining_today"}
+	valid := []string{"full_day", "remaining_today", "to_next_window"}
 	for _, s := range valid {
 		t.Run(s, func(t *testing.T) {
 			h, err := ValidateConsumptionHorizon(s)
@@ -146,24 +146,24 @@ func TestResolveForecastDay_NearMidnight(t *testing.T) {
 
 func TestResolveConsumption_FullDay(t *testing.T) {
 	now := time.Date(2026, 6, 1, 14, 0, 0, 0, time.UTC)
-	got := ResolveConsumption(ConsumptionHorizonFullDay, 10000, now)
+	got := ResolveConsumption(ConsumptionHorizonFullDay, 10000, now, time.Time{})
 	assert.Equal(t, 10000.0, got)
 }
 
 func TestResolveConsumption_RemainingToday(t *testing.T) {
 	// Exactly noon → 12h remaining → 50%.
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	got := ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now)
+	got := ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now, time.Time{})
 	assert.InDelta(t, 6000.0, got, 1.0)
 
 	// Start of day → full value.
 	now = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	got = ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now)
+	got = ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now, time.Time{})
 	assert.InDelta(t, 12000.0, got, 1.0)
 
 	// End of day → near zero.
 	now = time.Date(2026, 6, 1, 23, 59, 59, 0, time.UTC)
-	got = ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now)
+	got = ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now, time.Time{})
 	assert.InDelta(t, 0.0, got, 1.0)
 }
 
@@ -171,10 +171,51 @@ func TestResolveConsumption_RemainingToday_ClampZero(t *testing.T) {
 	// If seconds_remaining would be negative it clamps to 0.
 	// This can't happen with a real clock, but test the safety clamp.
 	now := time.Date(2026, 6, 2, 0, 0, 1, 0, time.UTC)
-	got := ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now)
+	got := ResolveConsumption(ConsumptionHorizonRemainingToday, 12000, now, time.Time{})
 	// At 00:00:01 remaining = 86399, so this is not negative.
 	// The clamp is a safety net, truly negative can't happen with valid inputs.
 	assert.GreaterOrEqual(t, got, 0.0)
+}
+
+func TestResolveConsumption_ToNextWindow_SameDay(t *testing.T) {
+	// 12:00 → next window 18:00 same day = 6h → 25% of daily consumption.
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	next := time.Date(2026, 6, 1, 18, 0, 0, 0, time.UTC)
+	got := ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, next)
+	assert.InDelta(t, 3000.0, got, 1.0)
+}
+
+func TestResolveConsumption_ToNextWindow_CrossesMidnight(t *testing.T) {
+	// 21:00 → next window 09:00 tomorrow = 12h → 50%. This is the case
+	// remaining_today undersizes (it would only cover 3h to midnight).
+	now := time.Date(2026, 6, 1, 21, 0, 0, 0, time.UTC)
+	next := time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)
+	got := ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, next)
+	assert.InDelta(t, 6000.0, got, 1.0)
+}
+
+func TestResolveConsumption_ToNextWindow_GapBeyond24h(t *testing.T) {
+	// Weekday-gapped windows: Mon 10:00 → next window Wed 09:00 = 47h.
+	// The result intentionally exceeds pwConsumption: it is the expected
+	// consumption until the next charge opportunity.
+	now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	next := time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC)
+	got := ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, next)
+	assert.InDelta(t, 12000.0*47.0/24.0, got, 1.0)
+}
+
+func TestResolveConsumption_ToNextWindow_FallbackWhenUnresolved(t *testing.T) {
+	// Zero next-window start (no windows configured / unresolvable) falls
+	// back to remaining_today behaviour.
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	got := ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, time.Time{})
+	assert.InDelta(t, 6000.0, got, 1.0)
+
+	// A next-window start at or before now also falls back.
+	got = ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, now)
+	assert.InDelta(t, 6000.0, got, 1.0)
+	got = ResolveConsumption(ConsumptionHorizonToNextWindow, 12000, now, now.Add(-time.Hour))
+	assert.InDelta(t, 6000.0, got, 1.0)
 }
 
 func TestCheckSun_BackwardCompatibility(t *testing.T) {
