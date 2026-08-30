@@ -1,3 +1,17 @@
+## What's New in v2.2.0
+
+### `to_next_window` consumption horizon
+
+New third mode for the `consumption_horizon` option: `to_next_window` sizes consumption to the span from now until the next charge window starts (`pw_consumption × hours / 24`) instead of the full day or the midnight-resetting `remaining_today`. The span may cross midnight and can exceed 24 h for weekday-gapped windows, producing the expected consumption until the next charge opportunity. Next-window selection scans all windows for the nearest upcoming start, independent of list order, weekday filters, and cross-midnight windows. When no next window can be resolved it falls back to `remaining_today`, and the published MQTT state reports the horizon actually applied. Contributed by [@chodeus](https://github.com/chodeus) in [#188](https://github.com/atbore-phx/sbam/pull/188).
+
+See: [Configuration → Consumption horizon modes](https://atbore-phx.github.io/sbam/configuration/#consumption-horizon-modes) · [Weekdays → Interaction with the `to_next_window` consumption horizon](https://atbore-phx.github.io/sbam/weekdays/#interaction-with-the-to_next_window-consumption-horizon)
+
+### Stable Home Assistant device identity across inverter IP changes
+
+The MQTT discovery device identifier used to be derived from the inverter IP, so moving the inverter (VLAN change, DHCP renumbering) re-identified every entity in Home Assistant: the previously discovered entities were stranded as permanently unavailable ghosts and a duplicate `_2` set appeared that no automation or dashboard referenced. The identifier is now persisted to a `mqtt_device_id` file in the working directory (`/data` for the add-on) on first discovery publish and reused on every later run, so entities keep their identity when `fronius_ip` changes. Existing installs keep their current identity on upgrade; editing the file is a supported manual override and deleting it re-derives from config. Read/write failures fall back to the derived value so discovery still publishes. Contributed by [@chodeus](https://github.com/chodeus) in [#195](https://github.com/atbore-phx/sbam/pull/195).
+
+See: [MQTT Guide → Home Assistant Discovery Behavior → Device Identity](https://atbore-phx.github.io/sbam/mqtt/#device-identity)
+
 ## What's New in v2.1.0
 
 ### Multi-window charging schedule
