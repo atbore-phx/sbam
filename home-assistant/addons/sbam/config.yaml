@@ -1,5 +1,5 @@
 name: sbam
-version: "2.1.0"
+version: "2.2.0"
 slug: sbam
 init: false
 description: Smart Battery Advanced Manager
