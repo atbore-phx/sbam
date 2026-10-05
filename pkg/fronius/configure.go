@@ -8,31 +8,18 @@ import (
 	"github.com/simonvetter/modbus"
 )
 
+// Storage register addresses for the "int + SF" SunSpec model type. The
+// addresses actually used are discovered at runtime (see
+// DiscoverStorageRegisters); these remain for reference and as the fallback
+// for devices without a SunSpec marker.
 const (
-	StorCtl_Mod = 40349
-	OutWRte     = 40356
-	InWRte      = 40357
-	MinRsvPct   = 40351
-	ChaGriSet   = 40361
-	WChaMax     = 40346
+	StorCtl_Mod = legacyStorageModelAddr + offStorCtlMod
+	OutWRte     = legacyStorageModelAddr + offOutWRte
+	InWRte      = legacyStorageModelAddr + offInWRte
+	MinRsvPct   = legacyStorageModelAddr + offMinRsvPct
+	ChaGriSet   = legacyStorageModelAddr + offChaGriSet
+	WChaMax     = legacyStorageModelAddr + offWChaMax
 )
-
-// defaults to r/w
-var mdsc = map[uint16]int16{
-	StorCtl_Mod: 0,     // no limits
-	OutWRte:     10000, // 100% w 2 sf
-	InWRte:      10000, // 100% w 2 sf
-	MinRsvPct:   0,     // 0% w 2 sf
-	ChaGriSet:   1,     //  Grid enabled
-}
-
-func copyMap(src map[uint16]int16) map[uint16]int16 {
-	dst := make(map[uint16]int16)
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
 
 func WriteFroniusModbusRegisters(modbusStorageCfg map[uint16]int16) error {
 
@@ -94,8 +81,7 @@ func Setdefaults(modbus_ip string, port ...string) error {
 		p = port[0]
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
-	regList := copyMap(mdsc)
-	modbusErr = Connectmodbus(modbus_ip, regList, p)
+	modbusErr = connectStorage(modbus_ip, StorageRegisters.defaults, p)
 	if modbusErr != nil {
 		u.Log.Errorf("Something goes wrong %s", modbusErr)
 		return modbusErr
@@ -111,12 +97,12 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {
-		regList := copyMap(mdsc)
-
-		regList[StorCtl_Mod] = 2 // Limit Decharging
-		regList[OutWRte] = -100 * power_prc
-
-		modbusErr = Connectmodbus(modbus_ip, regList, p)
+		modbusErr = connectStorage(modbus_ip, func(r StorageRegisters) map[uint16]int16 {
+			regList := r.defaults()
+			regList[r.StorCtlMod] = 2 // Limit Decharging
+			regList[r.OutWRte] = -100 * power_prc
+			return regList
+		}, p)
 		if modbusErr != nil {
 			u.Log.Errorf("Something goes wrong %s", modbusErr)
 			return modbusErr
@@ -135,6 +121,67 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 		return modbusErr
 	}
 	u.Log.Info("Setting Fronius Storage Force Charge done.")
+	return nil
+}
+
+// ReadStorageControlMode opens a Modbus TCP connection, locates the storage
+// model and returns the current StorCtl_Mod value.
+func ReadStorageControlMode(modbusIP string, port ...string) (int16, error) {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	modbusErr = OpenModbusClient("tcp", modbusIP, p)
+	if modbusErr != nil {
+		return 0, modbusErr
+	}
+	defer func() {
+		if cerr := ClosemodbusClient(); cerr != nil {
+			u.Log.Warnf("error closing modbus client: %v", cerr)
+		}
+	}()
+	regs, derr := DiscoverStorageRegisters()
+	if derr != nil {
+		return 0, derr
+	}
+	return ReadFroniusModbusRegister(regs.StorCtlMod)
+}
+
+// connectStorage opens a Modbus TCP connection, locates the storage model
+// and writes the registers built for the discovered addresses. Nothing is
+// written when the storage model cannot be located.
+func connectStorage(url string, build func(StorageRegisters) map[uint16]int16, port string) error {
+	modbusErr = OpenModbusClient("tcp", url, port)
+	if modbusErr != nil {
+		u.Log.Errorf("Something goes wrong %s", modbusErr)
+		return modbusErr
+	}
+
+	defer func() {
+		if cerr := ClosemodbusClient(); cerr != nil {
+			u.Log.Warnf("error closing modbus client: %v", cerr)
+		}
+	}()
+
+	regs, derr := DiscoverStorageRegisters()
+	if derr != nil {
+		u.Log.Errorf("Something goes wrong locating the storage model, nothing written: %v", derr)
+		return derr
+	}
+	regList := build(regs)
+
+	_, rerr := ReadFroniusModbusRegisters(regList)
+	if rerr != nil {
+		u.Log.Errorf("Something goes wrong reading ReadFroniusModbusRegisters: %v", rerr)
+		return rerr
+	}
+
+	werr := WriteFroniusModbusRegisters(regList)
+	if werr != nil {
+		u.Log.Errorf("Something goes wrong writing FroniusModbusRegisters: %v", werr)
+		return werr
+	}
+
 	return nil
 }
 

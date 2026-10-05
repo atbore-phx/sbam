@@ -20,7 +20,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 
 	if cerr != nil {
 		u.Log.Errorf("Classifier error: %s - checking inverter status before resetting defaults", cerr)
-		storCtlVal, readErr := ReadModbusRegister(fronius_ip, StorCtl_Mod, p)
+		storCtlVal, readErr := ReadStorageControlMode(fronius_ip, p)
 		if readErr == nil && storCtlVal == 0 {
 			u.Log.Info("Inverter is not force-charging (StorCtl_Mod=0), skipping defaults write")
 			return 0, decision, reason, pw, nil

@@ -24,7 +24,7 @@ Remote control of the Fronius inverter's charge requires enabling the **"Slave a
 3. Open the **Modbus** menu
 4. Activate **Slave (Secondary inverter) Modbus TCP**
 5. TCP port: 502
-6. Model Type: int +SF
+6. Model Type: `int + SF` or `float`. sbam locates the SunSpec storage model (124) at startup, so both layouts work.
 
 ![Modbus settings](https://github.com/user-attachments/assets/afadb0b5-1edb-461c-919a-9fd249029f94)
 
