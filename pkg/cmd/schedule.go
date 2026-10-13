@@ -122,6 +122,7 @@ var scdCmd = &cobra.Command{
 		consumption_horizon = viper.GetString("consumption_horizon")
 		scheduler_mode = viper.GetString("scheduler_mode")
 		weekday_feature = viper.GetBool("weekday_feature")
+		sunspec_type = viper.GetString("sunspec_type")
 
 		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
@@ -200,6 +201,11 @@ var scdCmd = &cobra.Command{
 
 		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature)
 		if err != nil {
+			u.Log.Error(err)
+			return
+		}
+
+		if err := setupSunSpecType(sunspec_type, fronius_ip, true); err != nil {
 			u.Log.Error(err)
 			return
 		}
@@ -331,6 +337,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today, to_next_window)")
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
+	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)

@@ -3,11 +3,55 @@ package fronius
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	u "sbam/src/utils"
 
 	"github.com/simonvetter/modbus"
 )
+
+// SunSpecType selects how sbam locates the Fronius storage registers. It
+// mirrors the inverter's Modbus "SunSpec Model Type" setting.
+type SunSpecType string
+
+const (
+	// SunSpecIntSF uses the legacy hardcoded "int + SF" addresses (default).
+	SunSpecIntSF SunSpecType = "int_sf"
+	// SunSpecFloat locates the storage model by walking the SunSpec model
+	// chain. The "SunS" marker is required.
+	SunSpecFloat SunSpecType = "float"
+	// SunSpecAuto walks the SunSpec model chain like SunSpecFloat, so it works
+	// with either inverter setting, and falls back to the legacy addresses when
+	// the device has no "SunS" marker.
+	SunSpecAuto SunSpecType = "auto"
+)
+
+// activeSunSpecType is the type used by ApplyDefaults, ApplyForceCharge and
+// ReadStorageControlMode. It is set once at startup from the configuration.
+var activeSunSpecType = SunSpecIntSF
+
+// ParseSunSpecType validates a configured sunspec_type value. An empty value
+// selects the default, SunSpecIntSF.
+func ParseSunSpecType(value string) (SunSpecType, error) {
+	switch t := SunSpecType(strings.ToLower(strings.TrimSpace(value))); t {
+	case "":
+		return SunSpecIntSF, nil
+	case SunSpecIntSF, SunSpecFloat, SunSpecAuto:
+		return t, nil
+	default:
+		return "", fmt.Errorf("invalid sunspec_type %q: must be one of int_sf, float, auto", value)
+	}
+}
+
+// SetSunSpecType sets the SunSpec type used for subsequent battery writes.
+func SetSunSpecType(t SunSpecType) {
+	activeSunSpecType = t
+}
+
+// ActiveSunSpecType returns the SunSpec type currently in use.
+func ActiveSunSpecType() SunSpecType {
+	return activeSunSpecType
+}
 
 // SunSpec map layout. Fronius inverters expose a chain of SunSpec models
 // starting with the "SunS" marker at 40001. Each model starts with an ID
@@ -40,9 +84,17 @@ const (
 	offChaGriSet  = 17
 )
 
-// ErrStorageModelNotFound is returned when the inverter exposes a SunSpec
-// map without a storage model (124). Nothing is written in that case.
-var ErrStorageModelNotFound = errors.New("SunSpec storage model 124 not found")
+var (
+	// ErrStorageModelNotFound is returned when the inverter exposes a SunSpec
+	// map without a storage model (124). Nothing is written in that case.
+	ErrStorageModelNotFound = errors.New("SunSpec storage model 124 not found")
+	// ErrSunSpecMarkerNotFound is returned when the "SunS" marker is missing
+	// and the configured type requires it.
+	ErrSunSpecMarkerNotFound = errors.New("SunSpec marker \"SunS\" not found")
+	// ErrInverterModelNotFound is returned when no SunSpec inverter model
+	// (101-103 or 111-113) is found while detecting the model type.
+	ErrInverterModelNotFound = errors.New("SunSpec inverter model not found")
+)
 
 // StorageRegisters holds the 1-based addresses of the model 124 registers
 // sbam reads and writes.
@@ -83,42 +135,131 @@ func readHolding(address uint16, quantity uint16) ([]uint16, error) {
 	return modbusClient.ReadRegisters(address-1, quantity, modbus.HOLDING_REGISTER)
 }
 
-// DiscoverStorageRegisters walks the SunSpec model chain on the open Modbus
-// connection and returns the addresses of the storage model (124), so sbam
-// works with both "int + SF" and "float" SunSpec model types.
-//
-// When the device does not expose the "SunS" marker, the legacy "int + SF"
-// addresses are returned to preserve the previous behaviour. When the marker
-// is present but model 124 is not, ErrStorageModelNotFound is returned and
-// callers must not write.
-func DiscoverStorageRegisters() (StorageRegisters, error) {
+// hasSunSpecMarker reports whether the "SunS" marker is present at 40001.
+func hasSunSpecMarker() (bool, error) {
 	marker, err := readHolding(sunspecMarkerAddr, 2)
 	if err != nil {
-		return StorageRegisters{}, fmt.Errorf("read SunSpec marker failed: %w", err)
+		return false, fmt.Errorf("read SunSpec marker failed: %w", err)
 	}
-	if marker[0] != sunspecMarkerHi || marker[1] != sunspecMarkerLo {
-		u.Log.Warnf("SunSpec marker not found at %d, using legacy int+SF storage addresses (model 124 at %d)", sunspecMarkerAddr, legacyStorageModelAddr)
-		return storageRegistersAt(legacyStorageModelAddr), nil
+	return marker[0] == sunspecMarkerHi && marker[1] == sunspecMarkerLo, nil
+}
+
+// findModel walks the SunSpec model chain and returns the ID and start
+// address of the first model accepted by match. found is false when the end
+// of the chain is reached without a match.
+func findModel(match func(id uint16) bool) (id uint16, addr uint16, found bool, err error) {
+	a := uint32(sunspecFirstModelAddr)
+	for i := 0; i < sunspecMaxModels && a+1 <= 0xFFFF; i++ {
+		header, rerr := readHolding(uint16(a), 2)
+		if rerr != nil {
+			return 0, 0, false, fmt.Errorf("read SunSpec model header at %d failed: %w", a, rerr)
+		}
+		if header[0] == sunspecEndModelID {
+			break
+		}
+		if match(header[0]) {
+			return header[0], uint16(a), true, nil
+		}
+		a += 2 + uint32(header[1])
+	}
+	return 0, 0, false, nil
+}
+
+// DiscoverStorageRegisters walks the SunSpec model chain on the open Modbus
+// connection and returns the addresses of the storage model (124).
+//
+// When the device does not expose the "SunS" marker, SunSpecAuto returns the
+// legacy "int + SF" addresses and any other type returns
+// ErrSunSpecMarkerNotFound. When the marker is present but model 124 is not,
+// ErrStorageModelNotFound is returned. Callers must not write on error.
+func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
+	ok, err := hasSunSpecMarker()
+	if err != nil {
+		return StorageRegisters{}, err
+	}
+	if !ok {
+		if t == SunSpecAuto {
+			u.Log.Warnf("SunSpec marker not found at %d, using legacy int+SF storage addresses (model 124 at %d)", sunspecMarkerAddr, legacyStorageModelAddr)
+			return storageRegistersAt(legacyStorageModelAddr), nil
+		}
+		return StorageRegisters{}, ErrSunSpecMarkerNotFound
 	}
 
-	addr := uint32(sunspecFirstModelAddr)
-	for i := 0; i < sunspecMaxModels; i++ {
-		if addr+1 > 0xFFFF {
-			break
-		}
-		header, err := readHolding(uint16(addr), 2)
-		if err != nil {
-			return StorageRegisters{}, fmt.Errorf("read SunSpec model header at %d failed: %w", addr, err)
-		}
-		id, length := header[0], header[1]
-		if id == sunspecEndModelID {
-			break
-		}
-		if id == sunspecStorageModelID {
-			u.Log.Debugf("SunSpec storage model 124 at %d", addr)
-			return storageRegistersAt(uint16(addr)), nil
-		}
-		addr += 2 + uint32(length)
+	_, addr, found, err := findModel(func(id uint16) bool { return id == sunspecStorageModelID })
+	if err != nil {
+		return StorageRegisters{}, err
 	}
-	return StorageRegisters{}, ErrStorageModelNotFound
+	if !found {
+		return StorageRegisters{}, ErrStorageModelNotFound
+	}
+	u.Log.Debugf("SunSpec storage model 124 at %d", addr)
+	return storageRegistersAt(addr), nil
+}
+
+// sunspecTypeForInverterModel maps a SunSpec inverter model ID to the
+// inverter's model type setting.
+func sunspecTypeForInverterModel(id uint16) (SunSpecType, bool) {
+	switch {
+	case id >= 101 && id <= 103:
+		return SunSpecIntSF, true
+	case id >= 111 && id <= 113:
+		return SunSpecFloat, true
+	}
+	return "", false
+}
+
+// DetectSunSpecType reads the SunSpec model chain (read-only) and reports
+// whether the inverter is set to "int + SF" or "float".
+func DetectSunSpecType(modbusIP string, port ...string) (SunSpecType, error) {
+	p := "502"
+	if len(port) > 0 {
+		p = port[0]
+	}
+	if err := OpenModbusClient("tcp", modbusIP, p); err != nil {
+		return "", err
+	}
+	defer func() {
+		if cerr := ClosemodbusClient(); cerr != nil {
+			u.Log.Warnf("error closing modbus client: %v", cerr)
+		}
+	}()
+
+	ok, err := hasSunSpecMarker()
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", ErrSunSpecMarkerNotFound
+	}
+	id, _, found, err := findModel(func(id uint16) bool {
+		_, isInverter := sunspecTypeForInverterModel(id)
+		return isInverter
+	})
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", ErrInverterModelNotFound
+	}
+	t, _ := sunspecTypeForInverterModel(id)
+	return t, nil
+}
+
+// VerifySunSpecType compares the configured type with the one the inverter
+// reports and logs a warning on mismatch. It only reads registers and never
+// changes behaviour; a failed check is logged and ignored.
+func VerifySunSpecType(configured SunSpecType, modbusIP string, port ...string) {
+	detected, err := DetectSunSpecType(modbusIP, port...)
+	if err != nil {
+		u.Log.Warnf("could not verify the inverter SunSpec model type (sunspec_type=%s): %v", configured, err)
+		return
+	}
+	switch {
+	case configured == SunSpecAuto:
+		u.Log.Infof("sunspec_type=auto: inverter reports SunSpec model type %s", detected)
+	case configured != detected:
+		u.Log.Warnf("sunspec_type=%s but the inverter reports SunSpec model type %s: battery control will not work as expected, set sunspec_type to %s or auto", configured, detected, detected)
+	default:
+		u.Log.Infof("sunspec_type=%s matches the inverter SunSpec model type", configured)
+	}
 }

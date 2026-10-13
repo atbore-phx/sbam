@@ -61,11 +61,11 @@ type batteryWriter interface {
 type froniusBatteryWriter struct{}
 
 func (froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
-	return fronius.ForceCharge(froniusIP, targetPct)
+	return fronius.ApplyForceCharge(froniusIP, targetPct)
 }
 
 func (froniusBatteryWriter) SetDefaults(froniusIP string) error {
-	return fronius.Setdefaults(froniusIP)
+	return fronius.ApplyDefaults(froniusIP)
 }
 
 var newBatteryWriter = func() batteryWriter {

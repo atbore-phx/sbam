@@ -15,6 +15,7 @@ options:
   url: https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json
   apikey: ""
   fronius_ip: ""
+  sunspec_type: int_sf
   start_hr: "00:00"
   end_hr: "06:00"
   crontab: "00 00-05 * * *"
@@ -46,6 +47,7 @@ options:
 schema:
   url: str
   apikey: password
+  sunspec_type: list(int_sf|float|auto)?
   fronius_ip: match(^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$)
   start_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
   end_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)

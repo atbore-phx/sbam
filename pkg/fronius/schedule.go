@@ -25,7 +25,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 			u.Log.Info("Inverter is not force-charging (StorCtl_Mod=0), skipping defaults write")
 			return 0, decision, reason, pw, nil
 		}
-		modbusErr = ForceCharge(fronius_ip, 0, p)
+		modbusErr = ApplyForceCharge(fronius_ip, 0, p)
 		if modbusErr != nil {
 			u.Log.Errorf("Error setting defaults after classifier error: %s", modbusErr)
 			return 0, decision, reason, pw, modbusErr
@@ -40,7 +40,7 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
 	}
 
-	modbusErr = ForceCharge(fronius_ip, ch_pc, p)
+	modbusErr = ApplyForceCharge(fronius_ip, ch_pc, p)
 	if modbusErr != nil {
 		u.Log.Errorln("Error forcing charge: %s ", modbusErr)
 		return ch_pc, decision, reason, pw, modbusErr

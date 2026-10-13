@@ -90,6 +90,8 @@ pkg/
     root_test.go              - Unit tests for the root command
     configure.go              - `configure` command: battery defaults & force charge
     configure_test.go         - Unit tests for the configure command
+    sunspec.go                - `sunspec_type` option wiring shared by schedule and configure
+    sunspec_test.go           - Unit tests for the sunspec_type option wiring
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
@@ -112,6 +114,9 @@ pkg/
     schedule.go               - Battery charging algorithm
     error.go                  - Error handling utilities
     fronius_test.go           - Unit tests with mock Modbus server
+    sunspec.go                - SunSpec model type selector, storage model discovery, inverter model type check
+    sunspec_storage.go        - Battery writes dispatched by SunSpec type (legacy int+SF or discovered addresses)
+    sunspec_test.go           - Unit tests for SunSpec discovery and dispatch with mock Modbus server
     error_test.go             - Error handling tests
   mqtt/
     types.go                  - MQTT config and payload carrier types
