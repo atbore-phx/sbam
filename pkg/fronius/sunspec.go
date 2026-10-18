@@ -26,10 +26,6 @@ const (
 	SunSpecAuto SunSpecType = "auto"
 )
 
-// activeSunSpecType is the type used by ApplyDefaults, ApplyForceCharge and
-// ReadStorageControlMode. It is set once at startup from the configuration.
-var activeSunSpecType = SunSpecIntSF
-
 // ParseSunSpecType validates a configured sunspec_type value. An empty value
 // selects the default, SunSpecIntSF.
 func ParseSunSpecType(value string) (SunSpecType, error) {
@@ -43,14 +39,13 @@ func ParseSunSpecType(value string) (SunSpecType, error) {
 	}
 }
 
-// SetSunSpecType sets the SunSpec type used for subsequent battery writes.
-func SetSunSpecType(t SunSpecType) {
-	activeSunSpecType = t
-}
-
-// ActiveSunSpecType returns the SunSpec type currently in use.
-func ActiveSunSpecType() SunSpecType {
-	return activeSunSpecType
+// orDefault returns SunSpecIntSF for the zero value, so an unset type keeps
+// the legacy behaviour.
+func (t SunSpecType) orDefault() SunSpecType {
+	if t == "" {
+		return SunSpecIntSF
+	}
+	return t
 }
 
 // SunSpec map layout. Fronius inverters expose a chain of SunSpec models
@@ -76,12 +71,18 @@ const (
 
 // Offsets of the model 124 fields from the model's ID register.
 const (
-	offWChaMax    = 2
-	offStorCtlMod = 5
-	offMinRsvPct  = 7
-	offOutWRte    = 12
-	offInWRte     = 13
-	offChaGriSet  = 17
+	offStorCtlMod   = 5
+	offMinRsvPct    = 7
+	offOutWRte      = 12
+	offInWRte       = 13
+	offChaGriSet    = 17
+	offMinRsvPctSF  = 21
+	offInOutWRteSF  = 25
+	storageModelLen = 24 // registers after the ID and length registers
+
+	// sbam writes MinRsvPct, OutWRte and InWRte as percentages with two
+	// decimals (10000 = 100 %), which assumes a scale factor of -2.
+	expectedPercentSF = -2
 )
 
 var (
@@ -94,13 +95,15 @@ var (
 	// ErrInverterModelNotFound is returned when no SunSpec inverter model
 	// (101-103 or 111-113) is found while detecting the model type.
 	ErrInverterModelNotFound = errors.New("SunSpec inverter model not found")
+	// ErrUnexpectedStorageModel is returned when model 124 is shorter than
+	// the SunSpec definition or uses scale factors sbam does not write for.
+	// Nothing is written in that case.
+	ErrUnexpectedStorageModel = errors.New("unexpected SunSpec storage model 124 layout")
 )
 
 // StorageRegisters holds the 1-based addresses of the model 124 registers
 // sbam reads and writes.
 type StorageRegisters struct {
-	ModelAddr  uint16
-	WChaMax    uint16
 	StorCtlMod uint16
 	MinRsvPct  uint16
 	OutWRte    uint16
@@ -110,8 +113,6 @@ type StorageRegisters struct {
 
 func storageRegistersAt(modelAddr uint16) StorageRegisters {
 	return StorageRegisters{
-		ModelAddr:  modelAddr,
-		WChaMax:    modelAddr + offWChaMax,
 		StorCtlMod: modelAddr + offStorCtlMod,
 		MinRsvPct:  modelAddr + offMinRsvPct,
 		OutWRte:    modelAddr + offOutWRte,
@@ -144,25 +145,25 @@ func hasSunSpecMarker() (bool, error) {
 	return marker[0] == sunspecMarkerHi && marker[1] == sunspecMarkerLo, nil
 }
 
-// findModel walks the SunSpec model chain and returns the ID and start
-// address of the first model accepted by match. found is false when the end
-// of the chain is reached without a match.
-func findModel(match func(id uint16) bool) (id uint16, addr uint16, found bool, err error) {
+// findModel walks the SunSpec model chain and returns the ID, start address
+// and length of the first model accepted by match. found is false when the
+// end of the chain is reached without a match.
+func findModel(match func(id uint16) bool) (id uint16, addr uint16, length uint16, found bool, err error) {
 	a := uint32(sunspecFirstModelAddr)
 	for i := 0; i < sunspecMaxModels && a+1 <= 0xFFFF; i++ {
 		header, rerr := readHolding(uint16(a), 2)
 		if rerr != nil {
-			return 0, 0, false, fmt.Errorf("read SunSpec model header at %d failed: %w", a, rerr)
+			return 0, 0, 0, false, fmt.Errorf("read SunSpec model header at %d failed: %w", a, rerr)
 		}
 		if header[0] == sunspecEndModelID {
 			break
 		}
 		if match(header[0]) {
-			return header[0], uint16(a), true, nil
+			return header[0], uint16(a), header[1], true, nil
 		}
 		a += 2 + uint32(header[1])
 	}
-	return 0, 0, false, nil
+	return 0, 0, 0, false, nil
 }
 
 // DiscoverStorageRegisters walks the SunSpec model chain on the open Modbus
@@ -185,15 +186,39 @@ func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
 		return StorageRegisters{}, ErrSunSpecMarkerNotFound
 	}
 
-	_, addr, found, err := findModel(func(id uint16) bool { return id == sunspecStorageModelID })
+	_, addr, length, found, err := findModel(func(id uint16) bool { return id == sunspecStorageModelID })
 	if err != nil {
 		return StorageRegisters{}, err
 	}
 	if !found {
 		return StorageRegisters{}, ErrStorageModelNotFound
 	}
+	if err := checkStorageModel(addr, length); err != nil {
+		return StorageRegisters{}, err
+	}
 	u.Log.Debugf("SunSpec storage model 124 at %d", addr)
 	return storageRegistersAt(addr), nil
+}
+
+// checkStorageModel verifies that model 124 at addr has the full SunSpec
+// length and the percentage scale factors sbam's values assume.
+func checkStorageModel(addr, length uint16) error {
+	if length < storageModelLen {
+		return fmt.Errorf("%w: model 124 at %d has length %d, want %d", ErrUnexpectedStorageModel, addr, length, storageModelLen)
+	}
+	for _, sf := range []struct {
+		name   string
+		offset uint16
+	}{{"MinRsvPct_SF", offMinRsvPctSF}, {"InOutWRte_SF", offInOutWRteSF}} {
+		v, err := readHolding(addr+sf.offset, 1)
+		if err != nil {
+			return fmt.Errorf("read %s at %d failed: %w", sf.name, addr+sf.offset, err)
+		}
+		if got := int16(v[0]); got != expectedPercentSF {
+			return fmt.Errorf("%w: %s at %d is %d, want %d", ErrUnexpectedStorageModel, sf.name, addr+sf.offset, got, expectedPercentSF)
+		}
+	}
+	return nil
 }
 
 // sunspecTypeForInverterModel maps a SunSpec inverter model ID to the
@@ -231,7 +256,7 @@ func DetectSunSpecType(modbusIP string, port ...string) (SunSpecType, error) {
 	if !ok {
 		return "", ErrSunSpecMarkerNotFound
 	}
-	id, _, found, err := findModel(func(id uint16) bool {
+	id, _, _, found, err := findModel(func(id uint16) bool {
 		_, isInverter := sunspecTypeForInverterModel(id)
 		return isInverter
 	})

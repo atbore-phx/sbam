@@ -10,18 +10,17 @@ var sunspec_type string
 // (read-only). Tests replace it to avoid Modbus connections.
 var verifySunSpecType = fronius.VerifySunSpecType
 
-// setupSunSpecType validates the configured sunspec_type and makes it the
-// type used for all battery reads and writes. When verify is true it also
-// checks, read-only, that the inverter reports the same model type and logs a
-// warning otherwise.
-func setupSunSpecType(value, froniusIP string, verify bool) error {
+// setupSunSpecType validates the configured sunspec_type and returns the type
+// to use for all battery reads and writes. When verify is true it also checks,
+// read-only, that the inverter reports the same model type and logs a warning
+// otherwise.
+func setupSunSpecType(value, froniusIP string, verify bool) (fronius.SunSpecType, error) {
 	t, err := fronius.ParseSunSpecType(value)
 	if err != nil {
-		return err
+		return "", err
 	}
-	fronius.SetSunSpecType(t)
 	if verify {
 		verifySunSpecType(t, froniusIP)
 	}
-	return nil
+	return t, nil
 }

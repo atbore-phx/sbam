@@ -38,12 +38,13 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 
-		if err := setupSunSpecType(sunspec_type, fronius_ip, false); err != nil {
+		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, false)
+		if err != nil {
 			u.Log.Error(err)
 			return
 		}
 
-		configure(fronius_ip, power)
+		configure(sunspecType, fronius_ip, power)
 
 	},
 }
@@ -65,9 +66,9 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(fronius_ip string, power int) {
+func configure(sunspecType fronius.SunSpecType, fronius_ip string, power int) {
 	if c_defaults {
-		err := fronius.ApplyDefaults(fronius_ip)
+		err := fronius.ApplyDefaults(sunspecType, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -77,7 +78,7 @@ func configure(fronius_ip string, power int) {
 			u.Log.Error("The --power flag must be set when using --force_charge")
 			return
 		}
-		err := fronius.ApplyForceCharge(fronius_ip, int16(power))
+		err := fronius.ApplyForceCharge(sunspecType, fronius_ip, int16(power))
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
