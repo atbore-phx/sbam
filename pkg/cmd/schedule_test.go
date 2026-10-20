@@ -192,7 +192,7 @@ func TestSchedule_FroniusModbusFailurePublishesSkip(t *testing.T) {
 // non-skip payload.
 type fakeFroniusClient struct{}
 
-func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+func (f *fakeFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	ps := fronius.PowerState{PvNet: 0.0, Batt: 0.0, Net: 0.0, BattReserveNet: 0.0}
 	return int16(10), fronius.DecisionIdle, "fake-handler", ps, nil
 }
@@ -269,11 +269,14 @@ func (f *fakeStorageClient) Handler(fronius_ip string) (float64, float64, float6
 }
 
 type fakePowerClient struct {
+	sites      []pw.Forecasts
 	forecastWh float64
 	retrieved  bool
 	err        error
 	calls      int
 }
+
+func (f *fakePowerClient) LastForecasts() []pw.Forecasts { return f.sites }
 
 func (f *fakePowerClient) Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error) {
 	_ = apiKey
@@ -297,9 +300,11 @@ type trackingFroniusClient struct {
 	lastForecastWh       float64
 	lastForecastEnabled  bool
 	lastReserveWindowArg bool
+	lastReserveWh        float64
+	lastHold             bool
 }
 
-func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	_ = pw_batt2charge
 	_ = pw_batt_max
 	_ = pw_consumption
@@ -315,6 +320,8 @@ func (f *trackingFroniusClient) Handler(pw_forecast float64, pw_batt2charge floa
 	f.lastForecastWh = pw_forecast
 	f.lastForecastEnabled = forecast_charge_enabled
 	f.lastReserveWindowArg = batt_reserve_charge_enabled
+	f.lastReserveWh = pw_batt_reserve
+	f.lastHold = hold_battery
 	if f.err != nil {
 		return 0, fronius.DecisionSkip, "", fronius.PowerState{}, f.err
 	}

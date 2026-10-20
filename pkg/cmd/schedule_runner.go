@@ -34,6 +34,8 @@ type RunnerConfig struct {
 	PWConsumption      float64
 	MaxCharge          float64
 	PWBattReserve      float64
+	BattMinSoC         float64 // % of capacity the inverter never discharges below
+	PWBaseLoad         float64 // W; 0 = PWConsumption/24
 	StartHR            string
 	EndHR              string
 	BattReserveStartHR string
@@ -477,6 +479,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var solarPowerProduction float64
 	var forecastRetrieved bool
 	var forecastErr error
+	var siteForecasts []pw.Forecasts
 
 	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
 		powerHandler := newPower()
@@ -491,6 +494,16 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			solarPowerProduction = 0.0
 			forecastRetrieved = false
 		}
+		if forecastRetrieved {
+			siteForecasts = powerHandler.LastForecasts()
+		}
+	}
+
+	activeWindow := r.activeWindowConfig(now)
+	holdBattery := activeWindow != nil && activeWindow.HoldBattery != nil && *activeWindow.HoldBattery
+	effectiveReserve := r.cfg.PWBattReserve
+	if activeWindow != nil && activeWindow.ReserveHorizon == pw.ReserveHorizonUntilSolar {
+		effectiveReserve = r.untilSolarReserve(now, *activeWindow, capacityMax, siteForecasts)
 	}
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
@@ -502,7 +515,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		capacityMax,
 		effectiveConsumption,
 		r.cfg.MaxCharge,
-		r.cfg.PWBattReserve,
+		effectiveReserve,
 		r.cfg.StartHR,
 		r.cfg.EndHR,
 		r.cfg.FroniusIP,
@@ -510,6 +523,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		r.cfg.PWLWT,
 		r.cfg.PWUPT,
 		forecastRetrieved,
+		holdBattery,
 	)
 	if froniusErr != nil {
 		u.HandleError(froniusErr, "fronius handler failed, skipping schedule run")
@@ -908,4 +922,69 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		t = t.Add(24 * time.Hour)
 	}
 	return t
+}
+
+// activeWindowConfig returns the configured window active at now, or nil
+// when no windows are configured or none is active.
+func (r *Runner) activeWindowConfig(now time.Time) *pw.Window {
+	if len(r.cfg.Windows) == 0 {
+		return nil
+	}
+	return pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+}
+
+// untilSolarReserve returns the battery reserve (Wh) for a window with
+// reserve_horizon until_solar: enough to keep the base load running from the
+// window end until the forecast PV output covers it, on top of the minimum
+// SoC the inverter keeps. It never returns less than pw_batt_reserve, and
+// falls back to it when no forecast is available.
+func (r *Runner) untilSolarReserve(now time.Time, w pw.Window, capacityMax float64, sites []pw.Forecasts) float64 {
+	static := r.cfg.PWBattReserve
+	if len(sites) == 0 {
+		u.Log.Warn("reserve_horizon until_solar: no forecast available, using pw_batt_reserve")
+		return static
+	}
+	windowEnd, err := nextClockAt(now, w.End)
+	if err != nil {
+		u.Log.Warnw("reserve_horizon until_solar: cannot parse window end, using pw_batt_reserve", "end", w.End, "error", err)
+		return static
+	}
+	baseLoad := r.cfg.PWBaseLoad
+	if baseLoad <= 0 {
+		baseLoad = r.cfg.PWConsumption / 24
+	}
+	gap, err := pw.SolarGapEnergy(sites, windowEnd, baseLoad)
+	if err != nil {
+		u.Log.Warnw("reserve_horizon until_solar: cannot read forecast periods, using pw_batt_reserve", "error", err)
+		return static
+	}
+	if !gap.Covered {
+		u.Log.Warnw("reserve_horizon until_solar: forecast PV never covers the base load within 24 h of the window end", "base_load_w", baseLoad)
+	}
+	effective := max(static, pw.UntilSolarReserve(capacityMax, r.cfg.BattMinSoC, gap))
+	if capacityMax > 0 {
+		effective = min(effective, capacityMax)
+	}
+	u.Log.Infow("reserve_horizon until_solar",
+		"window_end", windowEnd.Format(time.RFC3339),
+		"solar_covers_base_load_at", gap.CoveredAt.Format(time.RFC3339),
+		"base_load_w", baseLoad,
+		"gap_wh", int(gap.EnergyWh),
+		"min_soc_wh", int(capacityMax*r.cfg.BattMinSoC/100),
+		"reserve_wh", int(effective))
+	return effective
+}
+
+// nextClockAt returns the next occurrence of the HH:MM clock value at or
+// after now, in now's location.
+func nextClockAt(now time.Time, clock string) (time.Time, error) {
+	t, err := parseScheduleClock(clock, "end")
+	if err != nil {
+		return time.Time{}, err
+	}
+	at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+	if at.Before(now) {
+		at = at.Add(24 * time.Hour)
+	}
+	return at, nil
 }

@@ -37,6 +37,8 @@ sbam schedule [flags]
 | `-E, --batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | Reserve window end (HH:MM) | `end_hr` value |
 | `-c, --pw_consumption` | `PW_CONSUMPTION` | Daily consumption (Wh) | `11000` |
 | `-r, --pw_batt_reserve` | `PW_BATT_RESERVE` | Battery reserve (Wh) | `4000` |
+| `--batt_min_soc` | `BATT_MIN_SOC` | Minimum SoC (%) kept by the inverter, for `reserve_horizon: until_solar` | `5` |
+| `--pw_base_load` | `PW_BASE_LOAD` | Base load (W) for `reserve_horizon: until_solar` (`0` = `pw_consumption / 24`) | `0` |
 | `-L, --pw_lwt` | `PW_LWT` | Lower threshold offset (Wh) | `0` |
 | `-U, --pw_upt` | `PW_UPT` | Upper threshold offset (Wh) | `0` |
 | `-d, --defaults` | `DEFAULTS` | Reconfigure inverter to defaults at cycle end | `true` |
