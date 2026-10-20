@@ -197,7 +197,6 @@ func startFloatInverter(t *testing.T) *mbserver.Server {
 		set(addr, m[0])
 		set(addr+1, m[1])
 		if m[0] == 124 {
-			set(addr+21, 0xFFFE) // MinRsvPct_SF = -2
 			set(addr+25, 0xFFFE) // InOutWRte_SF = -2
 		}
 		addr += 2 + m[1]

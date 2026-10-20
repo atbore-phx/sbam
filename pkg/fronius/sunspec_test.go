@@ -44,8 +44,8 @@ func snapshot() []uint16 {
 }
 
 // seedSunSpec writes the "SunS" marker and the model headers of chain into
-// the mock server, terminated by the end model. Model 124 gets the scale
-// factors a Gen24 reports (MinRsvPct_SF and InOutWRte_SF = -2).
+// the mock server, terminated by the end model. Model 124 gets the
+// InOutWRte_SF a Gen24 reports (-2).
 func seedSunSpec(chain []sunspecModel) {
 	setHolding(sunspecMarkerAddr, sunspecMarkerHi)
 	setHolding(sunspecMarkerAddr+1, sunspecMarkerLo)
@@ -54,7 +54,6 @@ func seedSunSpec(chain []sunspecModel) {
 		setHolding(addr, m.id)
 		setHolding(addr+1, m.length)
 		if m.id == sunspecStorageModelID && m.length >= storageModelLen {
-			setHolding(addr+offMinRsvPctSF, uint16(0xFFFE)) // -2
 			setHolding(addr+offInOutWRteSF, uint16(0xFFFE)) // -2
 		}
 		addr += 2 + m.length
@@ -176,22 +175,17 @@ func TestDiscoverStorageRegistersRejectsUnexpectedLayout(t *testing.T) {
 		assert.ErrorContains(t, err, "length 16")
 	})
 
-	for _, sf := range []struct {
-		name   string
-		offset uint16
-	}{{"MinRsvPct_SF", offMinRsvPctSF}, {"InOutWRte_SF", offInOutWRteSF}} {
-		t.Run(sf.name, func(t *testing.T) {
-			setup()
-			defer teardown()
-			seedSunSpec(floatChain)
-			setHolding(floatStorageModelAddr+sf.offset, 0) // scale factor 0 instead of -2
+	t.Run("InOutWRte_SF", func(t *testing.T) {
+		setup()
+		defer teardown()
+		seedSunSpec(floatChain)
+		setHolding(floatStorageModelAddr+offInOutWRteSF, 0) // scale factor 0 instead of -2
 
-			_, err := discover(t, SunSpecFloat)
+		_, err := discover(t, SunSpecFloat)
 
-			assert.ErrorIs(t, err, ErrUnexpectedStorageModel)
-			assert.ErrorContains(t, err, sf.name)
-		})
-	}
+		assert.ErrorIs(t, err, ErrUnexpectedStorageModel)
+		assert.ErrorContains(t, err, "InOutWRte_SF")
+	})
 }
 
 // The discovery path on an int+SF inverter must produce exactly the same

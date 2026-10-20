@@ -76,13 +76,13 @@ const (
 	offOutWRte      = 12
 	offInWRte       = 13
 	offChaGriSet    = 17
-	offMinRsvPctSF  = 21
 	offInOutWRteSF  = 25
 	storageModelLen = 24 // registers after the ID and length registers
 
-	// sbam writes MinRsvPct, OutWRte and InWRte as percentages with two
-	// decimals (10000 = 100 %), which assumes a scale factor of -2.
-	expectedPercentSF = -2
+	// sbam writes OutWRte and InWRte as percentages with two decimals
+	// (10000 = 100 %), which assumes InOutWRte_SF = -2. MinRsvPct is only
+	// ever written as 0, which does not depend on its scale factor.
+	expectedInOutWRteSF = -2
 )
 
 var (
@@ -96,8 +96,8 @@ var (
 	// (101-103 or 111-113) is found while detecting the model type.
 	ErrInverterModelNotFound = errors.New("SunSpec inverter model not found")
 	// ErrUnexpectedStorageModel is returned when model 124 is shorter than
-	// the SunSpec definition or uses scale factors sbam does not write for.
-	// Nothing is written in that case.
+	// the SunSpec definition or its InOutWRte_SF is not the scale factor sbam
+	// writes for. Nothing is written in that case.
 	ErrUnexpectedStorageModel = errors.New("unexpected SunSpec storage model 124 layout")
 )
 
@@ -201,22 +201,17 @@ func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
 }
 
 // checkStorageModel verifies that model 124 at addr has the full SunSpec
-// length and the percentage scale factors sbam's values assume.
+// length and the InOutWRte_SF that sbam's OutWRte/InWRte values assume.
 func checkStorageModel(addr, length uint16) error {
 	if length < storageModelLen {
 		return fmt.Errorf("%w: model 124 at %d has length %d, want %d", ErrUnexpectedStorageModel, addr, length, storageModelLen)
 	}
-	for _, sf := range []struct {
-		name   string
-		offset uint16
-	}{{"MinRsvPct_SF", offMinRsvPctSF}, {"InOutWRte_SF", offInOutWRteSF}} {
-		v, err := readHolding(addr+sf.offset, 1)
-		if err != nil {
-			return fmt.Errorf("read %s at %d failed: %w", sf.name, addr+sf.offset, err)
-		}
-		if got := int16(v[0]); got != expectedPercentSF {
-			return fmt.Errorf("%w: %s at %d is %d, want %d", ErrUnexpectedStorageModel, sf.name, addr+sf.offset, got, expectedPercentSF)
-		}
+	v, err := readHolding(addr+offInOutWRteSF, 1)
+	if err != nil {
+		return fmt.Errorf("read InOutWRte_SF at %d failed: %w", addr+offInOutWRteSF, err)
+	}
+	if got := int16(v[0]); got != expectedInOutWRteSF {
+		return fmt.Errorf("%w: InOutWRte_SF at %d is %d, want %d", ErrUnexpectedStorageModel, addr+offInOutWRteSF, got, expectedInOutWRteSF)
 	}
 	return nil
 }
