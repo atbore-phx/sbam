@@ -56,6 +56,15 @@ type clockSegment struct {
 // BeforeEndDefaults is the number of minutes before the window's end time
 // to fire the set_defaults reset. Only meaningful when Defaults is true.
 // Defaults to 5 when unset. Must be ≥ 0 when set (0 = at window end).
+//
+// HoldBattery, when true, blocks battery discharge while the window is
+// active and sbam is not force-charging, so energy bought or kept for the
+// expensive hours is not spent on loads during the cheap window.
+//
+// ReserveHorizon selects how the battery reserve is sized while the window
+// is active. Empty keeps the static pw_batt_reserve. ReserveHorizonUntilSolar
+// raises it to cover the base load from the window end until the forecast PV
+// output covers that load.
 type Window struct {
 	Name               string  `json:"name" yaml:"name" mapstructure:"name"`
 	Start              string  `json:"start" yaml:"start" mapstructure:"start"`
@@ -67,6 +76,8 @@ type Window struct {
 	Defaults           *bool   `json:"set_defaults,omitempty" yaml:"set_defaults,omitempty" mapstructure:"set_defaults,omitempty"`
 	BeforeEndDefaults  *int    `json:"before_end_defaults_minutes,omitempty" yaml:"before_end_defaults_minutes,omitempty" mapstructure:"before_end_defaults_minutes,omitempty"`
 	Weekdays           string  `json:"weekdays,omitempty" yaml:"weekdays,omitempty" mapstructure:"weekdays,omitempty"`
+	HoldBattery        *bool   `json:"hold_battery,omitempty" yaml:"hold_battery,omitempty" mapstructure:"hold_battery,omitempty"`
+	ReserveHorizon     string  `json:"reserve_horizon,omitempty" yaml:"reserve_horizon,omitempty" mapstructure:"reserve_horizon,omitempty"`
 }
 
 // ValidateWindows checks a non-empty ordered list of charge windows and
@@ -196,6 +207,11 @@ func validateWindowFields(w Window, weekdayFeature bool) error {
 	}
 	if w.BeforeEndDefaults != nil && *w.BeforeEndDefaults < 0 {
 		return fmt.Errorf("before_end_defaults must be >= 0, got %d", *w.BeforeEndDefaults)
+	}
+	if w.ReserveHorizon != "" {
+		if _, err := ValidateReserveHorizon(w.ReserveHorizon); err != nil {
+			return err
+		}
 	}
 	if weekdayFeature && w.Weekdays != "" {
 		if err := validateWeekdays(w.Weekdays); err != nil {

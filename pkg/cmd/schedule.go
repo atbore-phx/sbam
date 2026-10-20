@@ -26,7 +26,7 @@ var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_h
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
 	scheduler_mode string
-var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
+var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve, batt_min_soc, pw_base_load float64
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip, weekday_feature bool
 
@@ -48,6 +48,7 @@ const (
 	const_consumption_horizon = "full_day"
 	const_scheduler_mode      = "crontab"
 	const_weekday_feature     = true
+	const_batt_min_soc        = 5.0
 	scheduleClockLayout       = "15:04"
 )
 
@@ -62,7 +63,7 @@ type clockSegment struct {
 type froniusClient interface {
 	Handler(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve float64,
 		start_hr, end_hr, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt, pw_upt float64,
-		forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
+		forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
 }
 
 var newFronius = func(sunspecType fronius.SunSpecType) froniusClient {
@@ -81,6 +82,7 @@ var newStorage = func() storageClient {
 
 type powerClient interface {
 	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error)
+	LastForecasts() []pw.Forecasts
 }
 
 var newPower = func() powerClient {
@@ -105,6 +107,8 @@ var scdCmd = &cobra.Command{
 		pw_lwt = viper.GetFloat64("pw_lwt")
 		pw_upt = viper.GetFloat64("pw_upt")
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
+		batt_min_soc = viper.GetFloat64("batt_min_soc")
+		pw_base_load = viper.GetFloat64("pw_base_load")
 		s_cache_forecast = viper.GetBool("cache_forecast")
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
@@ -216,6 +220,10 @@ var scdCmd = &cobra.Command{
 			u.Log.Error(err)
 			return
 		}
+		if err := checkReserveOptions(batt_min_soc, pw_base_load); err != nil {
+			u.Log.Error(err)
+			return
+		}
 
 		runnerCfg := RunnerConfig{
 			APIKey:             s_apiKey,
@@ -224,6 +232,8 @@ var scdCmd = &cobra.Command{
 			PWConsumption:      pw_consumption,
 			MaxCharge:          max_charge,
 			PWBattReserve:      pw_batt_reserve,
+			BattMinSoC:         batt_min_soc,
+			PWBaseLoad:         pw_base_load,
 			StartHR:            start_hr,
 			EndHR:              end_hr,
 			BattReserveStartHR: batt_reserve_start_hr,
@@ -345,6 +355,8 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today, to_next_window)")
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
+	scdCmd.Flags().Float64Var(&batt_min_soc, "batt_min_soc", const_batt_min_soc, "Minimum battery SoC (%) configured in the inverter; used by reserve_horizon until_solar")
+	scdCmd.Flags().Float64Var(&pw_base_load, "pw_base_load", 0, "Base house load (W) used by reserve_horizon until_solar (0 = pw_consumption/24)")
 	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
@@ -685,5 +697,17 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	}()
 	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
+	return nil
+}
+
+// checkReserveOptions validates the options used by reserve_horizon
+// until_solar.
+func checkReserveOptions(battMinSoC, pwBaseLoad float64) error {
+	if battMinSoC < 0 || battMinSoC > 100 {
+		return fmt.Errorf("batt_min_soc must be between 0 and 100, got %.2f", battMinSoC)
+	}
+	if pwBaseLoad < 0 {
+		return fmt.Errorf("pw_base_load must be >= 0, got %.2f", pwBaseLoad)
+	}
 	return nil
 }

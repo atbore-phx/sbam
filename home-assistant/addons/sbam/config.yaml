@@ -48,6 +48,8 @@ schema:
   url: str
   apikey: password
   sunspec_type: list(int_sf|float|auto)?
+  batt_min_soc: float(0,100)?
+  pw_base_load: float(0,)?
   fronius_ip: match(^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$)
   start_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
   end_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
@@ -86,3 +88,5 @@ schema:
       set_defaults: bool?
       before_end_defaults_minutes: int?
       weekdays: match(^$|^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?(,(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?)*$)
+      hold_battery: bool?
+      reserve_horizon: list(until_solar)?

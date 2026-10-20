@@ -145,7 +145,7 @@ func TestHandler(t *testing.T) {
 	endHr := "17:00"
 
 	setup()
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
+	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 	teardown()
 
 	assert.NoError(err, "Handler returned an error")
@@ -164,7 +164,7 @@ func TestHandlerError(t *testing.T) {
 	startHr := "09:00"
 	endHr := "17:00"
 
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
+	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 
 	assert.Error(err, "Handler returned an error")
 }
