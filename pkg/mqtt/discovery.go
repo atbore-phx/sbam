@@ -130,6 +130,7 @@ func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []D
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "resume", buttonPayload(base, deviceID, "resume", "Resume", commandTopic(prefix, "resume"), "{}"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "force_charge", templatedButtonPayload(base, deviceID, "force_charge", "Force Charge", commandTopic(prefix, "force_charge"), forceChargeCommandTemplate))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "set_defaults", buttonPayload(base, deviceID, "set_defaults", "Set Defaults", commandTopic(prefix, "set_defaults"), "{}"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "hold", buttonPayload(base, deviceID, "hold", "Hold Battery", commandTopic(prefix, "hold"), "{}"))
 
 	return entities
 }

@@ -64,6 +64,7 @@ const (
 	IntentResume      IntentKind = "resume"
 	IntentForceCharge IntentKind = "force_charge"
 	IntentSetDefaults IntentKind = "set_defaults"
+	IntentHold        IntentKind = "hold"
 	IntentSetReserve  IntentKind = "set_reserve"
 	IntentTriggerNow  IntentKind = "trigger_now"
 )
