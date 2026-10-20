@@ -75,6 +75,10 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 	require.NotNil(t, buttonPayload.Retain)
 	assert.False(t, *buttonPayload.Retain)
 
+	holdButton := decodeDiscoveryPayload(t, requireEntity(t, entities, "button", "hold").Payload)
+	assert.Equal(t, "sbam/cmd/hold", holdButton.CommandTopic)
+	assert.Equal(t, "{}", holdButton.PayloadPress)
+
 	pauseButton := requireEntity(t, entities, "button", "pause")
 	pauseButtonPayload := decodeDiscoveryPayload(t, pauseButton.Payload)
 	assert.Equal(t, "sbam/cmd/pause", pauseButtonPayload.CommandTopic)

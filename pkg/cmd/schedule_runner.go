@@ -59,6 +59,7 @@ type RunnerConfig struct {
 type batteryWriter interface {
 	ForceCharge(froniusIP string, targetPct int16) error
 	SetDefaults(froniusIP string) error
+	Hold(froniusIP string) error
 }
 
 // froniusBatteryWriter writes through the fronius package using the selected
@@ -82,6 +83,10 @@ func (w froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) err
 
 func (w froniusBatteryWriter) SetDefaults(froniusIP string) error {
 	return fronius.ApplyDefaults(w.sunspecType, froniusIP, w.ports()...)
+}
+
+func (w froniusBatteryWriter) Hold(froniusIP string) error {
+	return fronius.ApplyHold(w.sunspecType, froniusIP, w.ports()...)
 }
 
 var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
@@ -603,6 +608,10 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		err := r.handleSetDefaults(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
+	case mqtt.IntentHold:
+		err := r.handleHold(ctx, intent)
+		r.publishIntentAck(ctx, intent, err)
+		return
 	case mqtt.IntentSetReserve:
 		r.publishError(ctx, "runner", errSetReserveUnsupported)
 		r.publishIntentAck(ctx, intent, errSetReserveUnsupported)
@@ -709,6 +718,28 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 	}
 
 	payload := r.newCommandPayload(string(mqtt.IntentSetDefaults), "set defaults command executed", r.now())
+	payload.Paused = false
+	r.publishState(payload)
+	return nil
+}
+
+// handleHold blocks battery discharge (no force charge) until the next
+// tick or command writes something else. It respects pause state, so send
+// it before pausing.
+func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
+	paused, _ := r.pauseStateAt(r.now())
+	if paused {
+		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+
+	if err := r.writer.Hold(r.cfg.FroniusIP); err != nil {
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+
+	payload := r.newCommandPayload(string(mqtt.IntentHold), "hold command executed: battery discharge blocked", r.now())
 	payload.Paused = false
 	r.publishState(payload)
 	return nil

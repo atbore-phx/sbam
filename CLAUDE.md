@@ -93,6 +93,7 @@ pkg/
     sunspec.go                - `sunspec_type` option wiring shared by schedule and configure
     sunspec_test.go           - Unit tests for the sunspec_type option wiring
     reserve_hold_test.go      - Unit tests for reserve_horizon until_solar and hold_battery runner wiring
+    hold_command_test.go      - Unit tests for the hold MQTT command and battery writer hold
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow

@@ -17,6 +17,8 @@ import (
 )
 
 type fakeBatteryWriter struct {
+	holdCalls        int
+	holdErr          error
 	forceChargeCalls int
 	setDefaultsCalls int
 	lastFroniusIP    string
@@ -50,6 +52,12 @@ func (f *fakeBatteryWriter) SetDefaults(froniusIP string) error {
 	f.setDefaultsCalls++
 	f.lastFroniusIP = froniusIP
 	return f.setDefaultsErr
+}
+
+func (f *fakeBatteryWriter) Hold(froniusIP string) error {
+	f.holdCalls++
+	f.lastFroniusIP = froniusIP
+	return f.holdErr
 }
 
 func newRunnerForTests(client mqtt.Client) *Runner {
