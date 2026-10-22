@@ -29,6 +29,7 @@ sbam schedule [flags]
 | `-t, --crontab` | `CRONTAB` | Cron expression (deprecated) | `0 0 0 0 0` (crontab disabled)|
 | `--scheduler_mode` | `SCHEDULER_MODE` | Scheduling mode (`crontab` or `windows`) | `crontab` |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
+| `--sunspec_type` | `SUNSPEC_TYPE` | Inverter Modbus SunSpec model type (`int_sf`, `float`, `auto`) | `int_sf` |
 | `-s, --start_hr` | `START_HR` | Charge window start (HH:MM) | `00:00` |
 | `-e, --end_hr` | `END_HR` | Charge window end (HH:MM) | `06:00` |
 | `-m, --max_charge` | `MAX_CHARGE` | Max grid charging power (W) | `3500` |
@@ -87,6 +88,7 @@ sbam configure [flags]
 | `-f, --force_charge` | Set FORCE_CHARGE |
 | `-H, --fronius_ip` | Fronius inverter LAN IP |
 | `-p, --power` | Percent of nominal power |
+| `--sunspec_type` | Inverter Modbus SunSpec model type (`int_sf`, `float`, `auto`). Default `int_sf` |
 
 ## Debug Logs
 

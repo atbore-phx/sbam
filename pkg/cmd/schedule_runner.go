@@ -49,6 +49,7 @@ type RunnerConfig struct {
 	SchedulerMode      string
 	Windows            []pw.Window
 	WeekdayFeature     bool
+	SunSpecType        fronius.SunSpecType
 	MQTT               mqtt.Config
 	Now                func() time.Time
 }
@@ -58,18 +59,31 @@ type batteryWriter interface {
 	SetDefaults(froniusIP string) error
 }
 
-type froniusBatteryWriter struct{}
-
-func (froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
-	return fronius.ForceCharge(froniusIP, targetPct)
+// froniusBatteryWriter writes through the fronius package using the selected
+// sunspec_type. port overrides the default Modbus port (502) and is only set
+// by tests.
+type froniusBatteryWriter struct {
+	sunspecType fronius.SunSpecType
+	port        string
 }
 
-func (froniusBatteryWriter) SetDefaults(froniusIP string) error {
-	return fronius.Setdefaults(froniusIP)
+func (w froniusBatteryWriter) ports() []string {
+	if w.port == "" {
+		return nil
+	}
+	return []string{w.port}
 }
 
-var newBatteryWriter = func() batteryWriter {
-	return froniusBatteryWriter{}
+func (w froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
+	return fronius.ApplyForceCharge(w.sunspecType, froniusIP, targetPct, w.ports()...)
+}
+
+func (w froniusBatteryWriter) SetDefaults(froniusIP string) error {
+	return fronius.ApplyDefaults(w.sunspecType, froniusIP, w.ports()...)
+}
+
+var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
+	return froniusBatteryWriter{sunspecType: sunspecType}
 }
 
 // newTimerFunc is a package-level factory for one-shot timers. Tests may
@@ -104,7 +118,7 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 	return &Runner{
 		cfg:     cfg,
 		client:  client,
-		writer:  newBatteryWriter(),
+		writer:  newBatteryWriter(cfg.SunSpecType),
 		intents: make(chan mqtt.Intent, runnerIntentQueueSize),
 	}
 }
@@ -481,7 +495,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 
-	froniusHandler := newFronius()
+	froniusHandler := newFronius(r.cfg.SunSpecType)
 	chargePct, decision, reason, powerState, froniusErr := froniusHandler.Handler(
 		solarPowerProduction,
 		capacityToCharge,

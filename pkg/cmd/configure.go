@@ -28,6 +28,7 @@ var cfgCmd = &cobra.Command{
 		c_defaults = viper.GetBool("defaults")
 		force_charge = viper.GetBool("force_charge")
 		power = viper.GetInt("power")
+		sunspec_type = viper.GetString("sunspec_type")
 
 		u.LogStartupParams(cmd, nil)
 
@@ -37,7 +38,13 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 
-		configure(fronius_ip, power)
+		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, false)
+		if err != nil {
+			u.Log.Error(err)
+			return
+		}
+
+		configure(sunspecType, fronius_ip, power)
 
 	},
 }
@@ -47,6 +54,7 @@ func registerCfgCmd() {
 	cfgCmd.Flags().BoolVarP(&c_defaults, "defaults", "d", false, "set DEFAULTS")
 	cfgCmd.Flags().BoolVarP(&force_charge, "force_charge", "f", false, "set FORCE_CHARGE")
 	cfgCmd.Flags().IntVarP(&power, "power", "p", const_pw, "set percent of nominal POWER")
+	cfgCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	rootCmd.AddCommand(cfgCmd)
 }
 
@@ -58,9 +66,9 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(fronius_ip string, power int) {
+func configure(sunspecType fronius.SunSpecType, fronius_ip string, power int) {
 	if c_defaults {
-		err := fronius.Setdefaults(fronius_ip)
+		err := fronius.ApplyDefaults(sunspecType, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -70,7 +78,7 @@ func configure(fronius_ip string, power int) {
 			u.Log.Error("The --power flag must be set when using --force_charge")
 			return
 		}
-		err := fronius.ForceCharge(fronius_ip, int16(power))
+		err := fronius.ApplyForceCharge(sunspecType, fronius_ip, int16(power))
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)

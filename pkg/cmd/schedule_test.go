@@ -214,7 +214,7 @@ func TestSchedule_SuccessfulFroniusPublishesDecision(t *testing.T) {
 
 	// Inject fake fronius client
 	oldFactory := newFronius
-	newFronius = func() froniusClient { return &fakeFroniusClient{} }
+	newFronius = func(fronius.SunSpecType) froniusClient { return &fakeFroniusClient{} }
 	defer func() { newFronius = oldFactory }()
 
 	schedule(
@@ -337,7 +337,7 @@ func TestSchedule_OutsideWindowPublishesBatteryOnlyAndSkipsPowerFronius(t *testi
 	defer func() { newPower = oldPowerFactory }()
 
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient {
+	newFronius = func(fronius.SunSpecType) froniusClient {
 		t.Fatalf("fronius handler should not be called when outside charge window")
 		return nil
 	}
@@ -401,7 +401,7 @@ func TestSchedule_ForecastErrorDisablesForecastButStillCallsFronius(t *testing.T
 		powerState: fronius.PowerState{Net: 123.0},
 	}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return fakeFronius }
+	newFronius = func(fronius.SunSpecType) froniusClient { return fakeFronius }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	schedule(

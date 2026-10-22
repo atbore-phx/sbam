@@ -65,8 +65,10 @@ type froniusClient interface {
 		forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
 }
 
-var newFronius = func() froniusClient {
-	return fronius.New()
+var newFronius = func(sunspecType fronius.SunSpecType) froniusClient {
+	f := fronius.New()
+	f.SunSpecType = sunspecType
+	return f
 }
 
 type storageClient interface {
@@ -122,6 +124,7 @@ var scdCmd = &cobra.Command{
 		consumption_horizon = viper.GetString("consumption_horizon")
 		scheduler_mode = viper.GetString("scheduler_mode")
 		weekday_feature = viper.GetBool("weekday_feature")
+		sunspec_type = viper.GetString("sunspec_type")
 
 		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
@@ -165,6 +168,16 @@ var scdCmd = &cobra.Command{
 		}
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
+
+		// Apply and verify sunspec_type before the MQTT background connect:
+		// the verify is a blocking Modbus session and must not run between the
+		// connect and the OnConnect registration below, and no command may be
+		// handled before the selected type is in place.
+		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, strings.TrimSpace(fronius_ip) != "")
+		if err != nil {
+			u.Log.Error(err)
+			return
+		}
 
 		mqttCfg := mqtt.Config{
 			Enabled:           mqtt_enabled,
@@ -226,6 +239,7 @@ var scdCmd = &cobra.Command{
 			ConsumptionHorizon: consumption_horizon,
 			SchedulerMode:      scheduler_mode,
 			WeekdayFeature:     weekday_feature,
+			SunSpecType:        sunspecType,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
 		}
@@ -331,6 +345,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today, to_next_window)")
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
+	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 
 	rootCmd.AddCommand(scdCmd)

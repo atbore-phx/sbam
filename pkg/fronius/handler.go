@@ -12,7 +12,7 @@ func (fronius *Fronius) Handler(pw_forecast float64, pw_batt2charge float64, pw_
 		p = fronius_port[0]
 	}
 
-	charge_pc, decision, reason, pw, err := SetFroniusChargeBatteryMode(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, p)
+	charge_pc, decision, reason, pw, err := setFroniusChargeBatteryMode(fronius.SunSpecType, pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, p)
 	if err != nil {
 		u.Log.Errorln("Error setting Fronius Battery charge: %s ", err)
 		return charge_pc, decision, reason, pw, err
