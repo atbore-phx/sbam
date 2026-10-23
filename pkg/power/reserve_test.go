@@ -104,3 +104,26 @@ func TestValidateWindowsReserveHorizon(t *testing.T) {
 	bad := []Window{{Name: "night", Start: "00:00", End: "08:00", MaxCharge: 2500, ReserveHorizon: "sunrise"}}
 	assert.ErrorContains(t, ValidateWindows(bad, true), "unknown reserve_horizon")
 }
+
+func TestSolarGapEnergyCoveringPeriodStartedBeforeFrom(t *testing.T) {
+	site := periods(map[string]float64{"08:30": 1.0})
+
+	gap, err := SolarGapEnergy([]Forecasts{site}, at("08:10"), 500)
+
+	require.NoError(t, err)
+	assert.True(t, gap.Covered)
+	assert.Equal(t, at("08:10"), gap.CoveredAt, "a covering period already under way covers from now")
+	assert.Zero(t, gap.EnergyWh)
+}
+
+func TestSolarGapEnergyIgnoresPeriodsBeyondSearch(t *testing.T) {
+	site := periods(map[string]float64{"08:30": 0.1})
+	late, _ := time.ParseInLocation("2006-01-02 15:04", "2026-10-21 12:00", madrid)
+	site.Forecasts = append(site.Forecasts, Forecast{PVEstimate: 3, PeriodEnd: late.UTC().Format(time.RFC3339)})
+
+	gap, err := SolarGapEnergy([]Forecasts{site}, at("08:00"), 500)
+
+	require.NoError(t, err)
+	assert.False(t, gap.Covered, "the sunny period is more than 24 h after the window end")
+	assert.InDelta(t, 200, gap.EnergyWh, 0.01)
+}
