@@ -251,7 +251,7 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 
 	// If endAt is before or equal to now, advance by 24h (cross-midnight window).
 	if !endAt.After(now) {
-		endAt = endAt.Add(24 * time.Hour)
+		endAt = endAt.AddDate(0, 0, 1)
 	}
 
 	resetAt := endAt.Add(-time.Duration(beforeEnd) * time.Minute)
@@ -308,7 +308,7 @@ func (r *Runner) nextWindowStart(now time.Time) (next pw.Window, nextAt time.Tim
 		// Only future starts count; a start at or before now is that
 		// window's next occurrence tomorrow.
 		if !startAt.After(now) {
-			startAt = startAt.Add(24 * time.Hour)
+			startAt = startAt.AddDate(0, 0, 1)
 		}
 		if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
 			if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
@@ -953,7 +953,7 @@ func isInCooldown(now time.Time, startHR, endHR string, cooldownMinutes int) (bo
 	if isCrossMidnightWindow(startTime, endTime) {
 		startAt := time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 		if now.After(startAt) || now.Equal(startAt) {
-			endAt = endAt.Add(24 * time.Hour)
+			endAt = endAt.AddDate(0, 0, 1)
 		}
 	}
 
@@ -988,7 +988,8 @@ func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 	return inRange, nil
 }
 
-// nextMatchingWeekday advances t by 24h increments until its weekday is in
+// nextMatchingWeekday advances t one calendar day at a time (same wall-clock
+// time, so DST changes do not shift it) until its weekday is in
 // the provided set. The set must be non-empty; the function loops at most 7
 // times before returning (since a non-empty set guarantees a match within 7
 // days).
@@ -997,7 +998,7 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		if weekdays[t.Weekday()] {
 			return t
 		}
-		t = t.Add(24 * time.Hour)
+		t = t.AddDate(0, 0, 1)
 	}
 	return t
 }
@@ -1062,7 +1063,7 @@ func nextClockAt(now time.Time, clock string) (time.Time, error) {
 	}
 	at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
 	if at.Before(now) {
-		at = at.Add(24 * time.Hour)
+		at = at.AddDate(0, 0, 1)
 	}
 	return at, nil
 }
