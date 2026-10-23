@@ -29,6 +29,7 @@ sbam schedule [flags]
 | `-t, --crontab` | `CRONTAB` | Cron expression (deprecated) | `0 0 0 0 0` (crontab disabled)|
 | `--scheduler_mode` | `SCHEDULER_MODE` | Scheduling mode (`crontab` or `windows`) | `crontab` |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
+| `--sunspec_type` | `SUNSPEC_TYPE` | Inverter Modbus SunSpec model type (`int_sf`, `float`, `auto`) | `int_sf` |
 | `-s, --start_hr` | `START_HR` | Charge window start (HH:MM) | `00:00` |
 | `-e, --end_hr` | `END_HR` | Charge window end (HH:MM) | `06:00` |
 | `-m, --max_charge` | `MAX_CHARGE` | Max grid charging power (W) | `3500` |
@@ -36,6 +37,10 @@ sbam schedule [flags]
 | `-E, --batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | Reserve window end (HH:MM) | `end_hr` value |
 | `-c, --pw_consumption` | `PW_CONSUMPTION` | Daily consumption (Wh) | `11000` |
 | `-r, --pw_batt_reserve` | `PW_BATT_RESERVE` | Battery reserve (Wh) | `4000` |
+| `--batt_min_soc` | `BATT_MIN_SOC` | Minimum SoC (%) kept by the inverter, for `reserve_horizon: until_solar` | `5` |
+| `--grid_import_limit` | `GRID_IMPORT_LIMIT` | Max site grid import (W) while charging from the grid (`0` = disabled) | `0` |
+| `--grid_import_margin` | `GRID_IMPORT_MARGIN` | Power (W) kept free under `grid_import_limit` | `200` |
+| `--pw_base_load` | `PW_BASE_LOAD` | Base load (W) for `reserve_horizon: until_solar` (`0` = `pw_consumption / 24`) | `0` |
 | `-L, --pw_lwt` | `PW_LWT` | Lower threshold offset (Wh) | `0` |
 | `-U, --pw_upt` | `PW_UPT` | Upper threshold offset (Wh) | `0` |
 | `-d, --defaults` | `DEFAULTS` | Reconfigure inverter to defaults at cycle end | `true` |
@@ -87,6 +92,7 @@ sbam configure [flags]
 | `-f, --force_charge` | Set FORCE_CHARGE |
 | `-H, --fronius_ip` | Fronius inverter LAN IP |
 | `-p, --power` | Percent of nominal power |
+| `--sunspec_type` | Inverter Modbus SunSpec model type (`int_sf`, `float`, `auto`). Default `int_sf` |
 
 ## Debug Logs
 

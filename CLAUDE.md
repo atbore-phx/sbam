@@ -90,6 +90,13 @@ pkg/
     root_test.go              - Unit tests for the root command
     configure.go              - `configure` command: battery defaults & force charge
     configure_test.go         - Unit tests for the configure command
+    sunspec.go                - `sunspec_type` option wiring shared by schedule and configure
+    sunspec_test.go           - Unit tests for the sunspec_type option wiring
+    reserve_hold_test.go      - Unit tests for reserve_horizon until_solar and hold_battery runner wiring
+    hold_command_test.go      - Unit tests for the hold MQTT command and battery writer hold
+    grid_limit.go             - grid_import_limit: charge allowance from the meter, 30 s limit loop, reserve-at-risk
+    grid_limit_test.go        - Unit tests for grid_import_limit, the limit loop and window-end defaults while paused
+    dst_test.go               - Unit tests for window/clock arithmetic across daylight-saving changes
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
@@ -112,6 +119,11 @@ pkg/
     schedule.go               - Battery charging algorithm
     error.go                  - Error handling utilities
     fronius_test.go           - Unit tests with mock Modbus server
+    sunspec.go                - SunSpec model type selector, storage model discovery, inverter model type check
+    sunspec_storage.go        - Battery writes dispatched by SunSpec type (legacy int+SF or discovered addresses)
+    sunspec_test.go           - Unit tests for SunSpec discovery and dispatch with mock Modbus server
+    hold.go                   - Battery hold write (discharge blocked) for hold_battery windows
+    hold_test.go              - Unit tests for the battery hold write and hold decision path
     error_test.go             - Error handling tests
   mqtt/
     types.go                  - MQTT config and payload carrier types
@@ -135,6 +147,8 @@ pkg/
     horizon_test.go           - Unit tests for horizon resolution
     window.go                 - Charge window types, validation, active-window resolution
     window_test.go            - Unit tests for window validation and resolution
+    reserve.go                - Reserve horizon (until_solar): morning gap from 30-minute forecast periods
+    reserve_test.go           - Unit tests for the until_solar reserve calculation
     estimate.go               - Forecast retrieval, caching, power calculations
     power_test.go             - HTTP mock tests for Solcast API
   storage/
@@ -142,6 +156,8 @@ pkg/
     handler.go                - Main handler fetching battery data
     charge.go                 - Parse battery capacity & charge state
     storage_test.go           - Unit tests
+    powerflow.go              - Solar API power flow (grid and battery power) for grid_import_limit
+    powerflow_test.go         - HTTP mock tests for the power flow reader
 
 src/
   utils/

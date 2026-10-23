@@ -17,6 +17,8 @@ import (
 )
 
 type fakeBatteryWriter struct {
+	holdCalls        int
+	holdErr          error
 	forceChargeCalls int
 	setDefaultsCalls int
 	lastFroniusIP    string
@@ -33,7 +35,7 @@ type stubFroniusClient struct {
 	lastConsumption float64
 }
 
-func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	s.calls++
 	s.lastConsumption = pw_consumption
 	return 0, fronius.DecisionIdle, "stub", fronius.PowerState{}, nil
@@ -50,6 +52,12 @@ func (f *fakeBatteryWriter) SetDefaults(froniusIP string) error {
 	f.setDefaultsCalls++
 	f.lastFroniusIP = froniusIP
 	return f.setDefaultsErr
+}
+
+func (f *fakeBatteryWriter) Hold(froniusIP string) error {
+	f.holdCalls++
+	f.lastFroniusIP = froniusIP
+	return f.holdErr
 }
 
 func newRunnerForTests(client mqtt.Client) *Runner {
@@ -152,7 +160,7 @@ func TestRunner_ForceChargeCommandExecutesWriterAndPublishesAck(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -191,7 +199,7 @@ func TestRunner_ForceChargeCommandBelowCapKeepsRequestedPct(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -216,7 +224,7 @@ func TestRunner_ForceChargeCommandWithZeroMaxChargeResolvesToZero(t *testing.T) 
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -243,7 +251,7 @@ func TestRunner_ForceChargeCommandAt100UsesMaxChargeCap(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -282,7 +290,7 @@ func TestRunner_ForceChargeCommandZeroSetsDefaults(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -320,7 +328,7 @@ func TestRunner_ForceChargeCommandIgnoreMaxChargeBypassesCap(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -358,7 +366,7 @@ func TestRunner_ForceChargeRejectsInvalidOverrideIntent(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -391,7 +399,7 @@ func TestRunner_ForceChargeCommandAt100RejectedWhenCapacityUnavailable(t *testin
 	fakeStorage := &fakeStorageClient{err: errors.New("storage unavailable")}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	oldStorageFactory := newStorage
@@ -422,7 +430,7 @@ func TestRunner_SetDefaultsCommandExecutesWriterAndPublishesAck(t *testing.T) {
 	fakeWriter := &fakeBatteryWriter{}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	runner := newRunnerForTests(client)
@@ -468,7 +476,7 @@ func TestRunner_ForceChargeRejectedWhilePaused(t *testing.T) {
 	fakeWriter := &fakeBatteryWriter{}
 
 	oldFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldFactory }()
 
 	runner := newRunnerForTests(client)
@@ -578,7 +586,7 @@ func TestRunner_TickSkipsForecastAndChargeWhenPaused(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)
@@ -823,7 +831,7 @@ func TestRunner_TickCooldownSuppressesCharge(t *testing.T) {
 		newPower = originalNewPower
 	}()
 
-	newFronius = func() froniusClient {
+	newFronius = func(fronius.SunSpecType) froniusClient {
 		return &stubFroniusClient{}
 	}
 
@@ -898,7 +906,7 @@ func TestRunner_TickOutsideCooldownProceedsNormally(t *testing.T) {
 	}()
 
 	froniusCalls := 0
-	newFronius = func() froniusClient {
+	newFronius = func(fronius.SunSpecType) froniusClient {
 		froniusCalls++
 		return &stubFroniusClient{}
 	}
@@ -1032,7 +1040,7 @@ func TestRunner_HandleForceChargeWriterError(t *testing.T) {
 	fakeStorage := &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40}
 
 	oldWriterFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldWriterFactory }()
 
 	oldStorageFactory := newStorage
@@ -1101,7 +1109,7 @@ func TestRunner_HandleSetDefaultsWriterError(t *testing.T) {
 	fakeWriter := &fakeBatteryWriter{setDefaultsErr: errors.New("modbus write failed")}
 
 	oldWriterFactory := newBatteryWriter
-	newBatteryWriter = func() batteryWriter { return fakeWriter }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { return fakeWriter }
 	defer func() { newBatteryWriter = oldWriterFactory }()
 
 	runner := newRunnerForTests(client)
@@ -1290,7 +1298,7 @@ func TestRunner_TickUsesInternalClockWhenNowIsZero(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)
@@ -1658,7 +1666,7 @@ func TestRunner_HandleIntentTriggerNow(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)
@@ -1733,7 +1741,7 @@ func TestRunner_ImmediateTick_IntegratesWithRunLoop(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)
@@ -2102,7 +2110,7 @@ func TestRunner_Tick_ToNextWindowConsumption(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)
@@ -2141,7 +2149,7 @@ func TestRunner_Tick_ToNextWindowFallsBackWithoutWindows(t *testing.T) {
 
 	stub := &stubFroniusClient{}
 	oldFroniusFactory := newFronius
-	newFronius = func() froniusClient { return stub }
+	newFronius = func(fronius.SunSpecType) froniusClient { return stub }
 	defer func() { newFronius = oldFroniusFactory }()
 
 	runner := newRunnerForTests(client)

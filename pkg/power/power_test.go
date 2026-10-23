@@ -180,6 +180,28 @@ func TestHandler(t *testing.T) {
 	production, _, err := p.Handler("apiKey", ts.URL+", "+ts.URL, false, "cached_forecast", 7200, ForecastHorizonDefault, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 250000.0, production)
+
+	// The per-site forecasts stay available for period-level calculations.
+	sites := p.LastForecasts()
+	if assert.Len(t, sites, 2) {
+		assert.Len(t, sites[0].Forecasts, 4)
+		assert.Len(t, sites[1].Forecasts, 4)
+	}
+}
+
+func TestHandlerLastForecastsClearedOnSkipAndError(t *testing.T) {
+	p := New()
+	p.lastForecasts = []Forecasts{{}}
+
+	_, retrieved, err := p.Handler("apiKey", "http://127.0.0.1:1", false, "cached_forecast", 7200, ForecastHorizonOff, time.Now())
+	assert.NoError(t, err)
+	assert.False(t, retrieved)
+	assert.Nil(t, p.LastForecasts(), "skipped retrieval leaves no forecasts")
+
+	p.lastForecasts = []Forecasts{{}}
+	_, retrieved, _ = p.Handler("apiKey", "http://127.0.0.1:1", false, "cached_forecast", 7200, ForecastHorizonDefault, time.Now())
+	assert.False(t, retrieved)
+	assert.Nil(t, p.LastForecasts(), "failed retrieval leaves no stale forecasts")
 }
 
 func TestHandlerCache(t *testing.T) {

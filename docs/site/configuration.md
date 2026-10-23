@@ -18,6 +18,7 @@ Where CLI and HA add-on forms differ (different defaults, different validation, 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
 | `fronius_ip` | Fronius inverter LAN IP address. | `--fronius_ip` | `FRONIUS_IP` | `fronius_ip` | — |
+| `sunspec_type` | Must match the inverter's Modbus **SunSpec Model Type**. `int_sf` — the inverter is set to `int + SF`; sbam uses the fixed storage register addresses, as in previous versions. `float` — the inverter is set to `float`; sbam locates the SunSpec storage model (124) at runtime and writes nothing if it cannot find it, or if the model is shorter than the SunSpec definition or its `InOutWRte_SF` is not `-2` (sbam writes charge/discharge rates as percentages with two decimals). `auto` — sbam locates the storage model the same way, which works with either inverter setting, and falls back to the `int + SF` addresses on devices without a SunSpec map. At startup, `schedule` reads the inverter's model type (read-only) and logs a warning if it does not match. | `--sunspec_type` | `SUNSPEC_TYPE` | `sunspec_type` | `int_sf` |
 
 ## Charge Windows
 
@@ -53,6 +54,8 @@ Each window accepts these fields:
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
 | `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
 | `weekdays` | No | Day-of-week filter for the window. See [Weekday Filtering](weekdays.md). |
+| `hold_battery` | No | When `true`, block battery discharge while the window is active and sbam is not force-charging. Loads run from the grid at the window's price and the stored energy is kept for the expensive hours. PV can still charge the battery. The end-of-window `set_defaults` releases the hold. Default `false`. |
+| `reserve_horizon` | No | `until_solar` sizes the battery reserve for this window from the forecast. See [Reserve until solar](#reserve-until-solar). Empty keeps the static `pw_batt_reserve`. |
 
 ## Battery Reserve
 
@@ -63,6 +66,60 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 | `pw_batt_reserve` | Minimum battery capacity to maintain in watt-hours. | `--pw_batt_reserve` | `PW_BATT_RESERVE` | `pw_batt_reserve` | `4000` |
 | `batt_reserve_start_hr` | Start time for reserve window (HH:MM). Empty uses `start_hr`. | `--batt_reserve_start_hr` | `BATT_RESERVE_START_HR` | `batt_reserve_start_hr` | `start_hr` value |
 | `batt_reserve_end_hr` | End time for reserve window (HH:MM). Empty uses `end_hr`. | `--batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | `batt_reserve_end_hr` | `end_hr` value |
+| `batt_min_soc` | Minimum state of charge (%) configured in the inverter's battery settings; the inverter never discharges below it. Used by `reserve_horizon: until_solar`. Fronius default is 5 %. | `--batt_min_soc` | `BATT_MIN_SOC` | `batt_min_soc` | `5` |
+| `grid_import_limit` | Maximum grid import in watts for the whole site (usually the contracted power) while sbam charges from the grid. Each charge is sized to what is left under the limit, measured on the Fronius meter, and re-checked every 30 s while charging. `0` disables it. See [Grid import limit](#grid-import-limit). | `--grid_import_limit` | `GRID_IMPORT_LIMIT` | `grid_import_limit` | `0` |
+| `grid_import_margin` | Watts kept free under `grid_import_limit`. Must be lower than the limit. | `--grid_import_margin` | `GRID_IMPORT_MARGIN` | `grid_import_margin` | `200` |
+| `pw_base_load` | House load in watts the battery has to cover until PV takes over. Used by `reserve_horizon: until_solar`. `0` uses `pw_consumption / 24`. | `--pw_base_load` | `PW_BASE_LOAD` | `pw_base_load` | `0` |
+
+### Grid import limit
+
+Battery charging from the grid shares the contracted power with every other load in the house (an EV charger, a heat pump, an oven). sbam does not need to know what those loads are: the Fronius smart meter reports the grid import and the battery power, so the load of everything else is `P_Grid + P_Akku`.
+
+With `grid_import_limit` set, sbam:
+
+- sizes each grid charge to at most `grid_import_limit − grid_import_margin − (P_Grid + P_Akku)`, and never above the window's `max_charge`;
+- re-reads the meter every 30 s while a grid charge runs and rewrites the charge rate when it moves by 5 points or more (to 0 % it writes the hold when `hold_battery` is on, otherwise the defaults);
+- does not charge from the grid when the meter cannot be read, since it cannot know how much power is free;
+- publishes `reserve_target_wh`, `reserve_deficit_wh`, `grid_charge_allowance_w` and `reserve_at_risk` (MQTT). `reserve_at_risk` turns on when the reserve deficit cannot be charged before the window ends at the power free now, so an automation can pause a load if you want.
+
+Loads that throttle themselves to the meter (EV chargers in dynamic mode) yield to the battery charge and take the rest of the line. Loads that do not throttle keep their power and the battery charge waits for room. A typical setup charges the reserve first and keeps it with `hold_battery`:
+
+```yaml
+grid_import_limit: 3200   # W, contracted power in the cheap period
+windows:
+  - name: valle
+    start: "00:00"
+    end: "08:00"
+    max_charge: 2500
+    hold_battery: true
+    reserve_horizon: until_solar
+```
+
+### Reserve until solar
+
+`pw_batt_reserve` is a fixed amount of energy measured from 0 %, and it says nothing about how long the battery must last after the window ends. On a sunny day the daily forecast can be large enough that sbam skips charging, yet the hours between the end of the cheap window and the moment PV covers the house still come from the grid at the expensive rate.
+
+With `reserve_horizon: until_solar` on a window, every tick in that window computes the reserve as:
+
+```
+reserve = capacity × batt_min_soc / 100
+        + Σ max(pw_base_load − PV forecast, 0) × 0.5 h
+```
+
+The sum runs over Solcast's 30-minute periods, from the window end until the first period whose forecast (summed across sites) reaches `pw_base_load`. The result is never lower than `pw_batt_reserve` and never higher than the battery capacity. Reserve charging still only happens inside the reserve window (`batt_reserve_start_hr` / `batt_reserve_end_hr`). When no forecast is available, `pw_batt_reserve` is used.
+
+```yaml
+batt_min_soc: 25         # the inverter keeps 25 %
+pw_base_load: 600        # W, typical morning load
+pw_batt_reserve: 1800    # lower bound
+windows:
+  - name: valle
+    start: "00:00"
+    end: "08:00"
+    max_charge: 2500
+    hold_battery: true
+    reserve_horizon: until_solar
+```
 
 ## Power and Thresholds
 

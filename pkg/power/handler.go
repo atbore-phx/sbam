@@ -27,12 +27,14 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 		return production, false, err
 	}
 
+	power.lastForecasts = nil
 	day, after, skip := ResolveForecastDay(forecastHorizon, now)
 	if skip {
 		u.Log.Infof("Forecast horizon %q: skipping forecast retrieval", forecastHorizon)
 		return production, false, nil
 	}
 
+	fetched := make([]Forecasts, 0, len(urlList))
 	for pvn, url := range urlList {
 		u.Log.Infof("Index %d URL %s", pvn, url)
 		if !cache_forecast {
@@ -47,6 +49,7 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 			u.Log.Errorln("Forecast charging will be disabled")
 			return production, false, nil
 		}
+		fetched = append(fetched, forecasts)
 		u.Log.Infof("Starting Calculate PV production for solar System %d", pvn)
 
 		dailyProduction, err := GetDayPowerEstimate(forecasts, day, after)
@@ -57,6 +60,7 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 
 		production += dailyProduction
 	}
+	power.lastForecasts = fetched
 	u.Log.Infof("Total Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(production))
 	return production, true, nil
 }

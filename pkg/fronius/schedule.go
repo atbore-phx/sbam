@@ -2,7 +2,16 @@ package fronius
 
 import u "sbam/src/utils"
 
+// SetFroniusChargeBatteryMode runs the charge decision with the default
+// SunSpec type (int_sf).
 func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, Reason, PowerState, error) {
+	return setFroniusChargeBatteryMode(SunSpecIntSF, false, pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, fronius_port...)
+}
+
+// setFroniusChargeBatteryMode classifies the power state and writes the
+// result. When hold is true and no charge is needed, the battery is held
+// (discharge blocked) instead of being returned to defaults.
+func setFroniusChargeBatteryMode(sunspecType SunSpecType, hold bool, pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, Reason, PowerState, error) {
 	p := "502"
 	if len(fronius_port) > 0 {
 		p = fronius_port[0]
@@ -20,12 +29,12 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 
 	if cerr != nil {
 		u.Log.Errorf("Classifier error: %s - checking inverter status before resetting defaults", cerr)
-		storCtlVal, readErr := ReadModbusRegister(fronius_ip, StorCtl_Mod, p)
+		storCtlVal, readErr := ReadStorageControlMode(sunspecType, fronius_ip, p)
 		if readErr == nil && storCtlVal == 0 {
 			u.Log.Info("Inverter is not force-charging (StorCtl_Mod=0), skipping defaults write")
 			return 0, decision, reason, pw, nil
 		}
-		modbusErr = ForceCharge(fronius_ip, 0, p)
+		modbusErr = ApplyForceCharge(sunspecType, fronius_ip, 0, p)
 		if modbusErr != nil {
 			u.Log.Errorf("Error setting defaults after classifier error: %s", modbusErr)
 			return 0, decision, reason, pw, modbusErr
@@ -40,7 +49,16 @@ func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw
 		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
 	}
 
-	modbusErr = ForceCharge(fronius_ip, ch_pc, p)
+	if hold && ch_pc == 0 {
+		modbusErr = ApplyHold(sunspecType, fronius_ip, p)
+		if modbusErr != nil {
+			u.Log.Errorf("Error holding battery: %s", modbusErr)
+			return ch_pc, decision, reason, pw, modbusErr
+		}
+		return ch_pc, decision, reason, pw, nil
+	}
+
+	modbusErr = ApplyForceCharge(sunspecType, fronius_ip, ch_pc, p)
 	if modbusErr != nil {
 		u.Log.Errorln("Error forcing charge: %s ", modbusErr)
 		return ch_pc, decision, reason, pw, modbusErr
