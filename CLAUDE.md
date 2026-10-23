@@ -96,6 +96,7 @@ pkg/
     hold_command_test.go      - Unit tests for the hold MQTT command and battery writer hold
     grid_limit.go             - grid_import_limit: charge allowance from the meter, 30 s limit loop, reserve-at-risk
     grid_limit_test.go        - Unit tests for grid_import_limit, the limit loop and window-end defaults while paused
+    dst_test.go               - Unit tests for window/clock arithmetic across daylight-saving changes
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
