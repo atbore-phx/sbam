@@ -49,6 +49,8 @@ schema:
   apikey: password
   sunspec_type: list(int_sf|float|auto)?
   batt_min_soc: float(0,100)?
+  grid_import_limit: float(0,)?
+  grid_import_margin: float(0,)?
   pw_base_load: float(0,)?
   fronius_ip: match(^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$)
   start_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)

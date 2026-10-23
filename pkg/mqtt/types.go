@@ -33,6 +33,10 @@ type StatePayload struct {
 	ActiveWindow                *string    `json:"active_window,omitempty"`
 	ActiveWindowMaxCharge       *float64   `json:"active_window_max_charge,omitempty"`
 	ActiveWindowForecastHorizon *string    `json:"active_window_forecast_horizon,omitempty"`
+	ReserveTargetWh             *float64   `json:"reserve_target_wh,omitempty"`
+	ReserveDeficitWh            *float64   `json:"reserve_deficit_wh,omitempty"`
+	ReserveAtRisk               *bool      `json:"reserve_at_risk,omitempty"`
+	GridChargeAllowanceW        *float64   `json:"grid_charge_allowance_w,omitempty"`
 	ChargeWindowActive          *bool      `json:"charge_window_active"`
 	ReserveWindowActive         *bool      `json:"batt_reserve_window_active"`
 	SchedulerMode               *string    `json:"scheduler_mode,omitempty"`
@@ -65,8 +69,11 @@ const (
 	IntentForceCharge IntentKind = "force_charge"
 	IntentSetDefaults IntentKind = "set_defaults"
 	IntentHold        IntentKind = "hold"
-	IntentSetReserve  IntentKind = "set_reserve"
-	IntentTriggerNow  IntentKind = "trigger_now"
+	// IntentLimitCheck is internal (never parsed from MQTT): it re-applies
+	// grid_import_limit while a force charge is running.
+	IntentLimitCheck IntentKind = "limit_check"
+	IntentSetReserve IntentKind = "set_reserve"
+	IntentTriggerNow IntentKind = "trigger_now"
 )
 
 // Intent describes a validated command request routed through the schedule runner.
@@ -82,6 +89,9 @@ type Intent struct {
 	PauseUntil      *time.Time `json:"pause_until,omitempty"`
 	PwBattReserve   float64    `json:"pw_batt_reserve,omitempty"`
 	CommandTopic    string     `json:"-"`
+	// System marks intents raised by sbam itself (window-end defaults). They
+	// run even while the runner is paused.
+	System bool `json:"-"`
 }
 
 type DiscoveryEntity struct {

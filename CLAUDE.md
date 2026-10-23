@@ -94,6 +94,8 @@ pkg/
     sunspec_test.go           - Unit tests for the sunspec_type option wiring
     reserve_hold_test.go      - Unit tests for reserve_horizon until_solar and hold_battery runner wiring
     hold_command_test.go      - Unit tests for the hold MQTT command and battery writer hold
+    grid_limit.go             - grid_import_limit: charge allowance from the meter, 30 s limit loop, reserve-at-risk
+    grid_limit_test.go        - Unit tests for grid_import_limit, the limit loop and window-end defaults while paused
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
     schedule.go               - `schedule` command: main intelligent charging workflow
@@ -153,6 +155,8 @@ pkg/
     handler.go                - Main handler fetching battery data
     charge.go                 - Parse battery capacity & charge state
     storage_test.go           - Unit tests
+    powerflow.go              - Solar API power flow (grid and battery power) for grid_import_limit
+    powerflow_test.go         - HTTP mock tests for the power flow reader
 
 src/
   utils/
