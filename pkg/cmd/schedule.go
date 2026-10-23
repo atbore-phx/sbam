@@ -26,7 +26,7 @@ var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_h
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
 	scheduler_mode string
-var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve, batt_min_soc, pw_base_load float64
+var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve, batt_min_soc, pw_base_load, grid_import_limit, grid_import_margin float64
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip, weekday_feature bool
 
@@ -49,6 +49,7 @@ const (
 	const_scheduler_mode      = "crontab"
 	const_weekday_feature     = true
 	const_batt_min_soc        = 5.0
+	const_grid_import_margin  = 200.0
 	scheduleClockLayout       = "15:04"
 )
 
@@ -109,6 +110,8 @@ var scdCmd = &cobra.Command{
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
 		batt_min_soc = viper.GetFloat64("batt_min_soc")
 		pw_base_load = viper.GetFloat64("pw_base_load")
+		grid_import_limit = viper.GetFloat64("grid_import_limit")
+		grid_import_margin = viper.GetFloat64("grid_import_margin")
 		s_cache_forecast = viper.GetBool("cache_forecast")
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
@@ -224,6 +227,10 @@ var scdCmd = &cobra.Command{
 			u.Log.Error(err)
 			return
 		}
+		if err := checkGridLimitOptions(grid_import_limit, grid_import_margin); err != nil {
+			u.Log.Error(err)
+			return
+		}
 
 		runnerCfg := RunnerConfig{
 			APIKey:             s_apiKey,
@@ -234,6 +241,8 @@ var scdCmd = &cobra.Command{
 			PWBattReserve:      pw_batt_reserve,
 			BattMinSoC:         batt_min_soc,
 			PWBaseLoad:         pw_base_load,
+			GridImportLimit:    grid_import_limit,
+			GridImportMargin:   grid_import_margin,
 			StartHR:            start_hr,
 			EndHR:              end_hr,
 			BattReserveStartHR: batt_reserve_start_hr,
@@ -356,6 +365,8 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
 	scdCmd.Flags().Float64Var(&batt_min_soc, "batt_min_soc", const_batt_min_soc, "Minimum battery SoC (%) configured in the inverter; used by reserve_horizon until_solar")
+	scdCmd.Flags().Float64Var(&grid_import_limit, "grid_import_limit", 0, "Max grid import (W) for the whole site while sbam charges from the grid; 0 = disabled")
+	scdCmd.Flags().Float64Var(&grid_import_margin, "grid_import_margin", const_grid_import_margin, "Power (W) kept free under grid_import_limit")
 	scdCmd.Flags().Float64Var(&pw_base_load, "pw_base_load", 0, "Base house load (W) used by reserve_horizon until_solar (0 = pw_consumption/24)")
 	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
@@ -680,7 +691,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	}
 	if defaults {
 		_, err = c.AddFunc(end_crontab, func() {
-			if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
+			if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
 				u.Log.Warn("set_defaults dropped because runner queue is full")
 			}
 		})

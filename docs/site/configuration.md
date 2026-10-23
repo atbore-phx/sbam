@@ -67,7 +67,33 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 | `batt_reserve_start_hr` | Start time for reserve window (HH:MM). Empty uses `start_hr`. | `--batt_reserve_start_hr` | `BATT_RESERVE_START_HR` | `batt_reserve_start_hr` | `start_hr` value |
 | `batt_reserve_end_hr` | End time for reserve window (HH:MM). Empty uses `end_hr`. | `--batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | `batt_reserve_end_hr` | `end_hr` value |
 | `batt_min_soc` | Minimum state of charge (%) configured in the inverter's battery settings; the inverter never discharges below it. Used by `reserve_horizon: until_solar`. Fronius default is 5 %. | `--batt_min_soc` | `BATT_MIN_SOC` | `batt_min_soc` | `5` |
+| `grid_import_limit` | Maximum grid import in watts for the whole site (usually the contracted power) while sbam charges from the grid. Each charge is sized to what is left under the limit, measured on the Fronius meter, and re-checked every 30 s while charging. `0` disables it. See [Grid import limit](#grid-import-limit). | `--grid_import_limit` | `GRID_IMPORT_LIMIT` | `grid_import_limit` | `0` |
+| `grid_import_margin` | Watts kept free under `grid_import_limit`. Must be lower than the limit. | `--grid_import_margin` | `GRID_IMPORT_MARGIN` | `grid_import_margin` | `200` |
 | `pw_base_load` | House load in watts the battery has to cover until PV takes over. Used by `reserve_horizon: until_solar`. `0` uses `pw_consumption / 24`. | `--pw_base_load` | `PW_BASE_LOAD` | `pw_base_load` | `0` |
+
+### Grid import limit
+
+Battery charging from the grid shares the contracted power with every other load in the house (an EV charger, a heat pump, an oven). sbam does not need to know what those loads are: the Fronius smart meter reports the grid import and the battery power, so the load of everything else is `P_Grid + P_Akku`.
+
+With `grid_import_limit` set, sbam:
+
+- sizes each grid charge to at most `grid_import_limit − grid_import_margin − (P_Grid + P_Akku)`, and never above the window's `max_charge`;
+- re-reads the meter every 30 s while a grid charge runs and rewrites the charge rate when it moves by 5 points or more (to 0 % it writes the hold when `hold_battery` is on, otherwise the defaults);
+- does not charge from the grid when the meter cannot be read, since it cannot know how much power is free;
+- publishes `reserve_target_wh`, `reserve_deficit_wh`, `grid_charge_allowance_w` and `reserve_at_risk` (MQTT). `reserve_at_risk` turns on when the reserve deficit cannot be charged before the window ends at the power free now, so an automation can pause a load if you want.
+
+Loads that throttle themselves to the meter (EV chargers in dynamic mode) yield to the battery charge and take the rest of the line. Loads that do not throttle keep their power and the battery charge waits for room. A typical setup charges the reserve first and keeps it with `hold_battery`:
+
+```yaml
+grid_import_limit: 3200   # W, contracted power in the cheap period
+windows:
+  - name: valle
+    start: "00:00"
+    end: "08:00"
+    max_charge: 2500
+    hold_battery: true
+    reserve_horizon: until_solar
+```
 
 ### Reserve until solar
 

@@ -75,6 +75,13 @@ func TestBuildDiscoveryExpectedShape(t *testing.T) {
 	require.NotNil(t, buttonPayload.Retain)
 	assert.False(t, *buttonPayload.Retain)
 
+	riskPayload := decodeDiscoveryPayload(t, requireEntity(t, entities, "binary_sensor", "reserve_at_risk").Payload)
+	assert.Equal(t, "true", riskPayload.PayloadOn)
+	assert.Contains(t, riskPayload.ValueTemplate, "default(false)", "missing field reads as off, not unknown")
+	requireEntity(t, entities, "sensor", "reserve_target_wh")
+	requireEntity(t, entities, "sensor", "reserve_deficit_wh")
+	requireEntity(t, entities, "sensor", "grid_charge_allowance_w")
+
 	holdButton := decodeDiscoveryPayload(t, requireEntity(t, entities, "button", "hold").Payload)
 	assert.Equal(t, "sbam/cmd/hold", holdButton.CommandTopic)
 	assert.Equal(t, "{}", holdButton.PayloadPress)
@@ -193,6 +200,10 @@ func TestBuildDiscoveryTemplatesAndPublish(t *testing.T) {
 		"active_window",
 		"active_window_max_charge",
 		"active_window_forecast_horizon",
+		"reserve_target_wh",
+		"reserve_deficit_wh",
+		"reserve_at_risk",
+		"grid_charge_allowance_w",
 	}
 
 	for _, entity := range entities {
