@@ -493,3 +493,50 @@ func TestSetFroniusChargeBatteryModeForceChargeError(t *testing.T) {
 	assert.Error(err)
 	_ = result
 }
+
+// T-0107 / TC-003e: ForceCharge rejects power_prc > 100 (no int16 wrap) and
+// writes nothing.
+func TestForceChargeRejectsAbove100_T0107(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	for _, pct := range []int16{101, 400, 32767} {
+		err := ForceCharge(modbus_ip, pct, dispatchPort)
+		assert.Error(t, err, "power_prc %d", pct)
+	}
+	assert.Empty(t, f.recorded())
+}
+
+// T-0107 edge: 100 % is accepted and maps to OutWRte = -10000.
+func TestForceCharge100Percent_T0107(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	assert.NoError(t, ForceCharge(modbus_ip, 100, dispatchPort))
+	assert.Equal(t, int16(-10000), f.get(OutWRte))
+	assert.Equal(t, int16(2), f.get(StorCtl_Mod))
+	assert.False(t, f.written(InOutWRte_RvrtTms), "legacy ForceCharge does not write 40359")
+}
+
+// T-0109: Setdefaults writes the unchanged mdsc values, StorCtl_Mod first.
+func TestSetdefaultsOrderedValues_T0109(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.set(StorCtl_Mod, 2)
+	f.set(OutWRte, uint16(0xEC78)) // -5000
+
+	assert.NoError(t, Setdefaults(modbus_ip, dispatchPort))
+
+	rec := f.recorded()
+	assert.Equal(t, []uint16{StorCtl_Mod, OutWRte, InWRte, MinRsvPct, ChaGriSet}, addrOrder(rec))
+	assert.Equal(t, mdsc, regsOf(rec), "default values must be unchanged")
+	assert.False(t, f.written(InOutWRte_RvrtTms))
+}
+
+// T-0109 edge case (review I-02): a read-back mismatch is only a warning for
+// the legacy Setdefaults (configure -d, crontab/windows), but stays an error
+// for SetDefaultsOrdered, which optimize mode uses.
+func TestSetdefaultsReadBackMismatch_T0109(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.corrupt[StorCtl_Mod] = true
+	f.mu.Unlock()
+	assert.NoError(t, Setdefaults(modbus_ip, dispatchPort))
+	err := SetDefaultsOrdered(modbus_ip, dispatchPort)
+	assert.ErrorIs(t, err, ErrReadBackMismatch)
+}

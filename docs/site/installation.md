@@ -33,6 +33,8 @@ Official Home assistant guide: [Install a third-party Home Assistant app reposit
 
 Before starting, open the **Configuration** tab and set options as needed. See the [Configuration](configuration.md) page for a complete reference of all options.
 
+For `scheduler_mode: optimize`, the add-on needs no Home Assistant URL or token: it uses the Supervisor API automatically. Start with `opt_dry_run` on (the default); see [Cost-optimized Dispatch](optimizer.md).
+
 <img width="1362" height="495" alt="Screenshot 2026-06-17 154313" src="https://github.com/user-attachments/assets/4dc73d9c-35fd-4aad-99b9-e1b1b267a914" />
 
 ### Start
@@ -59,5 +61,13 @@ Configuration values are resolved with this precedence (highest first):
 2. Environment variable (e.g., `URL=http://example/`)
 3. `config.yaml` in the working directory
 4. Built-in default
+
+For `scheduler_mode: optimize` outside the add-on, set `HA_URL` and a long-lived access token in `HA_TOKEN` (environment variable preferred):
+
+```bash
+export HA_URL=http://homeassistant.local:8123
+export HA_TOKEN=<long-lived-token>
+./sbam optimize -c 11000 --opt_price_entity sensor.nordpool_kwh_dk2_dkk_3_10_025 --opt_consumption_entity sensor.solarnet_power_load_consumed ...
+```
 
 For a full list of commands and flags, see the [CLI Reference](cli.md).

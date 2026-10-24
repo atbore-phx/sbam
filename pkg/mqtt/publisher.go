@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"sbam/src/utils"
@@ -42,6 +43,65 @@ func PublishAvailability(ctx context.Context, client Client, prefix string, onli
 	utils.Log.Debugw("mqtt publish availability succeeded", "topic", availabilityTopic(prefix), "status", status)
 }
 
+// PublishPlan publishes the optimizer plan as a retained QoS 1 message on
+// <prefix>/plan. Values are rounded (prices 4 decimals, Wh and W integers,
+// SoC 1 decimal) and nil Hours/Reasons are sent as empty arrays.
+func PublishPlan(ctx context.Context, client Client, prefix string, payload PlanPayload) {
+	if payload.Timestamp.IsZero() {
+		payload.Timestamp = time.Now().UTC()
+	}
+	publishJSON(ctx, client, planTopic(prefix), qosAtLeastOnce, true, normalizePlan(payload))
+}
+
+// ClearPlan removes the retained <prefix>/plan message by publishing an empty
+// retained payload.
+func ClearPlan(ctx context.Context, client Client, prefix string) {
+	publishEmptyRetained(ctx, client, planTopic(prefix))
+}
+
+func normalizePlan(payload PlanPayload) PlanPayload {
+	payload.StartSocPct = roundPtr(payload.StartSocPct, 1)
+	payload.ExpectedCost = roundPtr(payload.ExpectedCost, 4)
+	payload.TerminalValue = roundPtr(payload.TerminalValue, 4)
+	if payload.Reasons == nil {
+		payload.Reasons = []string{}
+	}
+
+	hours := make([]PlanEntry, 0, len(payload.Hours))
+	for _, hour := range payload.Hours {
+		hour.RateW = roundTo(hour.RateW, 0)
+		hour.SocEndPct = roundTo(hour.SocEndPct, 1)
+		hour.Buy = roundTo(hour.Buy, 4)
+		hour.Sell = roundTo(hour.Sell, 4)
+		hour.ConsumptionWh = roundTo(hour.ConsumptionWh, 0)
+		hour.PvWh = roundTo(hour.PvWh, 0)
+		hours = append(hours, hour)
+	}
+	payload.Hours = hours
+	return payload
+}
+
+func roundTo(value float64, decimals int) float64 {
+	factor := math.Pow(10, float64(decimals))
+	rounded := math.Round(value*factor) / factor
+	if rounded == 0 {
+		return 0 // avoid "-0" in JSON
+	}
+	return rounded
+}
+
+func roundPtr(value *float64, decimals int) *float64 {
+	if value == nil {
+		return nil
+	}
+	rounded := roundTo(*value, decimals)
+	return &rounded
+}
+
+// PublishDiscovery publishes Home Assistant discovery. With cfg.Optimizer the
+// optimizer entities are included; otherwise their config topics receive
+// empty retained payloads (removing them in HA) and <prefix>/plan is cleared.
+// Both paths are idempotent.
 func PublishDiscovery(ctx context.Context, client Client, cfg Config, version string) {
 	if !cfg.Enabled || !cfg.HADiscovery {
 		return
@@ -61,6 +121,26 @@ func PublishDiscovery(ctx context.Context, client Client, cfg Config, version st
 		}
 		utils.Log.Debugw("mqtt publish discovery succeeded", "topic", entity.Topic, "size", len(entity.Payload))
 	}
+
+	if cfg.Optimizer {
+		return
+	}
+	for _, entity := range BuildOptimizerDiscoveryRemoval(cfg) {
+		publishEmptyRetained(ctx, client, entity.Topic)
+	}
+	ClearPlan(ctx, client, cfg.TopicPrefix)
+}
+
+func publishEmptyRetained(ctx context.Context, client Client, topic string) {
+	if client == nil {
+		logPublishWarning(topic, qosAtLeastOnce, true, errors.New("nil mqtt client"))
+		return
+	}
+	if err := client.Publish(ctx, topic, qosAtLeastOnce, true, []byte{}); err != nil {
+		logPublishWarning(topic, qosAtLeastOnce, true, err)
+		return
+	}
+	utils.Log.Debugw("mqtt publish empty retained succeeded", "topic", topic)
 }
 
 func publishJSON(ctx context.Context, client Client, topic string, qos byte, retained bool, payload any) {

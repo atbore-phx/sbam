@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -285,5 +286,132 @@ func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
 				assert.Equal(t, tc.flagVal, viper.GetBool(tc.key))
 			})
 		}
+	})
+}
+
+// newOptimizeFlagCmd returns a probe command carrying only the shared
+// ha_*/opt_* flags, so the test does not depend on wave-3 wiring into scdCmd.
+func newOptimizeFlagCmd() *cobra.Command {
+	c := &cobra.Command{Use: "probe", Run: func(cmd *cobra.Command, args []string) {}}
+	registerOptimizeFlags(c)
+	return c
+}
+
+// T-0126: opt_max_charge_rate_w honours flag > env > yaml > default, both in
+// viper and in loadOptimizeConfig.
+func TestBindFlags_T0126_OptimizeRatePrecedence(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    bool
+		env     bool
+		flag    bool
+		want    float64
+		wantCfg float64
+	}{
+		{name: "default", want: 4500, wantCfg: 4500},
+		{name: "yaml beats default", yaml: true, want: 1000, wantCfg: 1000},
+		{name: "env beats yaml", yaml: true, env: true, want: 2000, wantCfg: 2000},
+		{name: "flag beats env", yaml: true, env: true, flag: true, want: 3000, wantCfg: 3000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			if tc.yaml {
+				writeConfig(t, "opt_max_charge_rate_w: 1000\n")
+			}
+			if tc.env {
+				t.Setenv("OPT_MAX_CHARGE_RATE_W", "2000")
+			}
+			c := newOptimizeFlagCmd()
+			if tc.flag {
+				require.NoError(t, c.Flags().Set("opt_max_charge_rate_w", "3000"))
+			}
+			require.NoError(t, bindFlags(c))
+
+			assert.Equal(t, tc.want, viper.GetFloat64("opt_max_charge_rate_w"))
+
+			viper.Set("ha_url", "http://homeassistant.local:8123")
+			viper.Set("ha_token", "test-ha-token")
+			viper.Set("opt_price_entity", "sensor.price")
+			viper.Set("opt_consumption_entity", "sensor.load")
+			viper.Set("pw_consumption", 12000.0)
+			cfg, _, err := optCfgLoad(func(string) string { return "" })
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantCfg, cfg.MaxChargeW)
+		})
+	}
+}
+
+// T-0126 / UX §2.2: opt_purchase_surcharge from a YAML list, an env string
+// and the string flag all normalize to the same [24]float64, with the
+// documented precedence.
+func TestBindFlags_T0126_SurchargeSources(t *testing.T) {
+	yamlList := "opt_purchase_surcharge: [" + strings.TrimSuffix(strings.Repeat("0.1, ", 24), ", ") + "]\n"
+	envVal := strings.TrimSuffix(strings.Repeat("0.2,", 24), ",")
+	flagVal := strings.TrimSuffix(strings.Repeat("0.3,", 24), ",")
+
+	cases := []struct {
+		name string
+		yaml bool
+		env  bool
+		flag bool
+		want float64
+	}{
+		{name: "default zeros", want: 0},
+		{name: "yaml list", yaml: true, want: 0.1},
+		{name: "env string beats yaml", yaml: true, env: true, want: 0.2},
+		{name: "flag string beats env", yaml: true, env: true, flag: true, want: 0.3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			if tc.yaml {
+				writeConfig(t, yamlList)
+			}
+			if tc.env {
+				t.Setenv("OPT_PURCHASE_SURCHARGE", envVal)
+			}
+			c := newOptimizeFlagCmd()
+			if tc.flag {
+				require.NoError(t, c.Flags().Set("opt_purchase_surcharge", flagVal))
+			}
+			require.NoError(t, bindFlags(c))
+
+			got, err := parseSurcharge(viper.Get("opt_purchase_surcharge"))
+			require.NoError(t, err)
+			for h := 0; h < 24; h++ {
+				assert.InDelta(t, tc.want, got[h], 1e-12, "hour %d", h)
+			}
+		})
+	}
+}
+
+// T-0126: opt_dry_run defaults to true and can be overridden from env/yaml.
+func TestBindFlags_T0126_DryRunPrecedence(t *testing.T) {
+	t.Run("default true", func(t *testing.T) {
+		resetViper(t)
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.True(t, viper.GetBool("opt_dry_run"))
+	})
+	t.Run("yaml false", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_dry_run: false\n")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.False(t, viper.GetBool("opt_dry_run"))
+	})
+	t.Run("env beats yaml", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_dry_run: false\n")
+		t.Setenv("OPT_DRY_RUN", "true")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.True(t, viper.GetBool("opt_dry_run"))
+	})
+	t.Run("flag beats env", func(t *testing.T) {
+		resetViper(t)
+		t.Setenv("OPT_DRY_RUN", "true")
+		c := newOptimizeFlagCmd()
+		require.NoError(t, c.Flags().Set("opt_dry_run", "false"))
+		require.NoError(t, bindFlags(c))
+		assert.False(t, viper.GetBool("opt_dry_run"))
 	})
 }

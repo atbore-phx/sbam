@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1147,4 +1148,304 @@ func TestPublishErrorNilClient(t *testing.T) {
 	assert.NotPanics(t, func() {
 		PublishError(context.Background(), nil, "sbam", ErrorPayload{Error: "boom"})
 	})
+}
+
+func strp(v string) *string { return &v }
+
+func intp(v int) *int { return &v }
+
+// legacyStatePayloads returns state payloads without optimizer fields; their
+// serialization must not change (T-0110 regression guard).
+func legacyStatePayloads() map[string]StatePayload {
+	ts := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	next := ts.Add(time.Hour)
+	return map[string]StatePayload{
+		"minimal": {LastDecision: "charge", Timestamp: ts},
+		"full": {
+			BatterySOCPct: f64(52), BatteryCapacityWh: f64(10000), ForecastTodayWh: f64(5100), PwNetWh: f64(-200),
+			ChargePct: i16(40), LastDecision: "charge", LastDecisionReason: "forecast_shortfall",
+			ForecastHorizon: "default", ConsumptionHorizon: "full_day", ActiveWindow: strp("night"),
+			ActiveWindowMaxCharge: f64(3000), ActiveWindowForecastHorizon: strp("next_day"),
+			ChargeWindowActive: b(true), ReserveWindowActive: b(false), SchedulerMode: strp("cron"),
+			DeprecationWarning: strp("x"), Paused: true, NextRun: &next, Timestamp: ts,
+		},
+	}
+}
+
+// T-0110: legacy state payloads serialize exactly as before the optimizer fields were added.
+func TestStatePayloadLegacyGolden(t *testing.T) {
+	got := map[string]string{}
+	for name, payload := range legacyStatePayloads() {
+		body, err := json.Marshal(payload)
+		require.NoError(t, err)
+		got[name] = string(body)
+	}
+	assertGolden(t, "state_legacy.golden.json", got)
+}
+
+func optimizerLiveState() StatePayload {
+	return StatePayload{
+		BatterySOCPct:      f64(52),
+		BatteryCapacityWh:  f64(10000),
+		LastDecision:       "charge",
+		LastDecisionReason: "optimizer_charge_ahead_of_peak",
+		SchedulerMode:      strp("optimize"),
+		ChargeWindowActive: b(false),
+		OptAction:          strp("charge"),
+		OptRateW:           f64(4500),
+		OptExpectedCost:    f64(39.40),
+		OptHorizonH:        intp(22),
+		OptDryRun:          b(false),
+		OptReasons:         []string{"optimizer_charge_ahead_of_peak", "optimizer_consumption_static_fallback"},
+		Timestamp:          time.Date(2026, 10, 3, 0, 0, 1, 0, time.UTC),
+	}
+}
+
+// T-0110: an optimizer run result published to the broker carries all opt_*
+// fields, and last_decision_reason equals opt_reasons[0].
+func TestPublishStateOptimizerFieldsRoundTrip(t *testing.T) {
+	address := reserveTCPAddress(t)
+	broker := newTestBroker(t, address, nil)
+	defer broker.Close()
+
+	subscriber := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "opt-state-subscriber"})
+	defer disconnectClient(t, subscriber)
+
+	messages := make(chan receivedMessage, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	require.NoError(t, subscriber.Subscribe(ctx, stateTopic("sbam"), qosAtLeastOnce, func(topic string, payload []byte) {
+		messages <- receivedMessage{topic: topic, payload: payload}
+	}))
+
+	publisher := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "opt-state-publisher"})
+	defer disconnectClient(t, publisher)
+
+	PublishState(context.Background(), publisher, "sbam", optimizerLiveState())
+	message := waitForMessage(t, messages)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(message.payload, &raw))
+	for _, key := range []string{"opt_action", "opt_rate_w", "opt_expected_cost", "opt_horizon_h", "opt_dry_run", "opt_reasons"} {
+		assert.Contains(t, raw, key)
+	}
+
+	var decoded StatePayload
+	require.NoError(t, json.Unmarshal(message.payload, &decoded))
+	require.NotNil(t, decoded.OptAction)
+	assert.Equal(t, "charge", *decoded.OptAction)
+	assert.Equal(t, 4500.0, *decoded.OptRateW)
+	assert.Equal(t, 39.40, *decoded.OptExpectedCost)
+	assert.Equal(t, 22, *decoded.OptHorizonH)
+	assert.False(t, *decoded.OptDryRun)
+	require.NotEmpty(t, decoded.OptReasons)
+	assert.Equal(t, decoded.LastDecisionReason, decoded.OptReasons[0])
+}
+
+// T-0110 edge: on fallback opt_expected_cost is JSON null and zero values
+// (rate 0, horizon 0, dry_run false) are still published.
+func TestStatePayloadOptimizerFallbackNullCost(t *testing.T) {
+	payload := StatePayload{
+		LastDecision:       "fallback_defaults",
+		LastDecisionReason: "optimizer_fallback_missing_prices",
+		SchedulerMode:      strp("optimize"),
+		OptAction:          strp("self_consume"),
+		OptRateW:           f64(0),
+		OptHorizonH:        intp(0),
+		OptDryRun:          b(false),
+		OptReasons:         []string{"optimizer_fallback_missing_prices"},
+		Timestamp:          time.Date(2026, 10, 2, 13, 0, 0, 0, time.UTC),
+	}
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"opt_expected_cost":null`)
+	assert.Equal(t, 1, strings.Count(string(body), `"opt_expected_cost"`))
+	assert.Contains(t, string(body), `"opt_rate_w":0`)
+	assert.Contains(t, string(body), `"opt_horizon_h":0`)
+	assert.Contains(t, string(body), `"opt_dry_run":false`)
+
+	// Pointer marshalling uses the same rules.
+	ptrBody, err := json.Marshal(&payload)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(body), string(ptrBody))
+
+	var decoded StatePayload
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	assert.Nil(t, decoded.OptExpectedCost)
+	assert.Equal(t, "self_consume", *decoded.OptAction)
+}
+
+// T-0110 failure: without OptAction no opt_* key is emitted; a stray cost
+// without an action follows plain omitempty rules and is never duplicated.
+func TestStatePayloadWithoutOptimizerOmitsFields(t *testing.T) {
+	body, err := json.Marshal(StatePayload{LastDecision: "charge"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "opt_")
+
+	body, err = json.Marshal(StatePayload{LastDecision: "charge", OptExpectedCost: f64(1.5)})
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(string(body), `"opt_expected_cost":1.5`))
+}
+
+func goldenPlan() PlanPayload {
+	cet := time.FixedZone("CEST", 2*3600)
+	end := time.Date(2026, 10, 4, 0, 0, 0, 0, cet)
+	return PlanPayload{
+		Timestamp:     time.Date(2026, 10, 2, 12, 0, 1, 0, time.UTC),
+		DryRun:        true,
+		Currency:      "DKK",
+		HorizonH:      3,
+		HorizonEnd:    &end,
+		StartSocPct:   f64(52.04),
+		ExpectedCost:  f64(41.871234),
+		TerminalValue: f64(1.93005),
+		Reason:        "optimizer_hold_for_later_peak",
+		Reasons:       []string{"optimizer_hold_for_later_peak"},
+		Hours: []PlanEntry{
+			{Start: time.Date(2026, 10, 2, 14, 0, 0, 0, cet), Action: "hold", RateW: 0, SocEndPct: 57.2345, Buy: 1.380049, Sell: 0.62, ConsumptionWh: 610.4, PvWh: 1239.6},
+			{Start: time.Date(2026, 10, 2, 15, 0, 0, 0, cet), Action: "hold", RateW: -0.2, SocEndPct: 58.66, Buy: 1.45, Sell: 0.65999, ConsumptionWh: 640, PvWh: 820},
+			{Start: time.Date(2026, 10, 2, 16, 0, 0, 0, cet), Action: "discharge", RateW: 1999.6, SocEndPct: 34.55, Buy: 3.62, Sell: 1.98, ConsumptionWh: 980.5, PvWh: 60},
+		},
+	}
+}
+
+// T-0111: PublishPlan sends a retained QoS 1 message to <prefix>/plan whose
+// payload (with rounding applied) matches the golden JSON.
+func TestPublishPlanGolden(t *testing.T) {
+	client := &fakeMQTTClient{}
+	PublishPlan(context.Background(), client, "sbam", goldenPlan())
+
+	require.Len(t, client.publishes, 1)
+	publish := client.publishes[0]
+	assert.Equal(t, "sbam/plan", publish.topic)
+	assert.True(t, publish.retained)
+	assert.Equal(t, qosAtLeastOnce, publish.qos)
+
+	require.True(t, json.Valid(publish.payload))
+	assertGolden(t, "plan.golden.json", json.RawMessage(publish.payload))
+}
+
+// T-0111: the plan is retained on the broker, so a late subscriber (e.g. HA
+// after a restart) receives it.
+func TestPublishPlanRetainedOnBroker(t *testing.T) {
+	address := reserveTCPAddress(t)
+	broker := newTestBroker(t, address, nil)
+	defer broker.Close()
+
+	publisher := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "plan-publisher"})
+	defer disconnectClient(t, publisher)
+	PublishPlan(context.Background(), publisher, "site/sbam", goldenPlan())
+
+	subscriber := mustConnectClient(t, Config{Enabled: true, Broker: "tcp://" + address, ClientID: "plan-subscriber"})
+	defer disconnectClient(t, subscriber)
+
+	messages := make(chan receivedMessage, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	require.NoError(t, subscriber.Subscribe(ctx, "site/sbam/plan", qosAtLeastOnce, func(topic string, payload []byte) {
+		messages <- receivedMessage{topic: topic, payload: payload}
+	}))
+
+	message := waitForMessage(t, messages)
+	assert.Equal(t, "site/sbam/plan", message.topic)
+	var decoded PlanPayload
+	require.NoError(t, json.Unmarshal(message.payload, &decoded))
+	require.Len(t, decoded.Hours, 3)
+	assert.Equal(t, 57.2, decoded.Hours[0].SocEndPct)
+}
+
+// T-0111 edge: a fallback plan serializes hours/reasons as [] and the costs
+// and SoC as null; ClearPlan sends an empty retained payload.
+func TestPublishPlanFallbackAndClear(t *testing.T) {
+	client := &fakeMQTTClient{}
+	PublishPlan(context.Background(), client, "sbam", PlanPayload{Reason: "optimizer_fallback_missing_prices"})
+	require.Len(t, client.publishes, 1)
+
+	body := string(client.publishes[0].payload)
+	assert.Contains(t, body, `"hours":[]`)
+	assert.Contains(t, body, `"reasons":[]`)
+	assert.Contains(t, body, `"expected_cost":null`)
+	assert.Contains(t, body, `"terminal_value":null`)
+	assert.Contains(t, body, `"start_soc_pct":null`)
+	assert.Contains(t, body, `"horizon_end":null`)
+	assert.NotContains(t, body, `"ts":"0001-01-01`)
+
+	ClearPlan(context.Background(), client, " /sbam/ ")
+	require.Len(t, client.publishes, 2)
+	clear := client.publishes[1]
+	assert.Equal(t, "sbam/plan", clear.topic)
+	assert.Empty(t, clear.payload)
+	assert.True(t, clear.retained)
+	assert.Equal(t, qosAtLeastOnce, clear.qos)
+}
+
+// T-0111 failure: publish errors and nil clients are logged, never fatal, and
+// the caller's plan is not mutated by rounding.
+func TestPublishPlanErrors(t *testing.T) {
+	observed := withObservedLogger(t)
+	plan := goldenPlan()
+
+	assert.NotPanics(t, func() { PublishPlan(context.Background(), nil, "sbam", plan) })
+	assert.NotPanics(t, func() { ClearPlan(context.Background(), nil, "sbam") })
+	PublishPlan(context.Background(), &fakeMQTTClient{publishErr: errors.New("publish failed")}, "sbam", plan)
+	ClearPlan(context.Background(), &fakeMQTTClient{publishErr: errors.New("publish failed")}, "sbam")
+	assert.Equal(t, 4, observed.FilterMessage("mqtt publish failed").Len())
+
+	assert.Equal(t, 57.2345, plan.Hours[0].SocEndPct)
+	assert.Equal(t, 41.871234, *plan.ExpectedCost)
+}
+
+func TestRoundTo(t *testing.T) {
+	assert.Equal(t, 1.2346, roundTo(1.23456, 4))
+	assert.Equal(t, 57.3, roundTo(57.25, 1))
+	assert.Equal(t, 1240.0, roundTo(1239.5, 0))
+	assert.False(t, math.Signbit(roundTo(-0.2, 0)), "negative zero must be normalized")
+	assert.Nil(t, roundPtr(nil, 2))
+}
+
+// T-0116 (TC-017a, S-017): the state topic carries no plan or history, and the
+// plan carries hourly aggregates only (fixed key sets, retained by design).
+func TestOptimizerPayloadsHourlyAggregatesOnly(t *testing.T) {
+	stateBody, err := json.Marshal(optimizerLiveState())
+	require.NoError(t, err)
+	var state map[string]any
+	require.NoError(t, json.Unmarshal(stateBody, &state))
+	for key := range state {
+		assert.NotContains(t, []string{"hours", "plan", "opt_plan", "history", "consumption_profile"}, key)
+	}
+	for key, value := range state {
+		if list, ok := value.([]any); ok {
+			assert.Equal(t, "opt_reasons", key, "only reason codes may be a list in state")
+			for _, item := range list {
+				_, isString := item.(string)
+				assert.True(t, isString)
+			}
+		}
+	}
+
+	client := &fakeMQTTClient{}
+	PublishPlan(context.Background(), client, "sbam", goldenPlan())
+	require.Len(t, client.publishes, 1)
+	assert.True(t, client.publishes[0].retained, "plan retention is the documented choice (design §MQTT)")
+
+	var plan map[string]any
+	require.NoError(t, json.Unmarshal(client.publishes[0].payload, &plan))
+	assert.ElementsMatch(t, []string{"ts", "dry_run", "currency", "horizon_h", "horizon_end", "start_soc_pct", "expected_cost", "terminal_value", "reason", "reasons", "hours"}, mapKeys(plan))
+
+	hours, ok := plan["hours"].([]any)
+	require.True(t, ok)
+	require.Len(t, hours, 3)
+	for _, entry := range hours {
+		hour := entry.(map[string]any)
+		assert.ElementsMatch(t, []string{"start", "action", "rate_w", "soc_end_pct", "buy", "sell", "consumption_wh", "pv_wh"}, mapKeys(hour))
+	}
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }
