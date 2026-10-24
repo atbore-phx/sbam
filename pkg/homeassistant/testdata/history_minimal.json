@@ -1,0 +1,13 @@
+[
+  [
+    {
+      "entity_id": "sensor.house_load_power",
+      "state": "512.4",
+      "last_changed": "2026-10-01T22:00:00+00:00",
+      "last_updated": "2026-10-01T22:00:00+00:00"
+    },
+    {"state": "640.0", "last_changed": "2026-10-01T22:17:31.204511+00:00"},
+    {"state": "unavailable", "last_changed": "2026-10-01T23:05:00+00:00"},
+    {"state": "455.9", "last_changed": "2026-10-01T23:06:12.000001+00:00"}
+  ]
+]

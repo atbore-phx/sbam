@@ -88,14 +88,22 @@ func ReadModbusRegister(modbusIP string, register uint16, port ...string) (int16
 	return ReadFroniusModbusRegister(register)
 }
 
+// Setdefaults writes the storage defaults (mdsc values) in order with
+// StorCtl_Mod=0 first and reads them back. It serves `configure -d` and the
+// crontab/windows modes, so a read-back mismatch is only logged: the values
+// were written, and strict read-back is not yet verified on Gen24 hardware
+// (V7). Optimize mode uses SetDefaultsOrdered directly, which stays strict.
 func Setdefaults(modbus_ip string, port ...string) error {
 	p := "502"
 	if len(port) > 0 {
 		p = port[0]
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
-	regList := copyMap(mdsc)
-	modbusErr = Connectmodbus(modbus_ip, regList, p)
+	modbusErr = SetDefaultsOrdered(modbus_ip, p)
+	if errors.Is(modbusErr, ErrReadBackMismatch) {
+		u.Log.Warnf("Fronius defaults written, but read-back differs: %s", modbusErr)
+		modbusErr = nil
+	}
 	if modbusErr != nil {
 		u.Log.Errorf("Something goes wrong %s", modbusErr)
 		return modbusErr
@@ -109,12 +117,18 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 	if len(port) > 0 {
 		p = port[0]
 	}
+	if power_prc > 100 {
+		modbusErr = fmt.Errorf("percent of charging %d exceeds 100", power_prc)
+		u.Log.Errorf("someting goes wrong when force charging, %s", modbusErr)
+		return modbusErr
+	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {
 		regList := copyMap(mdsc)
 
 		regList[StorCtl_Mod] = 2 // Limit Decharging
-		regList[OutWRte] = -100 * power_prc
+		// int32 arithmetic: power_prc is bounded to [1, 100] above (S-003).
+		regList[OutWRte] = int16(int32(-100) * int32(power_prc))
 
 		modbusErr = Connectmodbus(modbus_ip, regList, p)
 		if modbusErr != nil {
