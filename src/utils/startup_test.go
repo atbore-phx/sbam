@@ -238,3 +238,83 @@ func TestLogStartupParams_WithExtras(t *testing.T) {
 
 	assert.NotPanics(t, func() { LogStartupParams(cmd, extras) })
 }
+
+// T-0124 / TC-013a (AC-21): ha_token is redacted in the dump, whatever its source.
+func TestDumpStartupParams_RedactsHAToken(t *testing.T) {
+	for _, src := range []string{"flag", "env", "yaml"} {
+		t.Run(src, func(t *testing.T) {
+			resetViper(t)
+			cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+			cmd.Flags().String("ha_token", "", "HA token")
+			switch src {
+			case "flag":
+				require.NoError(t, cmd.Flags().Set("ha_token", "test-ha-token"))
+			case "env":
+				t.Setenv("HA_TOKEN", "test-ha-token")
+			case "yaml":
+				writeConfig(t, "ha_token: test-ha-token\n")
+			}
+			require.NoError(t, bindFlags(cmd))
+
+			out := DumpStartupParams(cmd, nil)
+
+			assert.Regexp(t, `ha_token\s+=\s+\*\*\*\s+source=`+src, out)
+			assert.NotContains(t, out, "test-ha-token")
+		})
+	}
+}
+
+// T-0124 / S-013: userinfo in ha_url is redacted; host and port stay visible.
+func TestDumpStartupParams_RedactsHAURLUserinfo(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+		absent         []string
+	}{
+		{name: "user and password", in: "http://user:test-pw@ha.local:8123", want: `"http://***@ha.local:8123"`, absent: []string{"test-pw", "user:"}},
+		{name: "user only", in: "https://test-user@ha.local", want: `"https://***@ha.local"`, absent: []string{"test-user"}},
+		{name: "no userinfo unchanged", in: "http://homeassistant.local:8123", want: `"http://homeassistant.local:8123"`},
+		{name: "unparseable with at-sign", in: "http://u:test-pw@[bad", want: `***`, absent: []string{"test-pw"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+			cmd.Flags().String("ha_url", "", "HA URL")
+			require.NoError(t, cmd.Flags().Set("ha_url", tc.in))
+			require.NoError(t, bindFlags(cmd))
+
+			out := DumpStartupParams(cmd, nil)
+
+			assert.Contains(t, out, tc.want)
+			for _, a := range tc.absent {
+				assert.NotContains(t, out, a)
+			}
+		})
+	}
+}
+
+// T-0125 / TC-013b: SUPERVISOR_TOKEN in the environment never reaches the dump.
+func TestDumpStartupParams_NeverDumpsSupervisorToken(t *testing.T) {
+	resetViper(t)
+	t.Setenv("SUPERVISOR_TOKEN", "test-sup-token")
+	cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+	cmd.Flags().String("ha_url", "", "HA URL")
+	cmd.Flags().String("ha_token", "", "HA token")
+	require.NoError(t, bindFlags(cmd))
+
+	out := DumpStartupParams(cmd, map[string]interface{}{"effective_ha_access": "supervisor"})
+
+	assert.NotContains(t, out, "test-sup-token")
+	assert.NotContains(t, strings.ToLower(out), "supervisor_token")
+}
+
+// TC-013b (defensive): a supervisor_token copied into config.yaml is redacted.
+func TestDumpStartupParams_RedactsSupervisorTokenInYaml(t *testing.T) {
+	resetViper(t)
+	writeConfig(t, "supervisor_token: test-sup-token\n")
+
+	out := DumpStartupParams(nil, nil)
+
+	assert.Regexp(t, `supervisor_token\s+=\s+\*\*\*`, out)
+	assert.NotContains(t, out, "test-sup-token")
+}

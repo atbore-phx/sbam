@@ -1,0 +1,21 @@
+{
+  "entity_id": "sensor.nordpool_kwh_dk1_dkk_3_10_025",
+  "state": "1.234",
+  "attributes": {
+    "unit_of_measurement": "DKK/kWh",
+    "currency": "DKK",
+    "tomorrow_valid": true,
+    "raw_today": [
+      {"start": "2026-10-02T00:00:00+02:00", "end": "2026-10-02T01:00:00+02:00", "value": 1.111},
+      {"start": "2026-10-02T01:00:00+02:00", "end": "2026-10-02T02:00:00+02:00", "value": 0.987}
+    ],
+    "raw_tomorrow": [
+      {"start": "2026-10-03T00:00:00+02:00", "end": "2026-10-03T01:00:00+02:00", "value": 1.050}
+    ],
+    "friendly_name": "Synthetic price sensor"
+  },
+  "last_changed": "2026-10-02T09:00:00.123456+00:00",
+  "last_reported": "2026-10-02T09:00:00.123456+00:00",
+  "last_updated": "2026-10-02T09:00:00.123456+00:00",
+  "context": {"id": "01J0000000000000000000000A", "parent_id": null, "user_id": null}
+}

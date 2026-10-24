@@ -3,6 +3,10 @@ package mqtt
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -209,7 +213,8 @@ func TestBuildDiscoveryTemplatesAndPublish(t *testing.T) {
 
 	client := &fakeMQTTClient{}
 	PublishDiscovery(context.Background(), client, cfg, "1.0.0")
-	require.Len(t, client.publishes, len(entities))
+	// Optimizer disabled: existing entities, then 41 optimizer removals and the plan clear (T-0114).
+	require.Len(t, client.publishes, len(entities)+41+1)
 	for _, publish := range client.publishes {
 		assert.True(t, publish.retained)
 		assert.Equal(t, qosAtLeastOnce, publish.qos)
@@ -310,4 +315,276 @@ func TestDiscoveryConfigTopicDefaults(t *testing.T) {
 		"sbam/control/pause_duration_s",
 		controlTopic(" ", "pause_duration_s"),
 	)
+}
+
+var updateGolden = flag.Bool("update", false, "rewrite golden files under testdata/")
+
+type goldenDiscoveryEntity struct {
+	Topic   string `json:"topic"`
+	Payload string `json:"payload"`
+}
+
+func goldenDiscoveryConfig(optimizer bool, currency string) Config {
+	return Config{
+		Enabled:           true,
+		TopicPrefix:       "sbam",
+		HADiscovery:       true,
+		HADiscoveryPrefix: "homeassistant",
+		Optimizer:         optimizer,
+		Currency:          currency,
+	}
+}
+
+func toGoldenEntities(entities []DiscoveryEntity) []goldenDiscoveryEntity {
+	out := make([]goldenDiscoveryEntity, 0, len(entities))
+	for _, entity := range entities {
+		out = append(out, goldenDiscoveryEntity{Topic: entity.Topic, Payload: string(entity.Payload)})
+	}
+	return out
+}
+
+// assertGolden compares got (marshalled with indentation) against testdata/name.
+// Run `go test ./pkg/mqtt/ -run <Test> -update` to regenerate.
+func assertGolden(t *testing.T, name string, got any) {
+	t.Helper()
+	body, err := json.MarshalIndent(got, "", "  ")
+	require.NoError(t, err)
+	body = append(body, '\n')
+
+	path := filepath.Join("testdata", name)
+	if *updateGolden {
+		require.NoError(t, os.MkdirAll("testdata", 0o755))
+		require.NoError(t, os.WriteFile(path, body, 0o644))
+	}
+
+	want, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, strings.ReplaceAll(string(want), "\r\n", "\n"), string(body))
+}
+
+// T-0112: existing entity IDs and payloads are byte-for-byte unchanged, both
+// without and with the optimizer enabled.
+func TestBuildDiscoveryLegacyEntitiesGolden(t *testing.T) {
+	legacy := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(false, ""), "1.0.0", "sbam_golden")
+	assertGolden(t, "discovery_legacy.golden.json", toGoldenEntities(legacy))
+}
+
+func optimizerEntities(entities []DiscoveryEntity) []DiscoveryEntity {
+	out := make([]DiscoveryEntity, 0, 41)
+	for _, entity := range entities {
+		if strings.HasPrefix(entity.ObjectID, "opt_") {
+			out = append(out, entity)
+		}
+	}
+	return out
+}
+
+func decodeRawDiscovery(t *testing.T, payload []byte) map[string]any {
+	t.Helper()
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(payload, &decoded))
+	return decoded
+}
+
+func stringField(raw map[string]any, key string) string {
+	value, _ := raw[key].(string)
+	return value
+}
+
+// T-0112: with Optimizer enabled discovery adds exactly 41 optimizer entities
+// (5 main + 36 plan hours) after the unchanged existing entities.
+func TestBuildDiscoveryOptimizerEntities(t *testing.T) {
+	legacy := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(false, ""), "1.0.0", "sbam_golden")
+	withOpt := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(true, "DKK"), "1.0.0", "sbam_golden")
+
+	require.Len(t, withOpt, len(legacy)+41)
+	assert.Equal(t, legacy, withOpt[:len(legacy)], "existing entities must be byte-for-byte unchanged")
+	assertGolden(t, "discovery_legacy.golden.json", toGoldenEntities(withOpt[:len(legacy)]))
+
+	opt := optimizerEntities(withOpt)
+	require.Len(t, opt, 41)
+	assertGolden(t, "discovery_optimizer.golden.json", toGoldenEntities(opt))
+
+	cases := []struct {
+		component, objectID, name, defaultEntityID, unit, deviceClass, stateClass, category, icon string
+	}{
+		{"sensor", "opt_action", "Optimizer Action", "sensor.sbam_opt_action", "", "enum", "", "", "mdi:battery-sync"},
+		{"sensor", "opt_rate_w", "Optimizer Rate", "sensor.sbam_opt_rate_w", "W", "power", "measurement", "", ""},
+		{"sensor", "opt_expected_cost", "Expected Cost", "sensor.sbam_opt_expected_cost", "DKK", "monetary", "", "", "mdi:cash-clock"},
+		{"sensor", "opt_horizon_h", "Optimizer Horizon", "sensor.sbam_opt_horizon_h", "h", "duration", "measurement", "diagnostic", "mdi:timeline-clock-outline"},
+		{"binary_sensor", "opt_dry_run", "Optimizer Dry Run", "binary_sensor.sbam_opt_dry_run", "", "", "", "diagnostic", "mdi:test-tube"},
+		{"sensor", "opt_plan_h00", "Plan +00h", "sensor.sbam_opt_plan_h00", "", "enum", "", "diagnostic", "mdi:calendar-clock"},
+		{"sensor", "opt_plan_h17", "Plan +17h", "sensor.sbam_opt_plan_h17", "", "enum", "", "diagnostic", "mdi:calendar-clock"},
+		{"sensor", "opt_plan_h35", "Plan +35h", "sensor.sbam_opt_plan_h35", "", "enum", "", "diagnostic", "mdi:calendar-clock"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.objectID, func(t *testing.T) {
+			entity := requireEntity(t, withOpt, tc.component, tc.objectID)
+			assert.Equal(t, "homeassistant/"+tc.component+"/sbam/"+tc.objectID+"/config", entity.Topic)
+			raw := decodeRawDiscovery(t, entity.Payload)
+			assert.Equal(t, tc.name, raw["name"])
+			assert.Equal(t, "sbam_golden_"+tc.objectID, raw["unique_id"])
+			assert.Equal(t, tc.defaultEntityID, raw["default_entity_id"])
+			assert.Equal(t, tc.unit, stringField(raw, "unit_of_measurement"))
+			assert.Equal(t, tc.deviceClass, stringField(raw, "device_class"))
+			assert.Equal(t, tc.stateClass, stringField(raw, "state_class"))
+			assert.Equal(t, tc.category, stringField(raw, "entity_category"))
+			assert.Equal(t, tc.icon, stringField(raw, "icon"))
+			if tc.deviceClass == "enum" {
+				assert.Equal(t, []any{"charge", "hold", "standby", "discharge", "self_consume"}, raw["options"])
+			}
+		})
+	}
+
+	action := decodeRawDiscovery(t, requireEntity(t, withOpt, "sensor", "opt_action").Payload)
+	assert.Equal(t, "sbam/state", action["state_topic"])
+	assert.Equal(t, "sbam/plan", action["json_attributes_topic"])
+	assert.Contains(t, action["json_attributes_template"], "'hours': value_json.hours")
+	assert.Equal(t, "sbam/availability", action["availability_topic"])
+}
+
+// T-0112 edge: optimizer unique IDs are distinct from each other and from the
+// existing entities.
+func TestBuildDiscoveryOptimizerUniqueIDs(t *testing.T) {
+	entities := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(true, "EUR"), "1.0.0", "sbam_golden")
+	seen := map[string]bool{}
+	for _, entity := range entities {
+		id := decodeDiscoveryPayload(t, entity.Payload).UniqueID
+		assert.False(t, seen[id], "duplicate unique_id %s", id)
+		seen[id] = true
+	}
+}
+
+// T-0113: opt_plan_h05 uses availability_mode all with the hours-length
+// template and no availability_topic.
+func TestBuildDiscoveryPlanHourAvailability(t *testing.T) {
+	entities := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(true, "DKK"), "1.0.0", "sbam_golden")
+	raw := decodeRawDiscovery(t, requireEntity(t, entities, "sensor", "opt_plan_h05").Payload)
+
+	_, hasTopic := raw["availability_topic"]
+	assert.False(t, hasTopic, "availability_topic must be omitted when availability is set")
+	_, hasPayloadAvailable := raw["payload_available"]
+	assert.False(t, hasPayloadAvailable)
+	assert.Equal(t, "all", raw["availability_mode"])
+	assert.Equal(t, "sbam/plan", raw["state_topic"])
+	assert.Equal(t, "{{ value_json.hours[5].action if (value_json.hours | length) > 5 else 'self_consume' }}", raw["value_template"])
+	assert.Equal(t, "{{ (value_json.hours[5] if (value_json.hours | length) > 5 else {}) | tojson }}", raw["json_attributes_template"])
+
+	availability, ok := raw["availability"].([]any)
+	require.True(t, ok)
+	require.Len(t, availability, 2)
+	first := availability[0].(map[string]any)
+	assert.Equal(t, "sbam/availability", first["topic"])
+	assert.Equal(t, "online", first["payload_available"])
+	assert.Equal(t, "offline", first["payload_not_available"])
+	second := availability[1].(map[string]any)
+	assert.Equal(t, "sbam/plan", second["topic"])
+	assert.Equal(t, "{{ 'online' if (value_json.hours | length) > 5 else 'offline' }}", second["value_template"])
+
+	// Edge: indices are unpadded integers (Jinja rejects literals such as 05).
+	h00 := decodeRawDiscovery(t, requireEntity(t, entities, "sensor", "opt_plan_h00").Payload)
+	assert.Contains(t, h00["value_template"], "> 0 else")
+	h35 := decodeRawDiscovery(t, requireEntity(t, entities, "sensor", "opt_plan_h35").Payload)
+	assert.Contains(t, h35["value_template"], "hours[35]")
+}
+
+// T-0114: outside optimize mode PublishDiscovery removes the 41 optimizer
+// entities with empty retained payloads and clears the plan topic.
+func TestPublishDiscoveryRemovesOptimizerEntities(t *testing.T) {
+	cfg := goldenDiscoveryConfig(false, "")
+	client := &fakeMQTTClient{}
+	PublishDiscovery(context.Background(), client, cfg, "1.0.0")
+
+	removals := BuildOptimizerDiscoveryRemoval(cfg)
+	require.Len(t, removals, 41)
+
+	empty := map[string]publishCall{}
+	for _, publish := range client.publishes {
+		if len(publish.payload) == 0 {
+			empty[publish.topic] = publish
+		}
+	}
+	require.Len(t, empty, 42)
+	for _, removal := range removals {
+		publish, ok := empty[removal.Topic]
+		require.True(t, ok, "missing removal for %s", removal.Topic)
+		assert.True(t, publish.retained)
+		assert.Equal(t, qosAtLeastOnce, publish.qos)
+	}
+	assert.Contains(t, empty, "homeassistant/binary_sensor/sbam/opt_dry_run/config")
+	assert.Contains(t, empty, "homeassistant/sensor/sbam/opt_plan_h35/config")
+	plan, ok := empty["sbam/plan"]
+	require.True(t, ok, "plan topic must be cleared")
+	assert.True(t, plan.retained)
+}
+
+// T-0114 edge: in optimize mode nothing is removed and the plan is not cleared.
+func TestPublishDiscoveryOptimizerPublishesEntities(t *testing.T) {
+	client := &fakeMQTTClient{}
+	PublishDiscovery(context.Background(), client, goldenDiscoveryConfig(true, "DKK"), "1.0.0")
+
+	optCount := 0
+	for _, publish := range client.publishes {
+		assert.NotEmpty(t, publish.payload, "unexpected empty publish to %s", publish.topic)
+		assert.NotEqual(t, "sbam/plan", publish.topic)
+		if strings.Contains(publish.topic, "/opt_") {
+			optCount++
+		}
+	}
+	assert.Equal(t, 41, optCount)
+}
+
+// T-0114 failure: publish errors during removal are logged, not fatal, and
+// every removal is still attempted.
+func TestPublishDiscoveryRemovalPublishError(t *testing.T) {
+	observed := withObservedLogger(t)
+	client := &fakeMQTTClient{publishErr: errors.New("publish failed")}
+	cfg := goldenDiscoveryConfig(false, "")
+	assert.NotPanics(t, func() { PublishDiscovery(context.Background(), client, cfg, "1.0.0") })
+
+	legacy := BuildDiscovery(cfg, "1.0.0")
+	assert.Len(t, client.publishes, len(legacy)+42)
+	assert.Equal(t, len(legacy)+42, observed.FilterMessage("mqtt publish failed").Len())
+
+	assert.NotPanics(t, func() { publishEmptyRetained(context.Background(), nil, "sbam/plan") })
+}
+
+// T-0115: the opt_expected_cost unit follows Config.Currency. A currency change
+// alters only that entity, so one discovery republish updates HA. Deciding
+// when to republish (once per change) belongs to the caller in pkg/cmd.
+func TestBuildDiscoveryExpectedCostCurrency(t *testing.T) {
+	unknown := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(true, ""), "1.0.0", "sbam_golden")
+	dkk := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(true, " DKK "), "1.0.0", "sbam_golden")
+	require.Len(t, dkk, len(unknown))
+
+	before := decodeRawDiscovery(t, requireEntity(t, unknown, "sensor", "opt_expected_cost").Payload)
+	_, hasUnit := before["unit_of_measurement"]
+	assert.False(t, hasUnit, "no unit without a known currency")
+	_, hasClass := before["device_class"]
+	assert.False(t, hasClass, "no device class without a known currency")
+
+	after := decodeRawDiscovery(t, requireEntity(t, dkk, "sensor", "opt_expected_cost").Payload)
+	assert.Equal(t, "DKK", after["unit_of_measurement"])
+	assert.Equal(t, "monetary", after["device_class"])
+	_, hasStateClass := after["state_class"]
+	assert.False(t, hasStateClass, "monetary forbids state_class measurement")
+
+	changed := []string{}
+	for i := range unknown {
+		if string(unknown[i].Payload) != string(dkk[i].Payload) {
+			changed = append(changed, unknown[i].ObjectID)
+		}
+	}
+	assert.Equal(t, []string{"opt_expected_cost"}, changed)
+
+	client := &fakeMQTTClient{}
+	PublishDiscovery(context.Background(), client, goldenDiscoveryConfig(true, "DKK"), "1.0.0")
+	found := 0
+	for _, publish := range client.publishes {
+		if publish.topic == "homeassistant/sensor/sbam/opt_expected_cost/config" {
+			found++
+			assert.Contains(t, string(publish.payload), `"unit_of_measurement":"DKK"`)
+		}
+	}
+	assert.Equal(t, 1, found)
 }

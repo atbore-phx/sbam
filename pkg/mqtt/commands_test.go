@@ -408,3 +408,34 @@ func TestPublishAckMarshalError(t *testing.T) {
 	require.Error(t, err)
 	assert.EqualError(t, err, "marshal failed")
 }
+
+// T-0117: IntentWatchdog is internal; ParseIntent never yields it for any
+// topic or payload, including a topic that names it directly.
+func TestParseIntentNeverYieldsWatchdog(t *testing.T) {
+	topics := []string{
+		"sbam/cmd/watchdog",
+		"sbam/cmd/WATCHDOG",
+		"sbam/cmd/watchdog/",
+		"site/sbam/cmd/watchdog",
+		"sbam/cmd/trigger_now",
+		"sbam/cmd/pause",
+		"sbam/cmd/resume",
+		"sbam/cmd/set_defaults",
+		"sbam/cmd/force_charge",
+		"sbam/cmd/set_reserve",
+		"sbam/cmd/",
+		"",
+	}
+	payloads := [][]byte{nil, []byte("{}"), []byte(`{"kind":"watchdog"}`), []byte(`{"target_pct":50}`), []byte(`{"until":"60s"}`), []byte("not json")}
+
+	for _, topic := range topics {
+		for _, payload := range payloads {
+			intent, err := ParseIntent(topic, payload)
+			assert.NotEqual(t, IntentWatchdog, intent.Kind, "topic %q payload %q", topic, payload)
+			if strings.Contains(strings.ToLower(topic), "watchdog") {
+				assert.ErrorIs(t, err, ErrUnknownCommand, "topic %q payload %q", topic, payload)
+			}
+		}
+	}
+	assert.Equal(t, IntentKind("watchdog"), IntentWatchdog)
+}

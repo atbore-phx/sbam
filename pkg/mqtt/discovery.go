@@ -4,8 +4,23 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
+
+// optimizerActions are the enum options of the Optimizer Action and plan-hour
+// sensors (UX §3.1).
+var optimizerActions = []string{"charge", "hold", "standby", "discharge", "self_consume"}
+
+// OptimizerPlanHours is the number of per-hour plan sensors opt_plan_h00..h35.
+const OptimizerPlanHours = 36
+
+type availabilityEntry struct {
+	Topic               string `json:"topic"`
+	ValueTemplate       string `json:"value_template,omitempty"`
+	PayloadAvailable    string `json:"payload_available,omitempty"`
+	PayloadNotAvailable string `json:"payload_not_available,omitempty"`
+}
 
 type discoveryDevice struct {
 	Identifiers  []string `json:"identifiers"`
@@ -41,6 +56,13 @@ type discoveryPayload struct {
 	Mode              string          `json:"mode,omitempty"`
 	Retain            *bool           `json:"retain,omitempty"`
 	QoS               int             `json:"qos,omitempty"`
+	// Fields below are only set on optimizer entities; omitempty keeps the
+	// existing entity payloads byte-for-byte unchanged.
+	Availability           []availabilityEntry `json:"availability,omitempty"`
+	AvailabilityMode       string              `json:"availability_mode,omitempty"`
+	JSONAttributesTopic    string              `json:"json_attributes_topic,omitempty"`
+	JSONAttributesTemplate string              `json:"json_attributes_template,omitempty"`
+	Options                []string            `json:"options,omitempty"`
 }
 
 // BuildDiscovery returns Home Assistant MQTT discovery entities for sbam.
@@ -131,7 +153,128 @@ func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []D
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "force_charge", templatedButtonPayload(base, deviceID, "force_charge", "Force Charge", commandTopic(prefix, "force_charge"), forceChargeCommandTemplate))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "set_defaults", buttonPayload(base, deviceID, "set_defaults", "Set Defaults", commandTopic(prefix, "set_defaults"), "{}"))
 
+	if cfg.Optimizer {
+		entities = appendOptimizerEntities(entities, base, discoveryPrefix, prefix, deviceID, cfg.Currency)
+	}
+
 	return entities
+}
+
+// BuildOptimizerDiscoveryRemoval returns the 41 optimizer discovery topics
+// with empty payloads. Publishing them retained removes the entities in HA
+// (UX §3.5).
+func BuildOptimizerDiscoveryRemoval(cfg Config) []DiscoveryEntity {
+	discoveryPrefix := normalizeDiscoveryPrefix(cfg.HADiscoveryPrefix)
+	ids := optimizerEntityIDs()
+	entities := make([]DiscoveryEntity, 0, len(ids))
+	for _, id := range ids {
+		entities = append(entities, DiscoveryEntity{
+			Component: id[0],
+			ObjectID:  id[1],
+			Topic:     discoveryConfigTopic(discoveryPrefix, id[0], id[1]),
+			Payload:   []byte{},
+		})
+	}
+	return entities
+}
+
+// optimizerEntityIDs lists (component, object_id) of every optimizer entity.
+func optimizerEntityIDs() [][2]string {
+	ids := [][2]string{
+		{"sensor", "opt_action"},
+		{"sensor", "opt_rate_w"},
+		{"sensor", "opt_expected_cost"},
+		{"sensor", "opt_horizon_h"},
+		{"binary_sensor", "opt_dry_run"},
+	}
+	for hour := 0; hour < OptimizerPlanHours; hour++ {
+		ids = append(ids, [2]string{"sensor", planHourObjectID(hour)})
+	}
+	return ids
+}
+
+func planHourObjectID(hour int) string {
+	return fmt.Sprintf("opt_plan_h%02d", hour)
+}
+
+func appendOptimizerEntities(entities []DiscoveryEntity, base discoveryPayload, discoveryPrefix, prefix, deviceID, currency string) []DiscoveryEntity {
+	plan := planTopic(prefix)
+
+	action := sensorPayload(base, deviceID, "opt_action", "Optimizer Action", "{{ value_json.opt_action }}", "", "enum", "", "")
+	action.DefaultEntityID = "sensor.sbam_opt_action"
+	action.Options = optimizerActions
+	action.Icon = "mdi:battery-sync"
+	action.JSONAttributesTopic = plan
+	action.JSONAttributesTemplate = "{{ {'hours': value_json.hours, 'expected_cost': value_json.expected_cost, 'terminal_value': value_json.terminal_value, 'horizon_end': value_json.horizon_end, 'reasons': value_json.reasons, 'currency': value_json.currency, 'dry_run': value_json.dry_run} | tojson }}"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "opt_action", action)
+
+	rate := sensorPayload(base, deviceID, "opt_rate_w", "Optimizer Rate", "{{ value_json.opt_rate_w }}", "W", "power", "measurement", "")
+	rate.DefaultEntityID = "sensor.sbam_opt_rate_w"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "opt_rate_w", rate)
+
+	// monetary forbids state_class measurement; without a known currency
+	// neither unit nor device class is set (UX §3.1, O-3).
+	currency = strings.TrimSpace(currency)
+	costDeviceClass := ""
+	if currency != "" {
+		costDeviceClass = "monetary"
+	}
+	cost := sensorPayload(base, deviceID, "opt_expected_cost", "Expected Cost", "{{ value_json.opt_expected_cost }}", currency, costDeviceClass, "", "")
+	cost.DefaultEntityID = "sensor.sbam_opt_expected_cost"
+	cost.Icon = "mdi:cash-clock"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "opt_expected_cost", cost)
+
+	horizon := sensorPayload(base, deviceID, "opt_horizon_h", "Optimizer Horizon", "{{ value_json.opt_horizon_h }}", "h", "duration", "measurement", "diagnostic")
+	horizon.DefaultEntityID = "sensor.sbam_opt_horizon_h"
+	horizon.Icon = "mdi:timeline-clock-outline"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "opt_horizon_h", horizon)
+
+	dryRun := sensorPayload(base, deviceID, "opt_dry_run", "Optimizer Dry Run", "{{ value_json.opt_dry_run | string | lower }}", "", "", "", "diagnostic")
+	dryRun.DefaultEntityID = "binary_sensor.sbam_opt_dry_run"
+	dryRun.Icon = "mdi:test-tube"
+	dryRun.PayloadOn = "true"
+	dryRun.PayloadOff = "false"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "opt_dry_run", dryRun)
+
+	for hour := 0; hour < OptimizerPlanHours; hour++ {
+		objectID := planHourObjectID(hour)
+		entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", objectID, planHourPayload(base, deviceID, prefix, hour))
+	}
+
+	return entities
+}
+
+// planHourPayload builds sensor opt_plan_hNN (UX §3.2). Template indices are
+// plain integers because Jinja rejects zero-padded literals such as 05.
+func planHourPayload(base discoveryPayload, deviceID, prefix string, hour int) discoveryPayload {
+	objectID := planHourObjectID(hour)
+	plan := planTopic(prefix)
+
+	payload := sensorPayload(base, deviceID, objectID, fmt.Sprintf("Plan +%02dh", hour),
+		fmt.Sprintf("{{ value_json.hours[%d].action if (value_json.hours | length) > %d else 'self_consume' }}", hour, hour),
+		"", "enum", "", "diagnostic")
+	payload.DefaultEntityID = "sensor.sbam_" + objectID
+	payload.StateTopic = plan
+	payload.Options = optimizerActions
+	payload.Icon = "mdi:calendar-clock"
+	payload.JSONAttributesTopic = plan
+	payload.JSONAttributesTemplate = fmt.Sprintf("{{ (value_json.hours[%d] if (value_json.hours | length) > %d else {}) | tojson }}", hour, hour)
+
+	// HA rejects availability_topic together with availability.
+	payload.AvailabilityTopic = ""
+	payload.PayloadAvailable = ""
+	payload.PayloadNotAvail = ""
+	payload.AvailabilityMode = "all"
+	payload.Availability = []availabilityEntry{
+		{Topic: availabilityTopic(prefix), PayloadAvailable: "online", PayloadNotAvailable: "offline"},
+		{
+			Topic:               plan,
+			ValueTemplate:       fmt.Sprintf("{{ 'online' if (value_json.hours | length) > %d else 'offline' }}", hour),
+			PayloadAvailable:    "online",
+			PayloadNotAvailable: "offline",
+		},
+	}
+	return payload
 }
 
 func sensorPayload(base discoveryPayload, deviceID, objectID, name, valueTemplate, unit, deviceClass, stateClass, entityCategory string) discoveryPayload {

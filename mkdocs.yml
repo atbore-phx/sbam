@@ -55,6 +55,7 @@ nav:
     - Configuration: configuration.md
     - MQTT Guide: mqtt.md
     - Weekday Filtering: weekdays.md
+    - Cost-optimized Dispatch: optimizer.md
     - CLI Reference: cli.md
     - Changelog: changelog.md
   - Help: help.md

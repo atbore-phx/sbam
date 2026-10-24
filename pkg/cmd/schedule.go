@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	"sbam/pkg/optimize"
 	pw "sbam/pkg/power"
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
@@ -92,7 +93,7 @@ var scdCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return bindFlags(cmd)
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		s_url = viper.GetString("url")
 		s_apiKey = viper.GetString("apikey")
 		fronius_ip = viper.GetString("fronius_ip")
@@ -128,17 +129,17 @@ var scdCmd = &cobra.Command{
 		if f := cmd.Flags().Lookup("windows"); f != nil && f.Changed {
 			if err := yaml.Unmarshal([]byte(f.Value.String()), &windows); err != nil {
 				u.Log.Errorf("invalid --windows flag: %v", err)
-				return
+				return nil
 			}
 		} else if env, ok := os.LookupEnv("WINDOWS"); ok {
 			if err := yaml.Unmarshal([]byte(env), &windows); err != nil {
 				u.Log.Errorf("invalid WINDOWS env var: %v", err)
-				return
+				return nil
 			}
 		} else if viper.InConfig("windows") {
 			if err := viper.UnmarshalKey("windows", &windows); err != nil {
 				u.Log.Errorf("invalid windows in config.yaml: %v", err)
-				return
+				return nil
 			}
 		}
 		for i := range windows {
@@ -165,6 +166,7 @@ var scdCmd = &cobra.Command{
 		}
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
+		optimizeMode := scheduler_mode == schedulerModeOptimize
 
 		mqttCfg := mqtt.Config{
 			Enabled:           mqtt_enabled,
@@ -180,6 +182,9 @@ var scdCmd = &cobra.Command{
 			HADiscovery:       mqtt_ha_discovery,
 			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
 			FroniusIP:         fronius_ip,
+			// The optimizer entities are published only in optimize mode;
+			// otherwise discovery removes them and clears <prefix>/plan.
+			Optimizer: optimizeMode,
 		}
 		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion)
 		defer mqttCleanup()
@@ -199,9 +204,22 @@ var scdCmd = &cobra.Command{
 		u.LogStartupParams(cmd, extras)
 
 		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature)
-		if err != nil {
+		var (
+			optCfg  OptimizeConfig
+			optDeps optimizeDeps
+		)
+		if optimizeMode {
+			// Optimize mode fails with exit code 1 after the ADR-0004 §3
+			// defaults attempt; the other modes keep their exit behaviour.
+			optCfg, optDeps, err = prepareOptimizeMode(err)
+			if err != nil {
+				cmd.SilenceUsage = true
+				cmd.SilenceErrors = true // already logged
+				return err
+			}
+		} else if err != nil {
 			u.Log.Error(err)
-			return
+			return nil
 		}
 
 		runnerCfg := RunnerConfig{
@@ -228,6 +246,8 @@ var scdCmd = &cobra.Command{
 			WeekdayFeature:     weekday_feature,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
+			Optimize:           optCfg,
+			OptimizeDeps:       optDeps,
 		}
 
 		runner := NewRunner(runnerCfg, mqttClient)
@@ -268,7 +288,7 @@ var scdCmd = &cobra.Command{
 					if waitErr := waitForRunnerDone(runDone); waitErr != nil {
 						u.Log.Error(waitErr)
 					}
-					return
+					return nil
 				}
 			}
 
@@ -279,14 +299,22 @@ var scdCmd = &cobra.Command{
 			u.Log.Info("scheduler_mode=windows active; starting internal ticker")
 			runner.StartWindowsTicker(time.Now())
 
+		case schedulerModeOptimize:
+			if crontab != const_ct {
+				u.Log.Warn("crontab is set but scheduler_mode=optimize; crontab will be ignored")
+			}
+			logOptimizeModeActive(optCfg)
+			runner.StartOptimizeTicker()
+
 		default:
 			u.Log.Errorf("unexpected scheduler_mode %q", scheduler_mode)
-			return
+			return nil
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, scheduler_mode, runner, runDone, stop); err != nil {
 			u.Log.Error(err)
 		}
+		return nil
 	},
 }
 
@@ -329,9 +357,10 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today, to_next_window)")
-	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
+	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows, optimize)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
+	registerOptimizeFlags(scdCmd)
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -462,10 +491,12 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 		if len(windows) == 0 {
 			return errors.New("scheduler_mode is 'windows' but no windows are configured; add at least one entry to windows:")
 		}
+	case schedulerModeOptimize:
+		// The ha_*/opt_* keys are validated by loadOptimizeConfig.
 	case "auto":
 		return fmt.Errorf("scheduler_mode 'auto' is not yet available — see issue #149")
 	default:
-		return fmt.Errorf("unknown scheduler_mode %q: must be crontab, windows, or auto", scheduler_mode)
+		return fmt.Errorf("unknown scheduler_mode %q: must be crontab, windows or optimize", scheduler_mode)
 	}
 
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
@@ -671,4 +702,83 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
+}
+
+// optStartupDefaultsTimeout bounds the ADR-0004 §3 defaults attempt.
+var optStartupDefaultsTimeout = 5 * time.Second
+
+var errDefaultsTimeout = errors.New("timed out")
+
+// prepareOptimizeMode loads and validates the optimize configuration
+// (logging its warnings at Warn) and builds the optimizer dependencies.
+// baseErr is the result of the generic schedule validation. On any failure it
+// attempts an ordered defaults write when live (ADR-0004 §3, TC-001c) and
+// returns the error, which makes `sbam schedule` exit with code 1.
+func prepareOptimizeMode(baseErr error) (OptimizeConfig, optimizeDeps, error) {
+	cfg, warnings, cfgErr := loadOptimizeConfig()
+	for _, w := range warnings {
+		u.Log.Warn(w)
+	}
+	err := errors.Join(baseErr, cfgErr)
+	var deps optimizeDeps
+	if err == nil {
+		deps, err = newOptimizeDeps(cfg)
+	}
+	if err != nil {
+		u.Log.Error(err)
+		optStartupFailSafe(cfg)
+		return cfg, optimizeDeps{}, err
+	}
+	return cfg, deps, nil
+}
+
+// optStartupFailSafe restores inverter defaults after a startup validation
+// failure in live optimize mode, so a broken config edit never leaves a
+// forced state from an earlier live run (ADR-0004 §3). It never writes in
+// dry-run or without a usable fronius_ip.
+func optStartupFailSafe(cfg OptimizeConfig) {
+	ip := strings.TrimSpace(cfg.FroniusIP)
+	if cfg.DryRun || ip == "" || strings.ContainsAny(ip, " /\\") {
+		u.Log.Info("optimize mode: startup validation failed; no defaults write (dry run or no fronius_ip)")
+		return
+	}
+	if err := optSetDefaultsWithin(newDispatchWriter(), ip, optStartupDefaultsTimeout); err != nil {
+		u.Log.Errorw("defaults restore failed; inverter state unknown", "reason", "startup_validation_failed", "error", err)
+		return
+	}
+	u.Log.Warn("optimize mode: startup validation failed; inverter defaults restored")
+}
+
+// optSetDefaultsWithin writes ordered defaults with a deadline. The write
+// keeps running in the background after a timeout; the caller is exiting.
+func optSetDefaultsWithin(w dispatchWriter, ip string, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- w.SetDefaults(ip)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return errDefaultsTimeout
+	}
+}
+
+// logOptimizeModeActive writes the optimize-mode startup Info line (UX §7.1).
+// It never logs the HA token or URL.
+func logOptimizeModeActive(cfg OptimizeConfig) {
+	access := "supervisor"
+	if strings.TrimSpace(cfg.HAURL) != "" {
+		access = "url"
+	}
+	u.Log.Infow("optimize mode active",
+		"ha_access", access,
+		"dry_run", cfg.DryRun,
+		"forecast_cache", true,
+		"horizon_max_h", optimize.DefaultMaxHours,
+		"steps", optimize.DefaultSteps,
+		"revert_s", fronius.RevertSeconds,
+	)
 }

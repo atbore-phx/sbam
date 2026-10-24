@@ -41,6 +41,26 @@ type Paho struct {
 	closeOnce          sync.Once
 	closed             atomic.Bool
 	onConnectCallbacks []func()
+	// currencyMu guards cfg.Currency, which SetCurrency updates from the
+	// schedule runner while paho callbacks republish discovery.
+	currencyMu sync.RWMutex
+}
+
+// SetCurrency updates the currency used as the Expected Cost unit in the
+// discovery this client publishes on (re)connect and when HA comes online,
+// so a republish keeps the currency learned at runtime (UX O-3, T-0115). It
+// does not publish by itself.
+func (p *Paho) SetCurrency(currency string) {
+	p.currencyMu.Lock()
+	p.cfg.Currency = currency
+	p.currencyMu.Unlock()
+}
+
+// discoveryConfig returns a copy of the client config for a discovery publish.
+func (p *Paho) discoveryConfig() Config {
+	p.currencyMu.RLock()
+	defer p.currencyMu.RUnlock()
+	return p.cfg
 }
 
 func NewPaho(cfg Config) (*Paho, error) {
@@ -103,7 +123,7 @@ func NewPaho(cfg Config) (*Paho, error) {
 		}
 
 		utils.Log.Debugw("mqtt publishing HA discovery", "broker", sanitizeBroker(p.cfg.Broker))
-		PublishDiscovery(context.Background(), p, p.cfg, p.discoveryVersion)
+		PublishDiscovery(context.Background(), p, p.discoveryConfig(), p.discoveryVersion)
 
 		if p.cfg.HADiscovery {
 			utils.Log.Debugw("mqtt subscribing to HA status topic", "topic", haStatusTopic())
@@ -116,7 +136,7 @@ func NewPaho(cfg Config) (*Paho, error) {
 				}
 				utils.Log.Infow("mqtt HA online detected, re-publishing discovery", "topic", message.Topic())
 				ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
-				PublishDiscovery(ctx, p, p.cfg, p.discoveryVersion)
+				PublishDiscovery(ctx, p, p.discoveryConfig(), p.discoveryVersion)
 				cancel()
 			}
 			if err := waitToken(context.Background(), client.Subscribe(haStatusTopic(), byte(1), haHandler)); err != nil {

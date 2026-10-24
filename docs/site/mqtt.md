@@ -43,6 +43,7 @@ Use `mqtt_topic_prefix` to change the default `sbam` prefix.
 | `<prefix>/availability` | SBAM publishes | retained, QoS 1 | `online` or `offline` |
 | `<prefix>/state` | SBAM publishes | retained, QoS 1 | `StatePayload` JSON |
 | `<prefix>/error` | SBAM publishes | not retained, QoS 1 | `ErrorPayload` JSON |
+| `<prefix>/plan` | SBAM publishes after every optimizer run (`scheduler_mode: optimize` only) | retained, QoS 1 | `PlanPayload` JSON, see [Optimizer Plan Topic](#optimizer-plan-topic). Cleared (empty retained message) in the other modes. |
 | `<prefix>/cmd/+` | SBAM subscribes | QoS 1 | command payload JSON |
 | `<prefix>/cmd/<name>/ack` | SBAM publishes | not retained, QoS 1 | `AckPayload` JSON |
 | `<prefix>/control/+` | HA publishes selector values | retained, QoS 1 | selector state used by discovery button templates |
@@ -94,6 +95,34 @@ Diagnostics expose extra scheduler and operating details. Several diagnostics us
 - **Reserve Window**: `batt_reserve_window_active` — binary_sensor (`true`/`false`). Whether the battery reserve window is active.
 - **Last Update**: `last_update` — timestamp (`ts`). Time of the last published state update.
 
+### Optimizer Entities (optimize mode)
+
+With `scheduler_mode: optimize`, discovery adds 5 entities and 36 per-hour plan sensors (41 in total) to the sbam device. In every other mode their discovery topics receive an empty retained payload, which removes them from Home Assistant, and `<prefix>/plan` is cleared. Existing entities are unchanged. The new entities set `default_entity_id`, so their entity IDs are predictable.
+
+| Entity | Entity ID | Source | Unit / class | Category |
+|--------|-----------|--------|--------------|----------|
+| **Optimizer Action** | `sensor.sbam_opt_action` | state `opt_action` | enum: `charge`, `hold`, `standby`, `discharge`, `self_consume` | main |
+| **Optimizer Rate** | `sensor.sbam_opt_rate_w` | state `opt_rate_w` | W, `power` | main |
+| **Expected Cost** | `sensor.sbam_opt_expected_cost` | state `opt_expected_cost` | currency of the price sensor (e.g. `DKK`), `monetary`; no unit until the currency is known | main |
+| **Optimizer Horizon** | `sensor.sbam_opt_horizon_h` | state `opt_horizon_h` | h, `duration` | diagnostic |
+| **Optimizer Dry Run** | `binary_sensor.sbam_opt_dry_run` | state `opt_dry_run` | `on` = nothing written to the inverter | diagnostic |
+| **Plan +00h** … **Plan +35h** | `sensor.sbam_opt_plan_h00` … `sensor.sbam_opt_plan_h35` | `<prefix>/plan`, `hours[NN].action` | enum, same options as Optimizer Action | diagnostic |
+
+- **Optimizer Action attributes** come from `<prefix>/plan`: `hours`, `expected_cost`, `terminal_value`, `horizon_end`, `reasons`, `currency` and `dry_run`. This is the full plan for dashboards.
+- **Plan +NNh** is relative to the current hour: `+00h` is the hour being executed now. Its attributes are the hour's fields from the plan (`start`, `rate_w`, `soc_end_pct`, `buy`, `sell`, `consumption_wh`, `pv_wh`); `start` holds the absolute local time.
+- **Plan +NNh availability.** A plan sensor is `unavailable` when its hour is beyond the horizon (normal before tomorrow's prices are published), on every fallback (the plan is empty), and when sbam is offline.
+- The existing **Decision Reason** sensor carries the top reason code, and **Last Decision** shows the action, `fallback_defaults` or `paused`. See [reason codes](optimizer.md#reason-codes).
+
+!!! tip "Recorder"
+    The plan sensors change every hour and the full plan is already in the Optimizer Action attributes. Exclude them from the recorder:
+
+    ```yaml
+    recorder:
+      exclude:
+        entity_globs:
+          - sensor.sbam_opt_plan_*
+    ```
+
 ### Configuration Selectors
 
 When discovery is enabled, Home Assistant receives two numeric selector MQTT `number` entities (mode: box):
@@ -143,6 +172,44 @@ Do not pause before `force_charge`: `force_charge` is rejected while paused.
 - Set `crontab` to `0 0 0 0 0` so SBAM only responds to MQTT commands.
 - Execute your manual command in a different time window than the crontab.
 
+### Commands in Optimize Mode
+
+With `scheduler_mode: optimize`, the topics and payloads are the same, but the semantics change so that a safety command always works:
+
+| Command | Behaviour in optimize mode |
+|---------|----------------------------|
+| `trigger_now` | Runs the optimizer immediately (writes unless dry run, paused or overridden). Limited to one accepted run per 60 s; extra commands are acked with `accepted: false, error: "rate limited"`. |
+| `pause` | **Writes inverter defaults first** (in dry run only after a `force_charge` command), then pauses. While paused, hourly runs still compute and publish the plan with reason `optimizer_paused`, but write nothing. If the defaults write fails, the pause is still set and the ack carries the error. Unlike the other modes, `pause` writes to the inverter. |
+| `resume` | Clears the pause and runs the optimizer immediately. Pause expiry does the same. |
+| `set_defaults` | **Always accepted**, also while paused. Writes defaults and ends a manual override. The next hourly run (or `resume`) applies the plan again. |
+| `force_charge` | Rejected while paused. Otherwise it writes the force charge **plus an inverter revert timeout** of `duration_s` + 300 s (end of the current hour + 300 s without `duration_s`), and starts a manual override until `duration_s` has passed or the current hour ends. During the override, runs publish the plan with reason `optimizer_manual_override` and write nothing. `target_pct: 0` restores defaults and ends the override. |
+| `set_reserve` | Rejected: `accepted: false, error: "not supported in scheduler_mode=optimize"`. The optimizer uses `opt_min_soc_pct`. |
+
+The manual force-charge sequence above is not needed in optimize mode: `force_charge` with `duration_s` keeps the optimizer from overwriting it, for example `{"target_pct":80,"duration_s":1800}`. For an emergency stop, send `pause` and then `set_defaults`.
+
+### Broker Security in Optimize Mode
+
+!!! warning
+    In optimize mode, MQTT publish rights on `<prefix>/cmd/#` are effectively battery control rights: a `force_charge` can charge the battery from the grid at any price, and `pause`/`resume` change what the inverter does. Protect the broker:
+
+    - Enable broker authentication; do not allow anonymous clients.
+    - Use an ACL so that only sbam and your Home Assistant user can publish to `<prefix>/cmd/#` and `<prefix>/control/#`, and only sbam can publish to `<prefix>/state`, `<prefix>/plan` and `<prefix>/availability`.
+    - Restrict subscriptions to `<prefix>/#`: the plan and state reveal when the household is home.
+
+    Example Mosquitto ACL (user names are placeholders):
+
+    ```
+    user sbam
+    topic readwrite sbam/#
+    topic readwrite homeassistant/#
+
+    user homeassistant
+    topic readwrite homeassistant/#
+    topic read sbam/#
+    topic write sbam/cmd/#
+    topic readwrite sbam/control/#
+    ```
+
 ## Payload Examples
 
 **State payload** (`<prefix>/state`):
@@ -162,6 +229,132 @@ Do not pause before `force_charge`: `force_charge` is rejected while paused.
   "next_run": null,
   "ts": "2026-05-18T21:00:00Z"
 }
+```
+
+**State payload in optimize mode** (after a live run). The `opt_*` fields are present only in optimize mode:
+
+```json
+{
+  "battery_soc_pct": 52.0,
+  "battery_capacity_wh": 10000,
+  "forecast_today_wh": 5100,
+  "charge_pct": 100,
+  "last_decision": "charge",
+  "last_decision_reason": "optimizer_charge_ahead_of_peak",
+  "charge_window_active": false,
+  "batt_reserve_window_active": false,
+  "scheduler_mode": "optimize",
+  "opt_action": "charge",
+  "opt_rate_w": 4500,
+  "opt_expected_cost": 39.4,
+  "opt_horizon_h": 22,
+  "opt_dry_run": false,
+  "opt_reasons": ["optimizer_charge_ahead_of_peak"],
+  "paused": false,
+  "next_run": null,
+  "ts": "2026-10-03T00:00:01Z"
+}
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `opt_action` | string | `charge`, `hold`, `standby`, `discharge` or `self_consume` for the current hour. `self_consume` on fallback. |
+| `opt_rate_w` | number | Rate in W, ≥ 0; the direction comes from the action. `0` for `hold`, `standby` and `self_consume`. |
+| `opt_expected_cost` | number or `null` | Expected cost over the horizon minus the terminal value, in the price sensor's currency. `null` on fallback. |
+| `opt_horizon_h` | integer | Number of hours in the plan; `0` on fallback. |
+| `opt_dry_run` | boolean | `true` when nothing was written to the inverter. |
+| `opt_reasons` | string array | All applicable reason codes in precedence order; the first equals `last_decision_reason`. |
+
+In optimize mode, `last_decision` is the action, `fallback_defaults` or `paused`; `charge_window_active` and `batt_reserve_window_active` are `false`; `charge_pct` is set only for `charge`.
+
+**State payload on fallback**:
+
+```json
+{
+  "last_decision": "fallback_defaults",
+  "last_decision_reason": "optimizer_fallback_missing_prices",
+  "scheduler_mode": "optimize",
+  "opt_action": "self_consume",
+  "opt_rate_w": 0,
+  "opt_expected_cost": null,
+  "opt_horizon_h": 0,
+  "opt_dry_run": false,
+  "opt_reasons": ["optimizer_fallback_missing_prices"],
+  "paused": false,
+  "ts": "2026-10-02T13:00:00Z"
+}
+```
+
+### Optimizer Plan Topic
+
+`<prefix>/plan` is published retained (QoS 1) after every optimizer run, including dry-run, paused, override and fallback runs. It holds hourly aggregates only, never raw history. Prices are rounded to 4 decimals, energy and rates to whole Wh/W, and SoC to 1 decimal.
+
+```json
+{
+  "ts": "2026-10-02T12:00:01Z",
+  "dry_run": true,
+  "currency": "DKK",
+  "horizon_h": 3,
+  "horizon_end": "2026-10-02T17:00:00+02:00",
+  "start_soc_pct": 52,
+  "expected_cost": 41.8712,
+  "terminal_value": 1.9301,
+  "reason": "optimizer_hold_for_later_peak",
+  "reasons": ["optimizer_hold_for_later_peak"],
+  "hours": [
+    {"start": "2026-10-02T14:00:00+02:00", "action": "hold", "rate_w": 0, "soc_end_pct": 57.2, "buy": 1.38, "sell": 0.62, "consumption_wh": 610, "pv_wh": 1240},
+    {"start": "2026-10-02T15:00:00+02:00", "action": "hold", "rate_w": 0, "soc_end_pct": 58.7, "buy": 1.45, "sell": 0.66, "consumption_wh": 640, "pv_wh": 820},
+    {"start": "2026-10-02T16:00:00+02:00", "action": "discharge", "rate_w": 2000, "soc_end_pct": 34.6, "buy": 3.62, "sell": 1.98, "consumption_wh": 981, "pv_wh": 60}
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `ts` | Time of the run (UTC). |
+| `dry_run` | `true` when the run wrote nothing. |
+| `currency` | Currency of the price sensor; empty if unknown. |
+| `horizon_h` / `horizon_end` | Number of hours (up to 36) and the end of the last hour. `horizon_end` is `null` on fallback. |
+| `start_soc_pct` | SoC at the start of the run; `null` if it could not be read. |
+| `expected_cost` / `terminal_value` | Expected cost over the horizon (after subtracting the terminal value) and the value of the energy left at the end. `null` on fallback. |
+| `reason` / `reasons` | Top reason code and all reason codes. |
+| `hours[]` | One entry per hour: `start` (local time with offset), `action`, `rate_w`, `soc_end_pct`, `buy`, `sell`, `consumption_wh`, `pv_wh`. Empty on fallback. |
+
+`sbam optimize --output json` prints the same object.
+
+**Dashboard: optimizer plan.** A Markdown card that reads the plan from the Optimizer Action attributes. Check the entity ID of your Decision Reason sensor under **Settings → Entities**, because the existing sensors have no fixed entity ID.
+
+```yaml
+type: markdown
+title: sbam battery plan
+content: |
+  {% set p = state_attr('sensor.sbam_opt_action', 'hours') or [] %}
+  {% set cur = state_attr('sensor.sbam_opt_action', 'currency') or '' %}
+  **Now:** {{ states('sensor.sbam_opt_action') }} {{ states('sensor.sbam_opt_rate_w') }} W -
+  `{{ states('sensor.sbam_decision_reason') }}`{% if is_state('binary_sensor.sbam_opt_dry_run','on') %} - *dry run*{% endif %}
+  **Expected cost:** {{ states('sensor.sbam_opt_expected_cost') }} {{ cur }} over {{ p | length }} h
+
+  | Time | Action | Rate W | SoC % | Buy | Sell | Load Wh | PV Wh |
+  |---|---|--:|--:|--:|--:|--:|--:|
+  {% for h in p -%}
+  | {{ as_timestamp(h.start) | timestamp_custom('%a %H:%M') }} | {{ h.action }} | {{ h.rate_w | int }} | {{ h.soc_end_pct | round(0) }} | {{ '%.2f' % h.buy }} | {{ '%.2f' % h.sell }} | {{ h.consumption_wh | int }} | {{ h.pv_wh | int }} |
+  {% endfor %}
+```
+
+Next hours at a glance:
+
+```yaml
+type: entities
+title: sbam next 6 hours
+entities:
+  - entity: sensor.sbam_opt_plan_h00
+    secondary_info: attribute
+    attribute: start
+  - sensor.sbam_opt_plan_h01
+  - sensor.sbam_opt_plan_h02
+  - sensor.sbam_opt_plan_h03
+  - sensor.sbam_opt_plan_h04
+  - sensor.sbam_opt_plan_h05
 ```
 
 **Error payload** (`<prefix>/error`):
@@ -234,6 +427,7 @@ mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/set_defau
 - `force_charge.target_pct=0` stops forced charge and restores defaults.
 - `force_charge.target_pct=1..100` remains capped by `max_charge` using live battery max capacity.
 - `force_charge.ignore_max_charge=true` is accepted only when `target_pct=100`.
+- `force_charge.duration_s` is optional, `0..86400` seconds. In optimize mode it sets the manual override length and the revert timeout.
 - Raw `target_pct=101` is invalid for direct command payloads.
 - `pause.until` is optional; when set, it must be a future RFC3339 timestamp or a positive Go duration.
 
