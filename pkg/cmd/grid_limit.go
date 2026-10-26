@@ -19,6 +19,24 @@ var readPowerFlow = storage.ReadPowerFlow
 // force charge is running. Tests replace it.
 var limitCheckInterval = 30 * time.Second
 
+// limitProbeDelay is how long after a tick's charge the first check runs.
+// With battery priority the charge is claimed before other loads yield, so
+// a load that does not throttle is caught within this delay. Tests replace it.
+var limitProbeDelay = 10 * time.Second
+
+// Grid charge priority between the battery and other loads under
+// grid_import_limit.
+const (
+	// GridChargePriorityBattery claims the charge power the battery needs and
+	// only backs off when the site import actually exceeds the limit, i.e.
+	// when another load does not throttle itself. Loads that throttle to the
+	// meter (dynamic EV chargers) yield to the battery.
+	GridChargePriorityBattery = "battery"
+	// GridChargePriorityLoads charges only with the power other loads leave
+	// free under the limit.
+	GridChargePriorityLoads = "loads"
+)
+
 // limitRewriteStepPct is the smallest change in charge percent that is
 // written to the inverter by the limit loop.
 const limitRewriteStepPct = 5
@@ -31,11 +49,20 @@ type limitSession struct {
 	capacityWh float64
 	hold       bool  // write hold instead of defaults when the allowance drops to 0
 	lastPct    int16 // percent last written
+	battery    bool  // GridChargePriorityBattery: control on the measured import
 }
 
-// gridChargeAllowance returns the battery charge power (W) that keeps the
-// site import under grid_import_limit, capped at ceilingW, and the raw
-// allowance for telemetry. With the limit disabled it returns ceilingW.
+// batteryPriority reports whether the battery claims its charge power
+// before other loads (the default) under grid_import_limit.
+func (r *Runner) batteryPriority() bool {
+	return r.cfg.GridChargePriority != GridChargePriorityLoads
+}
+
+// gridChargeAllowance returns the battery charge power (W) a tick may use,
+// capped at ceilingW, and the power free under the limit for telemetry.
+// With the limit disabled it returns ceilingW. With battery priority the
+// tick claims ceilingW and the limit loop backs off if the site import
+// exceeds the limit; with loads priority it gets only the free power.
 // When the power flow cannot be read, ok is false and no grid charge is
 // allowed: charging blind could exceed the contracted power.
 func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW *float64, ok bool) {
@@ -48,7 +75,32 @@ func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW
 		return 0, nil, false
 	}
 	allowed := max(0, r.cfg.GridImportLimit-r.cfg.GridImportMargin-pf.BaselineImportW())
+	if r.batteryPriority() {
+		return ceilingW, &allowed, true
+	}
 	return min(ceilingW, allowed), &allowed, true
+}
+
+// batteryPriorityCapW returns the charge power (W) for the next step of a
+// battery-priority charge: keep the current rate while the site import is
+// within the limit, back off by the excess when it is above, and grow back
+// when there is room below limit - margin.
+func (r *Runner) batteryPriorityCapW(s *limitSession) (float64, bool) {
+	pf, err := readPowerFlow(r.cfg.FroniusIP)
+	if err != nil {
+		u.Log.Warnw("grid_import_limit: cannot read the power flow, stopping the grid charge", "error", err)
+		return 0, false
+	}
+	limit, margin := r.cfg.GridImportLimit, r.cfg.GridImportMargin
+	current := float64(s.lastPct) * s.capacityWh / 100
+	switch {
+	case pf.GridW > limit:
+		return max(0, current-(pf.GridW-limit)-margin), true
+	case pf.GridW < limit-margin:
+		return min(s.ceilingW, current+(limit-margin-pf.GridW)), true
+	default:
+		return current, true
+	}
 }
 
 // neededChargeWh is the energy a charge decision asks for, matching what
@@ -70,8 +122,20 @@ func (r *Runner) startLimitLoop(s limitSession) {
 	r.limit = &s
 	stop := make(chan struct{})
 	r.limitStop = stop
-	interval := limitCheckInterval
+	interval, probe := limitCheckInterval, limitProbeDelay
 	go func() {
+		submit := func() {
+			select {
+			case r.intents <- mqtt.Intent{Kind: mqtt.IntentLimitCheck}:
+			default: // queue busy: the next check will catch up
+			}
+		}
+		select {
+		case <-stop:
+			return
+		case <-time.After(probe):
+			submit()
+		}
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -79,10 +143,7 @@ func (r *Runner) startLimitLoop(s limitSession) {
 			case <-stop:
 				return
 			case <-t.C:
-				select {
-				case r.intents <- mqtt.Intent{Kind: mqtt.IntentLimitCheck}:
-				default: // queue busy: the next check will catch up
-				}
+				submit()
 			}
 		}
 	}()
@@ -114,7 +175,13 @@ func (r *Runner) handleLimitCheck(ctx context.Context) {
 		return
 	}
 
-	capW, _, ok := r.gridChargeAllowance(s.ceilingW)
+	var capW float64
+	var ok bool
+	if s.battery {
+		capW, ok = r.batteryPriorityCapW(s)
+	} else {
+		capW, _, ok = r.gridChargeAllowance(s.ceilingW)
+	}
 	var pct int16
 	if ok {
 		pct = max(0, fronius.SetChargePower(s.capacityWh, s.needWh, capW))
@@ -183,4 +250,13 @@ func checkGridLimitOptions(limitW, marginW float64) error {
 		return fmt.Errorf("grid_import_margin (%.0f W) must be lower than grid_import_limit (%.0f W)", marginW, limitW)
 	}
 	return nil
+}
+
+// checkGridChargePriority validates grid_charge_priority.
+func checkGridChargePriority(p string) error {
+	switch p {
+	case GridChargePriorityBattery, GridChargePriorityLoads, "":
+		return nil
+	}
+	return fmt.Errorf("grid_charge_priority must be %q or %q, got %q", GridChargePriorityBattery, GridChargePriorityLoads, p)
 }

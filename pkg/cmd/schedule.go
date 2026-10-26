@@ -27,6 +27,7 @@ var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_h
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
 	scheduler_mode string
 var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve, batt_min_soc, pw_base_load, grid_import_limit, grid_import_margin float64
+var grid_charge_priority string
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip, weekday_feature bool
 
@@ -112,6 +113,7 @@ var scdCmd = &cobra.Command{
 		pw_base_load = viper.GetFloat64("pw_base_load")
 		grid_import_limit = viper.GetFloat64("grid_import_limit")
 		grid_import_margin = viper.GetFloat64("grid_import_margin")
+		grid_charge_priority = viper.GetString("grid_charge_priority")
 		s_cache_forecast = viper.GetBool("cache_forecast")
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
@@ -227,6 +229,10 @@ var scdCmd = &cobra.Command{
 			u.Log.Error(err)
 			return
 		}
+		if err := checkGridChargePriority(grid_charge_priority); err != nil {
+			u.Log.Error(err)
+			return
+		}
 		if err := checkGridLimitOptions(grid_import_limit, grid_import_margin); err != nil {
 			u.Log.Error(err)
 			return
@@ -243,6 +249,7 @@ var scdCmd = &cobra.Command{
 			PWBaseLoad:         pw_base_load,
 			GridImportLimit:    grid_import_limit,
 			GridImportMargin:   grid_import_margin,
+			GridChargePriority: grid_charge_priority,
 			StartHR:            start_hr,
 			EndHR:              end_hr,
 			BattReserveStartHR: batt_reserve_start_hr,
@@ -366,6 +373,7 @@ func registerScdCmd() {
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
 	scdCmd.Flags().Float64Var(&batt_min_soc, "batt_min_soc", const_batt_min_soc, "Minimum battery SoC (%) configured in the inverter; used by reserve_horizon until_solar")
 	scdCmd.Flags().Float64Var(&grid_import_limit, "grid_import_limit", 0, "Max grid import (W) for the whole site while sbam charges from the grid; 0 = disabled")
+	scdCmd.Flags().StringVar(&grid_charge_priority, "grid_charge_priority", GridChargePriorityBattery, "Under grid_import_limit, who gets the power first: battery (claims its charge, throttling loads yield) or loads (battery uses only free power)")
 	scdCmd.Flags().Float64Var(&grid_import_margin, "grid_import_margin", const_grid_import_margin, "Power (W) kept free under grid_import_limit")
 	scdCmd.Flags().Float64Var(&pw_base_load, "pw_base_load", 0, "Base house load (W) used by reserve_horizon until_solar (0 = pw_consumption/24)")
 	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")

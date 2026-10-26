@@ -40,6 +40,7 @@ func limitRunner(t *testing.T, limitW float64) (*Runner, *fakeBatteryWriter) {
 	r := reserveRunner(pw.Window{Name: "night", Start: "00:00", End: "08:00", MaxCharge: 2500, HoldBattery: boolPtr(true)}, 1800)
 	r.cfg.GridImportLimit = limitW
 	r.cfg.GridImportMargin = 200
+	r.cfg.GridChargePriority = GridChargePriorityLoads // battery priority has its own tests
 	r.cfg.Now = func() time.Time { return localAt("03:00") }
 	return r, w
 }
@@ -260,9 +261,9 @@ func TestHandleLimitCheckStops(t *testing.T) {
 }
 
 func TestLimitLoopSubmitsChecksUntilStopped(t *testing.T) {
-	old := limitCheckInterval
-	limitCheckInterval = 5 * time.Millisecond
-	t.Cleanup(func() { limitCheckInterval = old })
+	old, oldProbe := limitCheckInterval, limitProbeDelay
+	limitCheckInterval, limitProbeDelay = 5*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { limitCheckInterval, limitProbeDelay = old, oldProbe })
 	r, _ := limitRunner(t, 3200)
 
 	r.startLimitLoop(limitSession{needWh: 850, ceilingW: 2500, capacityWh: 5120, lastPct: 16})
@@ -310,4 +311,95 @@ func TestScheduleGridLimitFlags(t *testing.T) {
 			assert.Equal(t, def, flag.DefValue, name)
 		}
 	}
+}
+
+// With battery priority the tick claims the window's max_charge even when a
+// throttling load (the EV) holds the line: otherwise both wait for each other
+// and the battery never charges (night of 2026-10-26).
+func TestBatteryPriorityClaimsAtTick(t *testing.T) {
+	r, _ := limitRunner(t, 3200)
+	r.cfg.GridChargePriority = ""
+	stubPowerFlow(t, 3150, nil) // EV at ~2.85 kW + house
+
+	capW, allowance, ok := r.gridChargeAllowance(2500)
+
+	assert.True(t, ok)
+	assert.Equal(t, 2500.0, capW, "claim, do not wait for room")
+	assert.Zero(t, *allowance, "telemetry still reports the free power")
+
+	stubPowerFlow(t, 0, errors.New("meter down"))
+	capW, _, ok = r.gridChargeAllowance(2500)
+	assert.False(t, ok)
+	assert.Zero(t, capW, "no grid charge without the meter, whatever the priority")
+}
+
+func TestBatteryPriorityTickStartsBatterySession(t *testing.T) {
+	r, _ := limitRunner(t, 3200)
+	r.cfg.GridChargePriority = GridChargePriorityBattery
+	stubPowerFlow(t, 3150, nil)
+	t.Cleanup(r.stopLimitLoop)
+	oldStorage, oldPower, oldFronius := newStorage, newPower, newFronius
+	t.Cleanup(func() { newStorage, newPower, newFronius = oldStorage, oldPower, oldFronius })
+	newStorage = func() storageClient { return &fakeStorageClient{capacityToCharge: 3870, capacityMax: 5120, socPct: 24} }
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 12000, retrieved: true} }
+	tracker := &trackingFroniusClient{decision: "reserve_charge", reason: "test", chargePct: 11, powerState: fronius.PowerState{BattReserveNet: -550}}
+	newFronius = func(fronius.SunSpecType) froniusClient { return tracker }
+
+	require.NoError(t, r.Tick(context.Background(), localAt("03:00")))
+
+	assert.InDelta(t, 2500, tracker.lastMaxCharge, 0.01)
+	require.NotNil(t, r.limit)
+	assert.True(t, r.limit.battery)
+}
+
+func TestBatteryPriorityLoop(t *testing.T) {
+	r, w := limitRunner(t, 3200)
+	r.cfg.GridChargePriority = GridChargePriorityBattery
+	t.Cleanup(r.stopLimitLoop)
+	// 16 % of 5120 Wh is ~819 W; the tick asked for 850 Wh.
+	r.limit = &limitSession{needWh: 850, ceilingW: 2500, capacityWh: 5120, hold: true, lastPct: 16, battery: true}
+
+	stubPowerFlow(t, 3150, nil) // the EV yielded: import within the limit
+	r.handleLimitCheck(context.Background())
+	assert.Zero(t, w.forceChargeCalls+w.holdCalls, "keep the claimed rate")
+
+	stubPowerFlow(t, 3900, nil) // a load that does not throttle: 700 W over
+	r.handleLimitCheck(context.Background())
+	assert.Equal(t, 1, w.holdCalls, "back off below the limit (to 0 here)")
+	assert.Equal(t, int16(0), r.limit.lastPct)
+
+	stubPowerFlow(t, 2000, nil) // room again
+	r.handleLimitCheck(context.Background())
+	assert.Equal(t, 1, w.forceChargeCalls)
+	assert.Equal(t, int16(16), w.lastTargetPct, "grows back, never above what the tick asked for")
+
+	stubPowerFlow(t, 0, errors.New("meter down"))
+	r.handleLimitCheck(context.Background())
+	assert.Equal(t, 2, w.holdCalls, "meter lost: stop charging")
+}
+
+func TestBatteryPriorityLoopPartialBackoff(t *testing.T) {
+	r, w := limitRunner(t, 3200)
+	r.cfg.GridChargePriority = GridChargePriorityBattery
+	r.limit = &limitSession{needWh: 2500, ceilingW: 2500, capacityWh: 5120, lastPct: 48, battery: true} // ~2458 W
+
+	stubPowerFlow(t, 3500, nil) // 300 W over
+
+	r.handleLimitCheck(context.Background())
+
+	assert.Equal(t, 1, w.forceChargeCalls)
+	assert.Equal(t, int16(38), w.lastTargetPct, "2458 - 300 - 200 = 1958 W = 38 %")
+}
+
+func TestCheckGridChargePriority(t *testing.T) {
+	assert.NoError(t, checkGridChargePriority("battery"))
+	assert.NoError(t, checkGridChargePriority("loads"))
+	assert.NoError(t, checkGridChargePriority(""))
+	assert.ErrorContains(t, checkGridChargePriority("car"), "grid_charge_priority")
+}
+
+func TestGridChargePriorityFlagDefault(t *testing.T) {
+	flag := scdCmd.Flags().Lookup("grid_charge_priority")
+	require.NotNil(t, flag)
+	assert.Equal(t, "battery", flag.DefValue)
 }

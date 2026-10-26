@@ -37,6 +37,7 @@ type RunnerConfig struct {
 	BattMinSoC         float64 // % of capacity the inverter never discharges below
 	GridImportLimit    float64 // W; 0 = disabled
 	GridImportMargin   float64 // W kept free under GridImportLimit
+	GridChargePriority string  // "battery" (default) or "loads"
 	PWBaseLoad         float64 // W; 0 = PWConsumption/24
 	StartHR            string
 	EndHR              string
@@ -578,6 +579,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			capacityWh: capacityMax,
 			hold:       holdBattery,
 			lastPct:    chargePct,
+			battery:    r.batteryPriority(),
 		})
 	} else {
 		r.stopLimitLoop()
