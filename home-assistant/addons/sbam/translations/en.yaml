@@ -1,0 +1,140 @@
+configuration:
+  url:
+    name: Solcast forecast URL
+    description: Solcast rooftop site forecast URL. Up to 2 sites, comma-separated.
+  apikey:
+    name: Solcast API key
+  fronius_ip:
+    name: Fronius inverter IP
+    description: LAN IP address of the Gen24 inverter.
+  sunspec_type:
+    name: SunSpec model type
+    description: Must match the inverter's Modbus SunSpec Model Type. int_sf for "int + SF", float for "float", auto to detect it.
+  scheduler_mode:
+    name: Scheduler mode
+    description: windows (recommended) uses the charge windows below. crontab is the legacy mode with start/end hour and crontab.
+  windows:
+    name: Charge windows
+    description: Used with scheduler_mode windows. Each window is a cheap-rate period in which sbam may charge from the grid.
+    fields:
+      name:
+        name: Name
+        description: Label shown in MQTT and logs.
+      start:
+        name: Start
+        description: HH:MM.
+      end:
+        name: End
+        description: HH:MM. May cross midnight.
+      max_charge:
+        name: Max charge power (W)
+        description: Maximum grid charging power in this window.
+      forecast_horizon:
+        name: Forecast horizon
+        description: Which solar forecast the decision uses. off skips Solcast and only charges the reserve.
+      consumption_horizon:
+        name: Consumption horizon
+        description: How daily consumption is scaled for the decision.
+      tick_minutes:
+        name: Tick (minutes)
+        description: How often sbam re-evaluates inside the window.
+      set_defaults:
+        name: Defaults at window end
+        description: Reset the inverter to defaults when the window ends.
+      before_end_defaults_minutes:
+        name: Defaults before end (minutes)
+        description: Reset the inverter this many minutes before the window ends.
+      weekdays:
+        name: Weekdays
+        description: Days the window applies, e.g. mon-fri or sat,sun. Empty means every day.
+      hold_battery:
+        name: Hold battery
+        description: Block battery discharge in this window when no charge is needed, so the stored energy is kept for the expensive hours. PV can still charge it.
+      reserve_horizon:
+        name: Reserve horizon
+        description: until_solar sizes the reserve from the forecast to cover the house from the window end until PV does. Empty uses the fixed battery reserve.
+  start_hr:
+    name: Start hour (crontab mode)
+    description: Start of the cheap grid rate, HH:MM.
+  end_hr:
+    name: End hour (crontab mode)
+    description: End of the cheap grid rate, HH:MM.
+  crontab:
+    name: Crontab (crontab mode)
+    description: Cron expression for runs in crontab mode. Deprecated, use scheduler_mode windows.
+  max_charge:
+    name: Max charge power (W, crontab mode)
+    description: Maximum grid charging power.
+  pw_consumption:
+    name: Daily consumption (Wh)
+    description: Household electricity use per day.
+  pw_lwt:
+    name: Lower threshold (Wh)
+    description: Hysteresis offset to stop charging.
+  pw_upt:
+    name: Upper threshold (Wh)
+    description: Hysteresis offset to start charging.
+  pw_batt_reserve:
+    name: Battery reserve (Wh)
+    description: Energy to keep in the battery, charged from the grid inside the reserve window.
+  batt_reserve_start_hr:
+    name: Reserve start hour
+    description: HH:MM. Empty uses the charge window start.
+  batt_reserve_end_hr:
+    name: Reserve end hour
+    description: HH:MM. Empty uses the charge window end.
+  batt_min_soc:
+    name: Inverter minimum SoC (%)
+    description: Minimum state of charge set in the inverter's battery settings (Fronius default 5). Used by reserve horizon until_solar.
+  pw_base_load:
+    name: Base load (W)
+    description: House load the battery covers until PV takes over. Used by reserve horizon until_solar. 0 uses daily consumption / 24.
+  grid_import_limit:
+    name: Grid import limit (W)
+    description: Maximum import for the whole site while sbam charges from the grid, usually the contracted power. Measured on the Fronius meter. 0 disables it.
+  grid_import_margin:
+    name: Grid import margin (W)
+    description: Watts kept free under the grid import limit.
+  grid_charge_priority:
+    name: Grid charge priority
+    description: Under the grid import limit, battery claims its charge and loads that throttle to the meter (EV chargers in dynamic mode) yield. loads lets the battery use only the power left free.
+  defaults:
+    name: Defaults at end of cycle
+    description: Reset the inverter to defaults at the end of the charge period.
+  reset:
+    name: Reset at startup
+    description: Reset the inverter to defaults when the add-on starts.
+  debug:
+    name: Debug logging
+  log_type:
+    name: Log format
+  cache_forecast:
+    name: Cache forecast
+    description: Reuse the Solcast forecast to save API calls.
+  cache_time:
+    name: Cache time (s)
+    description: How long a cached forecast is reused.
+  cache_file_prefix:
+    name: Cache file prefix
+  mqtt_enabled:
+    name: MQTT
+    description: Publish state to MQTT and accept commands.
+  mqtt_broker:
+    name: MQTT broker
+    description: e.g. tcp://broker:1883. Empty uses the Home Assistant MQTT service.
+  mqtt_client_id:
+    name: MQTT client ID
+    description: Empty generates one.
+  mqtt_username:
+    name: MQTT username
+    description: Empty uses the Home Assistant MQTT service.
+  mqtt_password:
+    name: MQTT password
+    description: Empty uses the Home Assistant MQTT service.
+  mqtt_topic_prefix:
+    name: MQTT topic prefix
+  mqtt_ha_discovery:
+    name: Home Assistant discovery
+    description: Create the sbam device and entities in Home Assistant.
+  mqtt_ha_discovery_prefix:
+    name: Discovery prefix

@@ -26,6 +26,11 @@ options:
   pw_batt_reserve: "4000"
   batt_reserve_start_hr: ""
   batt_reserve_end_hr: ""
+  batt_min_soc: 5
+  pw_base_load: 0
+  grid_import_limit: 0
+  grid_import_margin: 200
+  grid_charge_priority: battery
   defaults: true
   reset: false
   debug: false
