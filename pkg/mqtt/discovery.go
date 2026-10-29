@@ -106,6 +106,9 @@ func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []D
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "next_run", sensorPayload(base, deviceID, "next_run", "Next Run", "{{ value_json.next_run }}", "", "timestamp", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "paused_state", sensorPayload(base, deviceID, "paused_state", "Paused State", "{{ value_json.paused }}", "", "", "", "diagnostic"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "last_update", sensorPayload(base, deviceID, "last_update", "Last Update", "{{ value_json.ts }}", "", "timestamp", "", "diagnostic"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "reserve_target_wh", sensorPayload(base, deviceID, "reserve_target_wh", "Reserve Target", "{{ value_json.reserve_target_wh }}", "Wh", "", "measurement", ""))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "reserve_deficit_wh", sensorPayload(base, deviceID, "reserve_deficit_wh", "Reserve Deficit", "{{ value_json.reserve_deficit_wh }}", "Wh", "", "measurement", ""))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "sensor", "grid_charge_allowance_w", sensorPayload(base, deviceID, "grid_charge_allowance_w", "Grid Charge Allowance", "{{ value_json.grid_charge_allowance_w }}", "W", "", "measurement", "diagnostic"))
 
 	pausedBinary := sensorPayload(base, deviceID, "paused", "Paused", "{{ value_json.paused | string | lower }}", "", "", "", "diagnostic")
 	pausedBinary.PayloadOn = "true"
@@ -122,6 +125,11 @@ func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []D
 	reserveWindowBinary.PayloadOff = "false"
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "batt_reserve_window_active", reserveWindowBinary)
 
+	reserveRiskBinary := sensorPayload(base, deviceID, "reserve_at_risk", "Reserve At Risk", "{{ value_json.reserve_at_risk | default(false) | string | lower }}", "", "problem", "", "")
+	reserveRiskBinary.PayloadOn = "true"
+	reserveRiskBinary.PayloadOff = "false"
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "binary_sensor", "reserve_at_risk", reserveRiskBinary)
+
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "force_charge_target_pct", numberPayload(base, deviceID, "force_charge_target_pct", "Force Charge Target", "number.sbam_force_charge_target_pct", forceChargeControlTopic, 0, 101, 1, "%", "mdi:battery-charging-60", "box"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "number", "pause_duration_s", numberPayload(base, deviceID, "pause_duration_s", "Pause Duration", "number.sbam_pause_duration_s", pauseDurationControlTopic, 0, 86400, 60, "s", "mdi:timer-outline", "box"))
 
@@ -130,6 +138,7 @@ func BuildDiscoveryWithDeviceID(cfg Config, version string, deviceID string) []D
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "resume", buttonPayload(base, deviceID, "resume", "Resume", commandTopic(prefix, "resume"), "{}"))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "force_charge", templatedButtonPayload(base, deviceID, "force_charge", "Force Charge", commandTopic(prefix, "force_charge"), forceChargeCommandTemplate))
 	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "set_defaults", buttonPayload(base, deviceID, "set_defaults", "Set Defaults", commandTopic(prefix, "set_defaults"), "{}"))
+	entities = appendDiscoveryEntity(entities, discoveryPrefix, "button", "hold", buttonPayload(base, deviceID, "hold", "Hold Battery", commandTopic(prefix, "hold"), "{}"))
 
 	return entities
 }

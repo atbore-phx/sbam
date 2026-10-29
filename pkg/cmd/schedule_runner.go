@@ -34,6 +34,11 @@ type RunnerConfig struct {
 	PWConsumption      float64
 	MaxCharge          float64
 	PWBattReserve      float64
+	BattMinSoC         float64 // % of capacity the inverter never discharges below
+	GridImportLimit    float64 // W; 0 = disabled
+	GridImportMargin   float64 // W kept free under GridImportLimit
+	GridChargePriority string  // "battery" (default) or "loads"
+	PWBaseLoad         float64 // W; 0 = PWConsumption/24
 	StartHR            string
 	EndHR              string
 	BattReserveStartHR string
@@ -57,6 +62,7 @@ type RunnerConfig struct {
 type batteryWriter interface {
 	ForceCharge(froniusIP string, targetPct int16) error
 	SetDefaults(froniusIP string) error
+	Hold(froniusIP string) error
 }
 
 // froniusBatteryWriter writes through the fronius package using the selected
@@ -82,6 +88,10 @@ func (w froniusBatteryWriter) SetDefaults(froniusIP string) error {
 	return fronius.ApplyDefaults(w.sunspecType, froniusIP, w.ports()...)
 }
 
+func (w froniusBatteryWriter) Hold(froniusIP string) error {
+	return fronius.ApplyHold(w.sunspecType, froniusIP, w.ports()...)
+}
+
 var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
 	return froniusBatteryWriter{sunspecType: sunspecType}
 }
@@ -105,6 +115,8 @@ type Runner struct {
 	boundaryTimer *time.Timer
 	defaultsFired atomic.Bool
 	activeWindow  string // name of active window for change detection
+	limit         *limitSession
+	limitStop     chan struct{}
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -240,7 +252,7 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 
 	// If endAt is before or equal to now, advance by 24h (cross-midnight window).
 	if !endAt.After(now) {
-		endAt = endAt.Add(24 * time.Hour)
+		endAt = endAt.AddDate(0, 0, 1)
 	}
 
 	resetAt := endAt.Add(-time.Duration(beforeEnd) * time.Minute)
@@ -256,7 +268,7 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 	r.defaultsTimer = time.AfterFunc(delay, func() {
 		u.Log.Infow("set_defaults timer fired", "window", active.Name)
 		r.defaultsFired.Store(true)
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
 			u.Log.Warn("set_defaults dropped because runner queue is full")
 		}
 	})
@@ -297,7 +309,7 @@ func (r *Runner) nextWindowStart(now time.Time) (next pw.Window, nextAt time.Tim
 		// Only future starts count; a start at or before now is that
 		// window's next occurrence tomorrow.
 		if !startAt.After(now) {
-			startAt = startAt.Add(24 * time.Hour)
+			startAt = startAt.AddDate(0, 0, 1)
 		}
 		if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
 			if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
@@ -409,6 +421,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if paused, pauseUntil := r.pauseStateAt(now); paused {
+		r.stopLimitLoop()
 		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
@@ -419,6 +432,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if !inChargeWindow {
+		r.stopLimitLoop()
 		u.Log.Infof("The current time is outside all configured charge windows")
 		capMax := capacityMax
 
@@ -477,6 +491,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var solarPowerProduction float64
 	var forecastRetrieved bool
 	var forecastErr error
+	var siteForecasts []pw.Forecasts
 
 	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
 		powerHandler := newPower()
@@ -491,7 +506,21 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			solarPowerProduction = 0.0
 			forecastRetrieved = false
 		}
+		if forecastRetrieved {
+			siteForecasts = powerHandler.LastForecasts()
+		}
 	}
+
+	activeWindow := r.activeWindowConfig(now)
+	holdBattery := activeWindow != nil && activeWindow.HoldBattery != nil && *activeWindow.HoldBattery
+	effectiveReserve := r.cfg.PWBattReserve
+	if activeWindow != nil && activeWindow.ReserveHorizon == pw.ReserveHorizonUntilSolar {
+		effectiveReserve = r.untilSolarReserve(now, *activeWindow, capacityMax, siteForecasts)
+	}
+
+	// Grid charge power: the active window's max_charge, limited by what
+	// grid_import_limit leaves free right now.
+	chargeCapW, allowanceW, _ := r.gridChargeAllowance(effectiveMaxCharge)
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 
@@ -501,8 +530,8 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		capacityToCharge,
 		capacityMax,
 		effectiveConsumption,
-		r.cfg.MaxCharge,
-		r.cfg.PWBattReserve,
+		chargeCapW,
+		effectiveReserve,
 		r.cfg.StartHR,
 		r.cfg.EndHR,
 		r.cfg.FroniusIP,
@@ -510,8 +539,10 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		r.cfg.PWLWT,
 		r.cfg.PWUPT,
 		forecastRetrieved,
+		holdBattery,
 	)
 	if froniusErr != nil {
+		r.stopLimitLoop()
 		u.HandleError(froniusErr, "fronius handler failed, skipping schedule run")
 
 		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
@@ -540,6 +571,33 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 	payload.ChargePct = &chargePct
 	payload.Paused = false
+
+	if r.cfg.GridImportLimit > 0 && chargePct > 0 {
+		r.startLimitLoop(limitSession{
+			needWh:     neededChargeWh(decision, powerState, r.cfg.PWUPT),
+			ceilingW:   effectiveMaxCharge,
+			capacityWh: capacityMax,
+			hold:       holdBattery,
+			lastPct:    chargePct,
+			battery:    r.batteryPriority(),
+		})
+	} else {
+		r.stopLimitLoop()
+	}
+	payload.GridChargeAllowanceW = allowanceW
+
+	if reserveWindowActive {
+		target := effectiveReserve
+		deficit, atRisk := r.reserveRisk(now, activeWindow, target, capacityMax-capacityToCharge, chargeCapW)
+		payload.ReserveTargetWh = &target
+		payload.ReserveDeficitWh = &deficit
+		payload.ReserveAtRisk = &atRisk
+		if atRisk {
+			u.Log.Warnw("reserve at risk: the reserve cannot be reached before the window ends at the grid power available now",
+				"deficit_wh", int(deficit), "charge_power_w", int(chargeCapW))
+		}
+	}
+
 	r.publishState(payload)
 	return nil
 }
@@ -550,6 +608,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 	switch intent.Kind {
 	case mqtt.IntentShutdown:
+		r.stopLimitLoop()
 		return
 	case mqtt.IntentTick:
 		if err := r.Tick(ctx, r.now()); err != nil {
@@ -564,6 +623,7 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		}
 		return
 	case mqtt.IntentPause:
+		r.stopLimitLoop()
 		r.setPause(intent.PauseUntil)
 		payload := r.newCommandPayload("paused", "schedule paused by command", r.now())
 		payload.Paused = true
@@ -582,12 +642,22 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		r.publishIntentAck(ctx, intent, nil)
 		return
 	case mqtt.IntentForceCharge:
+		r.stopLimitLoop()
 		err := r.handleForceCharge(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
 	case mqtt.IntentSetDefaults:
+		r.stopLimitLoop()
 		err := r.handleSetDefaults(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
+		return
+	case mqtt.IntentHold:
+		r.stopLimitLoop()
+		err := r.handleHold(ctx, intent)
+		r.publishIntentAck(ctx, intent, err)
+		return
+	case mqtt.IntentLimitCheck:
+		r.handleLimitCheck(ctx)
 		return
 	case mqtt.IntentSetReserve:
 		r.publishError(ctx, "runner", errSetReserveUnsupported)
@@ -683,7 +753,9 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 // defaults. It respects pause state and publishes the resulting state.
 func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) error {
 	paused, _ := r.pauseStateAt(r.now())
-	if paused {
+	// The window-end reset (System) always runs: a pause must never leave a
+	// force charge or a hold in place outside the window.
+	if paused && !intent.System {
 		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
 		r.publishError(ctx, "set_defaults", err)
 		return err
@@ -695,6 +767,28 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 	}
 
 	payload := r.newCommandPayload(string(mqtt.IntentSetDefaults), "set defaults command executed", r.now())
+	payload.Paused = false
+	r.publishState(payload)
+	return nil
+}
+
+// handleHold blocks battery discharge (no force charge) until the next
+// tick or command writes something else. It respects pause state, so send
+// it before pausing.
+func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
+	paused, _ := r.pauseStateAt(r.now())
+	if paused {
+		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+
+	if err := r.writer.Hold(r.cfg.FroniusIP); err != nil {
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+
+	payload := r.newCommandPayload(string(mqtt.IntentHold), "hold command executed: battery discharge blocked", r.now())
 	payload.Paused = false
 	r.publishState(payload)
 	return nil
@@ -861,7 +955,7 @@ func isInCooldown(now time.Time, startHR, endHR string, cooldownMinutes int) (bo
 	if isCrossMidnightWindow(startTime, endTime) {
 		startAt := time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 		if now.After(startAt) || now.Equal(startAt) {
-			endAt = endAt.Add(24 * time.Hour)
+			endAt = endAt.AddDate(0, 0, 1)
 		}
 	}
 
@@ -896,7 +990,8 @@ func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 	return inRange, nil
 }
 
-// nextMatchingWeekday advances t by 24h increments until its weekday is in
+// nextMatchingWeekday advances t one calendar day at a time (same wall-clock
+// time, so DST changes do not shift it) until its weekday is in
 // the provided set. The set must be non-empty; the function loops at most 7
 // times before returning (since a non-empty set guarantees a match within 7
 // days).
@@ -905,7 +1000,72 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		if weekdays[t.Weekday()] {
 			return t
 		}
-		t = t.Add(24 * time.Hour)
+		t = t.AddDate(0, 0, 1)
 	}
 	return t
+}
+
+// activeWindowConfig returns the configured window active at now, or nil
+// when no windows are configured or none is active.
+func (r *Runner) activeWindowConfig(now time.Time) *pw.Window {
+	if len(r.cfg.Windows) == 0 {
+		return nil
+	}
+	return pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+}
+
+// untilSolarReserve returns the battery reserve (Wh) for a window with
+// reserve_horizon until_solar: enough to keep the base load running from the
+// window end until the forecast PV output covers it, on top of the minimum
+// SoC the inverter keeps. It never returns less than pw_batt_reserve, and
+// falls back to it when no forecast is available.
+func (r *Runner) untilSolarReserve(now time.Time, w pw.Window, capacityMax float64, sites []pw.Forecasts) float64 {
+	static := r.cfg.PWBattReserve
+	if len(sites) == 0 {
+		u.Log.Warn("reserve_horizon until_solar: no forecast available, using pw_batt_reserve")
+		return static
+	}
+	windowEnd, err := nextClockAt(now, w.End)
+	if err != nil {
+		u.Log.Warnw("reserve_horizon until_solar: cannot parse window end, using pw_batt_reserve", "end", w.End, "error", err)
+		return static
+	}
+	baseLoad := r.cfg.PWBaseLoad
+	if baseLoad <= 0 {
+		baseLoad = r.cfg.PWConsumption / 24
+	}
+	gap, err := pw.SolarGapEnergy(sites, windowEnd, baseLoad)
+	if err != nil {
+		u.Log.Warnw("reserve_horizon until_solar: cannot read forecast periods, using pw_batt_reserve", "error", err)
+		return static
+	}
+	if !gap.Covered {
+		u.Log.Warnw("reserve_horizon until_solar: forecast PV never covers the base load within 24 h of the window end", "base_load_w", baseLoad)
+	}
+	effective := max(static, pw.UntilSolarReserve(capacityMax, r.cfg.BattMinSoC, gap))
+	if capacityMax > 0 {
+		effective = min(effective, capacityMax)
+	}
+	u.Log.Infow("reserve_horizon until_solar",
+		"window_end", windowEnd.Format(time.RFC3339),
+		"solar_covers_base_load_at", gap.CoveredAt.Format(time.RFC3339),
+		"base_load_w", baseLoad,
+		"gap_wh", int(gap.EnergyWh),
+		"min_soc_wh", int(capacityMax*r.cfg.BattMinSoC/100),
+		"reserve_wh", int(effective))
+	return effective
+}
+
+// nextClockAt returns the next occurrence of the HH:MM clock value at or
+// after now, in now's location.
+func nextClockAt(now time.Time, clock string) (time.Time, error) {
+	t, err := parseScheduleClock(clock, "end")
+	if err != nil {
+		return time.Time{}, err
+	}
+	at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+	if at.Before(now) {
+		at = at.AddDate(0, 0, 1)
+	}
+	return at, nil
 }

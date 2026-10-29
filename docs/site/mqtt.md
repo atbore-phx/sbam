@@ -120,6 +120,8 @@ Each Home Assistant button publishes to `<prefix>/cmd/<name>`, and SBAM publishe
     - `{"target_pct":<n>}` when selector value is `1..100` (capped by `max_charge`).
     - `{"target_pct":100,"ignore_max_charge":true}` when selector value is `101` (uncapped full-charge override).
 - `set_defaults`: restores inverter defaults via the configured Modbus write path.
+- Reserve and grid limit sensors (published in the state payload while the reserve window is active): `reserve_target_wh`, `reserve_deficit_wh`, `grid_charge_allowance_w` (only with `grid_import_limit`) and the `reserve_at_risk` binary sensor (device class `problem`). Use `reserve_at_risk` to pause a load that does not throttle itself when the battery reserve cannot be reached in time.
+- `hold`: blocks battery discharge (StorCtl_Mod = 2, OutWRte = 0 %) without forcing a charge; PV can still charge the battery. It stays until the next tick or command writes something else, and is rejected while paused, so send it before `pause`. Useful to keep the battery for later, for example while an EV charges at night.
 
 ### Command Sequencing
 
@@ -225,6 +227,9 @@ mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/force_cha
 
 # set_defaults
 mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/set_defaults" -m '{}'
+
+# hold (block battery discharge)
+mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -q 1 -t "$PREFIX/cmd/hold" -m '{}'
 ```
 
 ## Command Payload Constraints
