@@ -18,6 +18,7 @@ package utils
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -31,11 +32,39 @@ import (
 // carries sensitive material.
 var SecretKeys = map[string]struct{}{
 	"apikey":                   {},
+	"ha_token":                 {},
 	"mqtt_password":            {},
 	"mqtt_tls_client_cert_key": {},
+	// supervisor_token is never read via viper (S-013); listed defensively in
+	// case an operator copies it into config.yaml.
+	"supervisor_token": {},
+}
+
+// URLKeys is the registry of viper keys holding URLs whose userinfo part
+// (user:password@) must be redacted in any user-visible dump.
+var URLKeys = map[string]struct{}{
+	"ha_url": {},
 }
 
 const redacted = "***"
+
+// redactURLUserinfo replaces the userinfo of a URL value with "***". Values
+// that cannot be parsed but still contain '@' are redacted entirely, since
+// they may carry credentials.
+func redactURLUserinfo(v interface{}) interface{} {
+	s, ok := v.(string)
+	if !ok || !strings.Contains(s, "@") {
+		return v
+	}
+	parsed, err := url.Parse(s)
+	if err != nil || parsed.User == nil || parsed.Scheme == "" {
+		return redacted
+	}
+	// url.User would percent-encode "***", so splice the marker in by hand.
+	parsed.User = nil
+	rest := strings.TrimPrefix(parsed.String(), parsed.Scheme+"://")
+	return parsed.Scheme + "://" + redacted + "@" + rest
+}
 
 // SourceOf returns one of "flag", "env", "yaml", "default" describing where
 // the effective value of key was resolved from. cmd may be nil; in that case
@@ -90,6 +119,8 @@ func DumpStartupParams(cmd *cobra.Command, extras map[string]interface{}) string
 			var rendered string
 			if _, secret := SecretKeys[k]; secret {
 				rendered = redacted
+			} else if _, isURL := URLKeys[k]; isURL {
+				rendered = fmt.Sprintf("%#v", redactURLUserinfo(viper.Get(k)))
 			} else {
 				rendered = fmt.Sprintf("%#v", viper.Get(k))
 			}

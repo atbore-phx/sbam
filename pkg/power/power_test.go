@@ -1,11 +1,13 @@
 package power
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -550,4 +552,71 @@ func TestHandler_RemainingToday(t *testing.T) {
 	assert.True(t, retrieved)
 	// Only 15:00 and 15:30 periods: (200 + 200) * 0.5 * 1000 = 200000
 	assert.Equal(t, 200000.0, production)
+}
+
+// T-0092 (TC-018a, S-018): a non-200 response is an error, never an empty
+// forecast, and the error carries neither the API key nor the URL.
+func TestGetForecast_T0092_Non200IsError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"forecasts":[],"response_status":{"error_code":"Unauthorized"}}`)
+	}))
+	defer ts.Close()
+
+	url := ts.URL + "/rooftop_sites/test-site/forecasts?format=json&api_key=test-api-key"
+	forecasts, err := GetForecast("test-api-key", url)
+	assert.Error(t, err)
+	assert.Empty(t, forecasts.Forecasts)
+	assert.Contains(t, err.Error(), "401")
+	assert.NotContains(t, err.Error(), "test-api-key")
+	assert.NotContains(t, err.Error(), "test-site")
+	assert.NotContains(t, err.Error(), "Unauthorized")
+}
+
+// T-0092 (S-018): a body larger than 4 MiB is rejected.
+func TestGetForecast_T0092_BodyLimit(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"forecasts":[`)
+		pad := strings.Repeat(" ", 64*1024)
+		for i := 0; i < 65; i++ { // 65 × 64 KiB > 4 MiB
+			fmt.Fprint(w, pad)
+		}
+		fmt.Fprint(w, `]}`)
+	}))
+	defer ts.Close()
+
+	_, err := GetForecast("test-api-key", ts.URL)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds")
+}
+
+// T-0092 edge case: a body just under the limit still decodes.
+func TestGetForecast_T0092_BodyUnderLimit(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"forecasts":[{"period_end":"2026-10-02T12:00:00Z","pv_estimate":1}]}`)
+		fmt.Fprint(w, strings.Repeat(" ", 4<<20-200))
+	}))
+	defer ts.Close()
+
+	forecasts, err := GetForecast("test-api-key", ts.URL)
+	assert.NoError(t, err)
+	assert.Len(t, forecasts.Forecasts, 1)
+}
+
+// GetForecastCtx honours context cancellation and keeps the URL out of the error.
+func TestGetForecastCtx_Cancelled(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"forecasts":[]}`)
+	}))
+	defer ts.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := GetForecastCtx(ctx, "test-api-key", ts.URL+"/rooftop_sites/test-site/forecasts")
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, err.Error(), "test-site")
+	assert.NotContains(t, err.Error(), "test-api-key")
 }

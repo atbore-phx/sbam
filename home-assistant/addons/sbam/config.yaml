@@ -3,6 +3,7 @@ version: "2.2.0"
 slug: sbam
 init: false
 description: Smart Battery Advanced Manager
+homeassistant_api: true
 services:
   - mqtt:want
 arch:
@@ -43,6 +44,21 @@ options:
   mqtt_ha_discovery_prefix: homeassistant
   scheduler_mode: crontab
   windows: []
+  opt_price_entity: ""
+  opt_consumption_entity: ""
+  opt_ev_entity: ""
+  opt_ev_guard_w: 1000
+  opt_purchase_surcharge: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+  opt_vat_rate: 0.25
+  opt_sell_margin: 0
+  opt_min_gain: 0.5
+  opt_wear_cost: 0
+  opt_battery_efficiency: 0.83
+  opt_max_charge_rate_w: 4500
+  opt_max_discharge_rate_w: 4500
+  opt_min_soc_pct: 7
+  opt_history_days: 10
+  opt_dry_run: true
 
 schema:
   url: str
@@ -74,7 +90,24 @@ schema:
   mqtt_topic_prefix: str
   mqtt_ha_discovery: bool
   mqtt_ha_discovery_prefix: str
-  scheduler_mode: list(crontab|windows)
+  scheduler_mode: list(crontab|windows|optimize)
+  ha_url: str?
+  ha_token: password?
+  opt_price_entity: match(^$|^sensor\.[a-z0-9_]+$)
+  opt_consumption_entity: match(^$|^sensor\.[a-z0-9_]+$)
+  opt_ev_entity: match(^$|^sensor\.[a-z0-9_]+$)
+  opt_ev_guard_w: float(0,50000)
+  opt_purchase_surcharge: match(^\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)(\s*,\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)){23}\s*$)
+  opt_vat_rate: float(0,1)
+  opt_sell_margin: float(-5,10)
+  opt_min_gain: float(0,10)
+  opt_wear_cost: float(0,5)
+  opt_battery_efficiency: float(0.01,1)
+  opt_max_charge_rate_w: float(1,30000)
+  opt_max_discharge_rate_w: float(1,30000)
+  opt_min_soc_pct: float(0,99.9)
+  opt_history_days: int(1,30)
+  opt_dry_run: bool
   windows:
     - name: str
       start: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)

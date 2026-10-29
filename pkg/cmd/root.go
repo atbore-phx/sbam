@@ -14,6 +14,10 @@ import (
 var fronius_ip string
 var appVersion = "dev"
 
+// flagAnnotationNoViper marks a command-local flag that bindFlags skips
+// (e.g. `sbam optimize --dry-run`).
+const flagAnnotationNoViper = "sbam_no_viper"
+
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
 	Short: "sbam",
@@ -26,6 +30,10 @@ func Execute() error {
 	u.Log.Debug("Debug Logs activated: true")
 	err := rootCmd.Execute()
 	if err != nil {
+		var ec interface{ ExitCode() int }
+		if errors.As(err, &ec) {
+			os.Exit(ec.ExitCode())
+		}
 		os.Exit(1)
 	}
 	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
@@ -61,6 +69,7 @@ func init() {
 	registerCfgCmd()
 	registerEstCmd()
 	registerScdCmd()
+	registerOptCmd()
 }
 
 func SetVersionInfo(version, commit, date string) error {
@@ -75,11 +84,15 @@ func SetVersionInfo(version, commit, date string) error {
 // the viper key. It is intended to be called from each subcommand's
 // PersistentPreRunE so the currently executing subcommand owns the binding.
 // This restores Viper's documented precedence (flag > env > config > default)
-// for keys shared across multiple subcommands.
+// for keys shared across multiple subcommands. Flags annotated with
+// flagAnnotationNoViper are command-local and are not bound.
 func bindFlags(cmd *cobra.Command) error {
 	var firstErr error
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if firstErr != nil {
+			return
+		}
+		if _, local := f.Annotations[flagAnnotationNoViper]; local {
 			return
 		}
 		if err := viper.BindPFlag(f.Name, f); err != nil {

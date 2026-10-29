@@ -1,0 +1,102 @@
+configuration:
+  scheduler_mode:
+    name: Scheduler mode
+    description: >-
+      crontab (deprecated), windows, or optimize. optimize plans charge, hold,
+      standby and discharge every hour from Nordpool prices; the crontab and
+      windows fields are ignored in that mode.
+  ha_url:
+    name: Home Assistant URL (optional)
+    description: >-
+      Leave empty in the add-on: sbam reaches Home Assistant through the
+      Supervisor automatically. Only set it to use another HA instance, e.g.
+      https://homeassistant.local:8123 (requires a token).
+  ha_token:
+    name: Home Assistant token (optional)
+    description: >-
+      Long-lived access token, only needed together with the Home Assistant URL.
+      Leave empty in the add-on.
+  opt_price_entity:
+    name: Nordpool price sensor
+    description: >-
+      Required in optimize mode. Entity ID of the Nordpool sensor (prices incl.
+      VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025
+  opt_consumption_entity:
+    name: Household consumption sensor
+    description: >-
+      Required in optimize mode. Entity ID of a household load power sensor
+      (W or kW), used to build the hourly consumption profile, e.g. sensor.house_load
+  opt_ev_entity:
+    name: EV charger power sensor (optional)
+    description: >-
+      Entity ID of an EV charger power sensor (W or kW). Its load is excluded from the
+      consumption profile. Leave empty if you have no EV charger.
+  opt_ev_guard_w:
+    name: EV guard threshold (W)
+    description: >-
+      Needs the EV charger sensor. When the car draws more than this many watts
+      in an hour the plan runs in self-consumption, sbam holds the battery so it
+      does not discharge into the car; PV surplus still charges the battery.
+      The guard releases below half the threshold, after at least 5 minutes.
+      0 to 50000; default 1000. 0 disables the guard.
+  opt_purchase_surcharge:
+    name: Hourly purchase surcharge (incl. VAT)
+    description: >-
+      Exactly 24 comma-separated values in currency/kWh incl. VAT (grid tariff,
+      fees), first value = 00:00-01:00, last value = 23:00-24:00. Use '.' as
+      decimal separator; each value between -5 and 10.
+      Example: 0.52,0.52,0.52,0.52,0.52,0.52,0.78,...,0.52
+  opt_vat_rate:
+    name: VAT rate
+    description: >-
+      VAT as a fraction between 0 and 1, e.g. 0.25 for 25 %.
+  opt_sell_margin:
+    name: Sell margin (incl. VAT)
+    description: >-
+      Amount in currency/kWh incl. VAT deducted from the spot price when
+      selling to the grid. Between -5 and 10; 0 if you get the plain spot price.
+  opt_min_gain:
+    name: Minimum gain per hour
+    description: >-
+      Amount in currency per hour a charge or discharge must save compared
+      with the inverter's normal self-consumption before sbam uses it. Hold
+      and standby move no battery energy and need only a tenth of it.
+      Smaller gains keep the inverter in self-consumption. 0 to 10; default
+      0.5. 0 disables the threshold.
+  opt_wear_cost:
+    name: Battery wear cost per kWh
+    description: >-
+      Amount in currency per kWh that a forced charge or discharge moves
+      into or out of the battery, beyond what self-consumption would move.
+      Added to the minimum gain, so small energy moves need a small gain and
+      large ones a larger gain. 0 to 5; default 0 (off). Example: 0.15.
+  opt_battery_efficiency:
+    name: Battery round-trip efficiency
+    description: >-
+      Fraction of the energy put into the battery that comes back out, between
+      0.01 and 1. Typical value 0.83.
+  opt_max_charge_rate_w:
+    name: Max battery charge rate (W)
+    description: Maximum battery charge power in watts, between 1 and 30000.
+  opt_max_discharge_rate_w:
+    name: Max battery discharge rate (W)
+    description: >-
+      Maximum power taken out of the battery in watts, between 1 and 30000.
+      The inverter is sent the matching AC-side setpoint (this value times the
+      square root of the battery efficiency).
+  opt_min_soc_pct:
+    name: Minimum battery SoC (%)
+    description: >-
+      The optimizer never plans below this state of charge. Between 0 and 99.9;
+      values below 5 leave almost no reserve.
+  opt_history_days:
+    name: Consumption history (days)
+    description: >-
+      Days of recorder history used for the consumption profile, 1 to 30. Keep
+      the recorder's purge_keep_days at least this high.
+  opt_dry_run:
+    name: Optimizer dry run
+    description: >-
+      Compute and publish the plan without writing to the inverter. Keep it on
+      until you have checked the plan and the inverter behaviour; turn off to go
+      live.
