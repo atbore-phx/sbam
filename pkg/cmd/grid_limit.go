@@ -63,43 +63,43 @@ func (r *Runner) batteryPriority() bool {
 // With the limit disabled it returns ceilingW. With battery priority the
 // tick claims ceilingW and the limit loop backs off if the site import
 // exceeds the limit; with loads priority it gets only the free power.
-// When the power flow cannot be read, ok is false and no grid charge is
-// allowed: charging blind could exceed the contracted power.
-func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW *float64, ok bool) {
+// When the power flow cannot be read it returns the error with capW 0: no
+// grid charge is allowed, since charging blind could exceed the contracted
+// power.
+func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW *float64, err error) {
 	if r.cfg.GridImportLimit <= 0 {
-		return ceilingW, nil, true
+		return ceilingW, nil, nil
 	}
 	pf, err := readPowerFlow(r.cfg.FroniusIP)
 	if err != nil {
-		u.Log.Warnw("grid_import_limit: cannot read the power flow, no grid charge until it is available", "error", err)
-		return 0, nil, false
+		return 0, nil, fmt.Errorf("cannot read the power flow, no grid charge until it is available: %w", err)
 	}
 	allowed := max(0, r.cfg.GridImportLimit-r.cfg.GridImportMargin-pf.BaselineImportW())
 	if r.batteryPriority() {
-		return ceilingW, &allowed, true
+		return ceilingW, &allowed, nil
 	}
-	return min(ceilingW, allowed), &allowed, true
+	return min(ceilingW, allowed), &allowed, nil
 }
 
 // batteryPriorityCapW returns the charge power (W) for the next step of a
 // battery-priority charge: keep the current rate while the site import is
 // within the limit, back off by the excess when it is above, and grow back
-// when there is room below limit - margin.
-func (r *Runner) batteryPriorityCapW(s *limitSession) (float64, bool) {
+// when there is room below limit - margin. When the power flow cannot be
+// read it returns the error with 0 W.
+func (r *Runner) batteryPriorityCapW(s *limitSession) (float64, error) {
 	pf, err := readPowerFlow(r.cfg.FroniusIP)
 	if err != nil {
-		u.Log.Warnw("grid_import_limit: cannot read the power flow, stopping the grid charge", "error", err)
-		return 0, false
+		return 0, fmt.Errorf("cannot read the power flow, stopping the grid charge: %w", err)
 	}
 	limit, margin := r.cfg.GridImportLimit, r.cfg.GridImportMargin
 	current := float64(s.lastPct) * s.capacityWh / 100
 	switch {
 	case pf.GridW > limit:
-		return max(0, current-(pf.GridW-limit)-margin), true
+		return max(0, current-(pf.GridW-limit)-margin), nil
 	case pf.GridW < limit-margin:
-		return min(s.ceilingW, current+(limit-margin-pf.GridW)), true
+		return min(s.ceilingW, current+(limit-margin-pf.GridW)), nil
 	default:
-		return current, true
+		return current, nil
 	}
 }
 
@@ -176,21 +176,23 @@ func (r *Runner) handleLimitCheck(ctx context.Context) {
 	}
 
 	var capW float64
-	var ok bool
+	var err error
 	if s.battery {
-		capW, ok = r.batteryPriorityCapW(s)
+		capW, err = r.batteryPriorityCapW(s)
 	} else {
-		capW, _, ok = r.gridChargeAllowance(s.ceilingW)
+		capW, _, err = r.gridChargeAllowance(s.ceilingW)
 	}
 	var pct int16
-	if ok {
+	if err != nil {
+		u.Log.Warnw("grid_import_limit", "error", err)
+		r.publishError(ctx, "grid_import_limit", err)
+	} else {
 		pct = max(0, fronius.SetChargePower(s.capacityWh, s.needWh, capW))
 	}
 	if !limitRewriteNeeded(s.lastPct, pct) {
 		return
 	}
 
-	var err error
 	switch {
 	case pct > 0:
 		err = r.writer.ForceCharge(r.cfg.FroniusIP, pct)

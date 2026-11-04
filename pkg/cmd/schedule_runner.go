@@ -540,7 +540,11 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	// Grid charge power: the active window's max_charge, limited by what
 	// grid_import_limit leaves free right now.
-	chargeCapW, allowanceW, _ := r.gridChargeAllowance(effectiveMaxCharge)
+	chargeCapW, allowanceW, limitErr := r.gridChargeAllowance(effectiveMaxCharge)
+	if limitErr != nil {
+		u.Log.Warnw("grid_import_limit", "error", limitErr)
+		r.publishError(ctx, "grid_import_limit", limitErr)
+	}
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 

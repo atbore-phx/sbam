@@ -50,9 +50,9 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 0)
 		calls := stubPowerFlow(t, 9999, nil)
 
-		capW, allowance, ok := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(2500)
 
-		assert.True(t, ok)
+		assert.NoError(t, err)
 		assert.Equal(t, 2500.0, capW)
 		assert.Nil(t, allowance)
 		assert.Zero(t, *calls, "no power flow read when the limit is off")
@@ -61,9 +61,9 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 2850, nil)
 
-		capW, allowance, ok := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(2500)
 
-		assert.True(t, ok)
+		assert.NoError(t, err)
 		assert.InDelta(t, 150, capW, 0.01, "3200 - 200 margin - 2850")
 		assert.InDelta(t, 150, *allowance, 0.01)
 	})
@@ -71,18 +71,18 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 300, nil)
 
-		capW, _, ok := r.gridChargeAllowance(2500)
+		capW, _, err := r.gridChargeAllowance(2500)
 
-		assert.True(t, ok)
+		assert.NoError(t, err)
 		assert.Equal(t, 2500.0, capW)
 	})
 	t.Run("over the limit already", func(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 3600, nil)
 
-		capW, allowance, ok := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(2500)
 
-		assert.True(t, ok)
+		assert.NoError(t, err)
 		assert.Zero(t, capW)
 		assert.Zero(t, *allowance, "never negative")
 	})
@@ -90,9 +90,9 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 0, errors.New("timeout"))
 
-		capW, allowance, ok := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(2500)
 
-		assert.False(t, ok)
+		assert.Error(t, err)
 		assert.Zero(t, capW, "no grid charge without the meter")
 		assert.Nil(t, allowance)
 	})
@@ -381,15 +381,15 @@ func TestBatteryPriorityClaimsAtTick(t *testing.T) {
 	r.cfg.GridChargePriority = ""
 	stubPowerFlow(t, 3150, nil) // EV at ~2.85 kW + house
 
-	capW, allowance, ok := r.gridChargeAllowance(2500)
+	capW, allowance, err := r.gridChargeAllowance(2500)
 
-	assert.True(t, ok)
+	assert.NoError(t, err)
 	assert.Equal(t, 2500.0, capW, "claim, do not wait for room")
 	assert.Zero(t, *allowance, "telemetry still reports the free power")
 
 	stubPowerFlow(t, 0, errors.New("meter down"))
-	capW, _, ok = r.gridChargeAllowance(2500)
-	assert.False(t, ok)
+	capW, _, err = r.gridChargeAllowance(2500)
+	assert.Error(t, err)
 	assert.Zero(t, capW, "no grid charge without the meter, whatever the priority")
 }
 
@@ -548,4 +548,25 @@ func TestForceChargeCommandCappedByGridImportLimit(t *testing.T) {
 
 	require.NoError(t, r.handleForceCharge(context.Background(), mqtt.Intent{Kind: mqtt.IntentForceCharge, TargetPct: 100, IgnoreMaxCharge: true}))
 	assert.Equal(t, int16(100), w.lastTargetPct, "the explicit override is not capped")
+}
+
+// A meter read failure is published as an MQTT error, from the tick and from
+// the limit loop, and no grid charge is allowed.
+func TestGridLimitMeterErrorPublished(t *testing.T) {
+	r, w := limitRunner(t, 3200)
+	client := newFakeClient()
+	r.client = client
+	r.cfg.MQTT.Enabled = true
+	stubPowerFlow(t, 0, errors.New("meter down"))
+	tracker := tickWith(t, r, localAt("03:00"), nil)
+
+	assert.Zero(t, tracker.lastMaxCharge, "no grid charge without the meter")
+	_, ok := findPublishedBySuffix(drainPublishes(client), "/error")
+	assert.True(t, ok, "the tick publishes the meter error")
+
+	r.limit = &limitSession{needWh: 850, ceilingW: 2500, capacityWh: 5120, lastPct: 16, hold: true}
+	r.handleLimitCheck(context.Background())
+	assert.Equal(t, 1, w.holdCalls, "the loop drops to the hold")
+	_, ok = findPublishedBySuffix(drainPublishes(client), "/error")
+	assert.True(t, ok, "the loop publishes the meter error")
 }
