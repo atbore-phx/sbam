@@ -117,6 +117,14 @@ type Runner struct {
 	activeWindow  string // name of active window for change detection
 	limit         *limitSession
 	limitStop     chan struct{}
+	reserve       *reserveTelemetry // last reserve evaluation in the reserve window
+}
+
+// reserveTelemetry is the last reserve evaluation, repeated on every state
+// published while the reserve window is active.
+type reserveTelemetry struct {
+	targetWh, deficitWh float64
+	atRisk              bool
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -601,9 +609,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			riskCapW = min(riskCapW, *allowanceW)
 		}
 		deficit, atRisk := r.reserveRisk(now, activeWindow, target, capacityMax-capacityToCharge, riskCapW)
-		payload.ReserveTargetWh = &target
-		payload.ReserveDeficitWh = &deficit
-		payload.ReserveAtRisk = &atRisk
+		r.reserve = &reserveTelemetry{targetWh: target, deficitWh: deficit, atRisk: atRisk}
 		if atRisk {
 			u.Log.Warnw("reserve at risk: the reserve cannot be reached before the window ends at the grid power available now",
 				"deficit_wh", int(deficit), "charge_power_w", int(riskCapW))
@@ -824,7 +830,18 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 
 // publishState publishes the provided state payload via MQTT using the
 // configured MQTT client and topic prefix.
+// While the reserve window is active it carries the last reserve evaluation,
+// so paths that do not evaluate it (pause, cooldown, errors, commands) do not
+// clear the reserve sensors.
 func (r *Runner) publishState(payload mqtt.StatePayload) {
+	if payload.ReserveWindowActive == nil || !*payload.ReserveWindowActive {
+		r.reserve = nil
+	} else if rt := r.reserve; rt != nil && payload.ReserveAtRisk == nil {
+		target, deficit, atRisk := rt.targetWh, rt.deficitWh, rt.atRisk
+		payload.ReserveTargetWh = &target
+		payload.ReserveDeficitWh = &deficit
+		payload.ReserveAtRisk = &atRisk
+	}
 	publishStateSnapshot(r.client, r.cfg.MQTT, payload)
 }
 

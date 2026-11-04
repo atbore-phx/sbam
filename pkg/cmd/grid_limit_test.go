@@ -438,3 +438,39 @@ func TestGridChargePriorityFlagDefault(t *testing.T) {
 	require.NotNil(t, flag)
 	assert.Equal(t, "battery", flag.DefValue)
 }
+
+// The reserve sensors keep their last values on every state published while
+// the reserve window is active, and are dropped once it closes.
+func TestReserveTelemetryRepeatedInReserveWindow(t *testing.T) {
+	r, _ := limitRunner(t, 0)
+	client := newFakeClient()
+	r.client = client
+	r.cfg.MQTT.Enabled = true
+	oldStorage, oldPower, oldFronius := newStorage, newPower, newFronius
+	t.Cleanup(func() { newStorage, newPower, newFronius = oldStorage, oldPower, oldFronius })
+	newStorage = func() storageClient { return &fakeStorageClient{capacityToCharge: 3870, capacityMax: 5120, socPct: 24} }
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 12000, retrieved: true} }
+	newFronius = func(fronius.SunSpecType) froniusClient {
+		return &trackingFroniusClient{decision: "reserve_charge", reason: "test", chargePct: 11, powerState: fronius.PowerState{BattReserveNet: -550}}
+	}
+	t.Cleanup(r.stopLimitLoop)
+
+	require.NoError(t, r.Tick(context.Background(), localAt("03:00")))
+	evaluated := lastState(t, client)
+	require.NotNil(t, evaluated.ReserveAtRisk)
+
+	r.setPause(nil)
+	require.NoError(t, r.Tick(context.Background(), localAt("03:30")))
+	paused := lastState(t, client)
+	assert.True(t, paused.Paused)
+	require.NotNil(t, paused.ReserveAtRisk, "a pause does not clear reserve_at_risk")
+	assert.Equal(t, *evaluated.ReserveAtRisk, *paused.ReserveAtRisk)
+	require.NotNil(t, paused.ReserveDeficitWh)
+	assert.InDelta(t, *evaluated.ReserveDeficitWh, *paused.ReserveDeficitWh, 0.01)
+
+	r.clearPause()
+	require.NoError(t, r.Tick(context.Background(), localAt("10:00")))
+	after := lastState(t, client)
+	assert.Nil(t, after.ReserveAtRisk, "outside the reserve window the sensors are not published")
+	assert.Nil(t, r.reserve)
+}
