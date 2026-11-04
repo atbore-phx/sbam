@@ -764,7 +764,7 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 // handleSetDefaults triggers the battery writer to restore inverter
 // defaults. It respects pause state and publishes the resulting state.
 func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) error {
-	paused, _ := r.pauseStateAt(r.now())
+	paused, pauseUntil := r.pauseStateAt(r.now())
 	// The window-end reset (System) always runs: a pause must never leave a
 	// force charge or a hold in place outside the window.
 	if paused && !intent.System {
@@ -779,7 +779,8 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 	}
 
 	payload := r.newCommandPayload(string(mqtt.IntentSetDefaults), "set defaults command executed", r.now())
-	payload.Paused = false
+	payload.Paused = paused // the window-end reset leaves a pause in place
+	payload.NextRun = pauseUntil
 	r.publishState(payload)
 	return nil
 }

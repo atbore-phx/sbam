@@ -295,10 +295,18 @@ func TestCommandsStopLimitLoop(t *testing.T) {
 
 func TestWindowEndDefaultsRunWhilePaused(t *testing.T) {
 	r, w := limitRunner(t, 0)
-	r.setPause(nil)
+	client := newFakeClient()
+	r.client = client
+	r.cfg.MQTT.Enabled = true
+	until := localAt("09:00")
+	r.setPause(&until)
 
 	r.handleIntent(context.Background(), mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true})
 	assert.Equal(t, 1, w.setDefaultsCalls, "the window-end reset is never blocked by a pause")
+	p := lastState(t, client)
+	assert.True(t, p.Paused, "the reset does not report the runner as resumed")
+	require.NotNil(t, p.NextRun)
+	assert.True(t, until.Equal(*p.NextRun))
 
 	r.handleIntent(context.Background(), mqtt.Intent{Kind: mqtt.IntentSetDefaults, CommandTopic: "sbam/cmd/set_defaults"})
 	assert.Equal(t, 1, w.setDefaultsCalls, "a user set_defaults is still rejected while paused")
