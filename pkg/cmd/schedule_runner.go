@@ -630,9 +630,15 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 // the appropriate handler. It also acknowledges MQTT commands where
 // required.
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
+	// Commands that write the battery or stop the schedule end the
+	// grid_import_limit loop; ticks start or stop it themselves.
+	switch intent.Kind {
+	case mqtt.IntentShutdown, mqtt.IntentPause, mqtt.IntentForceCharge, mqtt.IntentSetDefaults, mqtt.IntentHold:
+		r.stopLimitLoop()
+	}
+
 	switch intent.Kind {
 	case mqtt.IntentShutdown:
-		r.stopLimitLoop()
 		return
 	case mqtt.IntentTick:
 		if err := r.Tick(ctx, r.now()); err != nil {
@@ -647,7 +653,6 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		}
 		return
 	case mqtt.IntentPause:
-		r.stopLimitLoop()
 		r.setPause(intent.PauseUntil)
 		payload := r.newCommandPayload("paused", "schedule paused by command", r.now())
 		payload.Paused = true
@@ -666,17 +671,14 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		r.publishIntentAck(ctx, intent, nil)
 		return
 	case mqtt.IntentForceCharge:
-		r.stopLimitLoop()
 		err := r.handleForceCharge(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
 	case mqtt.IntentSetDefaults:
-		r.stopLimitLoop()
 		err := r.handleSetDefaults(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
 	case mqtt.IntentHold:
-		r.stopLimitLoop()
 		err := r.handleHold(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
