@@ -189,10 +189,10 @@ windows:
       carry the load until the next chance to charge. It is bounded in
       practice by battery capacity, so the effect is simply "charge toward
       full."
-    - **DST:** day advancement uses fixed 24 h steps. In timezones that
-      observe daylight-saving, a span that crosses a DST boundary can be off
-      by an hour. Timezones without DST (e.g. `Australia/Perth`) are
-      unaffected.
+    - **DST:** window times are local wall-clock times and days advance by
+      calendar day, so the next window start stays at its local time across
+      a daylight-saving change. The span is measured in real hours, so on
+      the night of the change it is one hour longer or shorter.
 
 ## Forecast Caching
 
