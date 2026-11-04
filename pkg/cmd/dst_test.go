@@ -65,4 +65,11 @@ func TestCooldownAcrossDSTEnd(t *testing.T) {
 	in, err = isInCooldown(time.Date(2026, 10, 25, 7, 56, 0, 0, loc), "22:00", "08:00", 5)
 	require.NoError(t, err)
 	assert.True(t, in)
+
+	// Discriminating case: the night has 25 h, so a 300-minute cooldown before
+	// 04:00 local starts at 00:00, not 23:00. Adding 24 h to the end instead
+	// of a calendar day would put the end at 03:00 and 23:30 in the cooldown.
+	in, err = isInCooldown(time.Date(2026, 10, 24, 23, 30, 0, 0, loc), "22:00", "04:00", 300)
+	require.NoError(t, err)
+	assert.False(t, in)
 }
