@@ -12,7 +12,7 @@ configuration:
     description: Must match the inverter's Modbus SunSpec Model Type. int_sf for "int + SF", float for "float", auto to detect it.
   batt_min_soc:
     name: Inverter minimum SoC (%)
-    description: Minimum state of charge set in the inverter's battery settings (Fronius default 5). Used by reserve horizon until_solar.
+    description: Set it to the minimum SoC in the inverter's battery settings (Fronius default 5). sbam does not read or change the inverter; it only uses this to size the until_solar reserve.
   scheduler_mode:
     name: Scheduler mode
     description: windows (recommended) uses the charge windows below. crontab is the legacy mode with start/end hour and crontab.
