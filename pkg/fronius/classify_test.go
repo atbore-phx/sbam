@@ -43,7 +43,7 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    true,
 			battReserveChargeEnabled: false,
-			expectedDecision:         decisionForecastCharge,
+			expectedDecision:         DecisionForecastCharge,
 			expectedReason:           reasonForecastCharge,
 		},
 		{
@@ -56,7 +56,7 @@ func TestClassifyDecision(t *testing.T) {
 			pwLwt:                    100,
 			forecastChargeEnabled:    false,
 			battReserveChargeEnabled: true,
-			expectedDecision:         decisionReserveCharge,
+			expectedDecision:         DecisionReserveCharge,
 			expectedReason:           reasonReserveCharge,
 		},
 		{
@@ -119,4 +119,12 @@ func TestClassifyDecision(t *testing.T) {
 			BattReserveNet: 3500,
 		}, gotPowerState)
 	})
+}
+
+func TestChargeNeedWh(t *testing.T) {
+	ps := PowerState{Net: -1200, Batt: 950, BattReserveNet: -850}
+	assert.InDelta(t, 1500, ChargeNeedWh(DecisionForecastCharge, ps, 300), 0.01, "shortfall plus pw_upt")
+	assert.InDelta(t, 850, ChargeNeedWh(DecisionReserveCharge, ps, 300), 0.01, "reserve deficit")
+	assert.Zero(t, ChargeNeedWh(DecisionIdle, ps, 300))
+	assert.Zero(t, ChargeNeedWh(Decision("battery_full"), ps, 300))
 }

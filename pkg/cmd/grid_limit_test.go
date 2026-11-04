@@ -98,13 +98,6 @@ func TestGridChargeAllowance(t *testing.T) {
 	})
 }
 
-func TestNeededChargeWh(t *testing.T) {
-	ps := fronius.PowerState{Net: -1200, BattReserveNet: -850}
-	assert.InDelta(t, 1500, neededChargeWh("forecast_charge", ps, 300), 0.01)
-	assert.InDelta(t, 850, neededChargeWh("reserve_charge", ps, 300), 0.01)
-	assert.Zero(t, neededChargeWh(fronius.DecisionIdle, ps, 300))
-}
-
 func TestLimitRewriteNeeded(t *testing.T) {
 	assert.False(t, limitRewriteNeeded(16, 18), "small change is not written")
 	assert.True(t, limitRewriteNeeded(16, 21))

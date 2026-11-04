@@ -103,18 +103,6 @@ func (r *Runner) batteryPriorityCapW(s *limitSession) (float64, error) {
 	}
 }
 
-// neededChargeWh is the energy a charge decision asks for, matching what
-// fronius.SetFroniusChargeBatteryMode passes to SetChargePower.
-func neededChargeWh(decision fronius.Decision, ps fronius.PowerState, pwUPT float64) float64 {
-	switch decision.String() {
-	case "forecast_charge":
-		return -ps.Net + pwUPT
-	case "reserve_charge":
-		return -ps.BattReserveNet
-	}
-	return 0
-}
-
 // startLimitLoop replaces any running loop with one that re-applies
 // grid_import_limit every limitCheckInterval through the runner queue.
 func (r *Runner) startLimitLoop(s limitSession) {

@@ -598,7 +598,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	if r.cfg.GridImportLimit > 0 && chargePct > 0 {
 		r.startLimitLoop(limitSession{
-			needWh:     neededChargeWh(decision, powerState, r.cfg.PWUPT),
+			needWh:     fronius.ChargeNeedWh(decision, powerState, r.cfg.PWUPT),
 			ceilingW:   effectiveMaxCharge,
 			capacityWh: capacityMax,
 			hold:       holdBattery,

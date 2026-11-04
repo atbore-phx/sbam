@@ -43,10 +43,8 @@ func setFroniusChargeBatteryMode(sunspecType SunSpecType, hold bool, pw_forecast
 	}
 
 	switch decision {
-	case decisionForecastCharge:
-		ch_pc = SetChargePower(pw_batt_max, -1*pw.Net+pw_upt, max_charge)
-	case decisionReserveCharge:
-		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
+	case DecisionForecastCharge, DecisionReserveCharge:
+		ch_pc = SetChargePower(pw_batt_max, ChargeNeedWh(decision, pw, pw_upt), max_charge)
 	}
 
 	if hold && ch_pc == 0 {
@@ -65,6 +63,18 @@ func setFroniusChargeBatteryMode(sunspecType SunSpecType, hold bool, pw_forecast
 	}
 
 	return ch_pc, decision, reason, pw, nil
+}
+
+// ChargeNeedWh is the energy a charge decision asks for: the forecast
+// shortfall plus pw_upt, or the reserve deficit. Other decisions need none.
+func ChargeNeedWh(decision Decision, pw PowerState, pwUPT float64) float64 {
+	switch decision {
+	case DecisionForecastCharge:
+		return -pw.Net + pwUPT
+	case DecisionReserveCharge:
+		return -pw.BattReserveNet
+	}
+	return 0
 }
 
 func SetChargePower(max float64, load float64, limit float64) int16 {

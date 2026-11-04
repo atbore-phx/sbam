@@ -87,7 +87,7 @@ func TestChargeModeHold(t *testing.T) {
 		pct, decision, _, _, err := setFroniusChargeBatteryMode(SunSpecIntSF, true, 1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 
 		require.NoError(t, err)
-		assert.Equal(t, decisionForecastCharge, decision)
+		assert.Equal(t, DecisionForecastCharge, decision)
 		assert.Equal(t, int16(31), pct)
 		assert.Equal(t, int16(-3100), getHolding(OutWRte))
 	})
