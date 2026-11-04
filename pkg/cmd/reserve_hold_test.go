@@ -204,3 +204,23 @@ func TestAnyHoldBattery(t *testing.T) {
 	assert.False(t, anyHoldBattery([]pw.Window{{HoldBattery: boolPtr(false)}, {}}))
 	assert.True(t, anyHoldBattery([]pw.Window{{}, {HoldBattery: boolPtr(true)}}))
 }
+
+func TestResolveActiveWindowReturnsWindow(t *testing.T) {
+	r := reserveRunner(nightWindow, 1000)
+
+	in, _, _, _, name, active := r.resolveActiveWindow(localAt("03:00"))
+	assert.True(t, in)
+	require.NotNil(t, active)
+	assert.Equal(t, name, active.Name)
+	assert.Equal(t, pw.ReserveHorizonUntilSolar, active.ReserveHorizon)
+
+	in, _, _, _, _, active = r.resolveActiveWindow(localAt("12:00"))
+	assert.False(t, in)
+	assert.Nil(t, active)
+
+	r.cfg.Windows = nil
+	in, _, _, _, name, active = r.resolveActiveWindow(localAt("03:00"))
+	assert.True(t, in)
+	assert.Equal(t, "legacy", name)
+	assert.Nil(t, active, "the legacy path has no window config")
+}

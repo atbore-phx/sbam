@@ -158,7 +158,7 @@ func (r *Runner) handleLimitCheck(ctx context.Context) {
 		r.stopLimitLoop()
 		return
 	}
-	if inWindow, _, _, _, _ := r.resolveActiveWindow(now); !inWindow {
+	if inWindow, _, _, _, _, _ := r.resolveActiveWindow(now); !inWindow {
 		r.stopLimitLoop()
 		return
 	}

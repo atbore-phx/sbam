@@ -1504,7 +1504,7 @@ func TestRunner_ResolveActiveWindow_WindowsNoneActive(t *testing.T) {
 		},
 	}, nil)
 
-	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, maxCharge, fh, ch, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.False(t, inWindow)
 	assert.Equal(t, 5000.0, maxCharge)
 	assert.Equal(t, "default", fh)
@@ -1528,7 +1528,7 @@ func TestRunner_ResolveActiveWindow_WindowsWithCustomHorizons(t *testing.T) {
 		},
 	}, nil)
 
-	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, maxCharge, fh, ch, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.True(t, inWindow)
 	assert.Equal(t, 3000.0, maxCharge)
 	assert.Equal(t, "today", fh)
@@ -1543,7 +1543,7 @@ func TestRunner_ResolveActiveWindow_LegacyError(t *testing.T) {
 		Now:     time.Now,
 	}, nil)
 
-	inWindow, _, _, _, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, _, _, _, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.False(t, inWindow)
 	assert.Empty(t, windowName)
 }
@@ -1557,7 +1557,7 @@ func TestRunner_ResolveActiveWindow_LegacyOutsideWindow(t *testing.T) {
 		},
 	}, nil)
 
-	inWindow, _, _, _, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, _, _, _, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.False(t, inWindow)
 	assert.Empty(t, windowName)
 }
@@ -1577,7 +1577,7 @@ func TestRunner_ResolveActiveWindow_WindowWithEmptyHorizonsFallsBack(t *testing.
 		},
 	}, nil)
 
-	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, maxCharge, fh, ch, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.True(t, inWindow)
 	assert.Equal(t, 3000.0, maxCharge)
 	assert.Equal(t, "tomorrow", fh)
@@ -1597,7 +1597,7 @@ func TestRunner_ResolveActiveWindow_LegacyInWindow(t *testing.T) {
 		},
 	}, nil)
 
-	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, maxCharge, fh, ch, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.True(t, inWindow)
 	assert.Equal(t, 3500.0, maxCharge)
 	assert.Equal(t, "next_solar_day", fh)
@@ -1621,7 +1621,7 @@ func TestRunner_ResolveActiveWindow_CrossMidnightWindowActive(t *testing.T) {
 		},
 	}, nil)
 
-	inWindow, maxCharge, fh, ch, windowName := runner.resolveActiveWindow(runner.now())
+	inWindow, maxCharge, fh, ch, windowName, _ := runner.resolveActiveWindow(runner.now())
 	assert.True(t, inWindow)
 	assert.Equal(t, 2500.0, maxCharge)
 	assert.Equal(t, "remaining_today", fh)

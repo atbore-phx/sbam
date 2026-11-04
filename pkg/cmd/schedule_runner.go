@@ -409,7 +409,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	// Resolve active window and derive effective charge parameters.
 	// When no windows are configured, falls back to legacy StartHR/EndHR.
-	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName := r.resolveActiveWindow(now)
+	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName, activeWindow := r.resolveActiveWindow(now)
 
 	// In windows mode, restart the ticker when the active window changes.
 	if r.cfg.SchedulerMode == "windows" {
@@ -468,8 +468,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var inCooldown bool
 	var cooldownErr error
 	if r.cfg.SchedulerMode == "windows" && len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
-		if active != nil {
+		if active := activeWindow; active != nil {
 			cooldownDuration := chargeCooldownMinutes
 			if active.Defaults != nil && *active.Defaults && active.BeforeEndDefaults != nil {
 				cooldownDuration = *active.BeforeEndDefaults
@@ -531,7 +530,6 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		}
 	}
 
-	activeWindow := r.activeWindowConfig(now)
 	holdBattery := activeWindow != nil && activeWindow.HoldBattery != nil && *activeWindow.HoldBattery
 	effectiveReserve := r.cfg.PWBattReserve
 	if activeWindow != nil && activeWindow.ReserveHorizon == pw.ReserveHorizonUntilSolar {
@@ -840,7 +838,7 @@ func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
 // computing current window flags and returning a payload ready for
 // callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
-	inChargeWindow, _, _, _, _ := r.resolveActiveWindow(now)
+	inChargeWindow, _, _, _, _, _ := r.resolveActiveWindow(now)
 
 	reserveWindowActive, reserveErr := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if reserveErr != nil {
@@ -930,19 +928,20 @@ func (r *Runner) clearPause() {
 }
 
 // resolveActiveWindow determines whether the current time falls within any
-// configured charge window and returns the effective charge parameters.
+// configured charge window and returns the effective charge parameters and
+// the active window (nil on the legacy path or outside every window).
 // When windows are configured it delegates to power.ResolveActiveWindow;
 // otherwise it falls back to the legacy checkTimeRangeAt call using
 // RunnerConfig.StartHR / EndHR.
-func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string) {
+func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string, active *pw.Window) {
 	maxCharge = r.cfg.MaxCharge
 	forecastHorizon = r.cfg.ForecastHorizon
 	consumptionHorizon = r.cfg.ConsumptionHorizon
 
 	if len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+		active = pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 		if active == nil {
-			return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+			return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 		}
 		maxCharge = active.MaxCharge
 		if active.ForecastHorizon != "" {
@@ -952,19 +951,19 @@ func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge fl
 			consumptionHorizon = active.ConsumptionHorizon
 		}
 		name := pw.WindowNameOrDefault(*active, 0)
-		return true, maxCharge, forecastHorizon, consumptionHorizon, name
+		return true, maxCharge, forecastHorizon, consumptionHorizon, name, active
 	}
 
 	// Legacy path: use single StartHR/EndHR window.
 	inWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
 	if err != nil {
 		u.HandleError(err, "checkTimeRangeAt failed in resolveActiveWindow")
-		return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+		return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 	}
 	if inWindow {
-		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy"
+		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy", nil
 	}
-	return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+	return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 }
 
 // pauseStateAt reports whether the runner is currently paused at the
@@ -1056,15 +1055,6 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		t = t.AddDate(0, 0, 1)
 	}
 	return t
-}
-
-// activeWindowConfig returns the configured window active at now, or nil
-// when no windows are configured or none is active.
-func (r *Runner) activeWindowConfig(now time.Time) *pw.Window {
-	if len(r.cfg.Windows) == 0 {
-		return nil
-	}
-	return pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 }
 
 // untilSolarReserve returns the battery reserve (Wh) for a window with
