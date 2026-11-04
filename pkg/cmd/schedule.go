@@ -709,11 +709,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 		return err
 	}
 	if defaults {
-		_, err = c.AddFunc(end_crontab, func() {
-			if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
-				u.Log.Warn("set_defaults dropped because runner queue is full")
-			}
-		})
+		_, err = c.AddFunc(end_crontab, runner.submitSystemDefaults)
 		if err != nil {
 			return err
 		}

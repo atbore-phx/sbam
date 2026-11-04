@@ -282,10 +282,16 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time, beforeEnd in
 	r.defaultsTimer = time.AfterFunc(delay, func() {
 		u.Log.Infow("set_defaults timer fired", "window", active.Name)
 		r.defaultsFired.Store(true)
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
-			u.Log.Warn("set_defaults dropped because runner queue is full")
-		}
+		r.submitSystemDefaults()
 	})
+}
+
+// submitSystemDefaults queues the window-end reset. It is a System intent, so
+// it runs even while paused.
+func (r *Runner) submitSystemDefaults() {
+	if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
+		u.Log.Warn("set_defaults dropped because runner queue is full")
+	}
 }
 
 // nextWindowStart resolves the next upcoming charge window and the instant

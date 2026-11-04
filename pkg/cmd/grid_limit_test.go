@@ -349,6 +349,21 @@ func TestWindowEndDefaultsRunWhilePaused(t *testing.T) {
 	assert.Equal(t, 1, w.setDefaultsCalls, "a user set_defaults is still rejected while paused")
 }
 
+// The window-end producers (windows timer and crontab end_hr) share
+// submitSystemDefaults; what it queues resets the inverter while paused.
+func TestSubmitSystemDefaultsRunsWhilePaused(t *testing.T) {
+	r, w := limitRunner(t, 0)
+	r.setPause(nil)
+
+	r.submitSystemDefaults()
+	require.Len(t, r.intents, 1)
+	intent := <-r.intents
+	assert.True(t, intent.System)
+	r.handleIntent(context.Background(), intent)
+
+	assert.Equal(t, 1, w.setDefaultsCalls)
+}
+
 func TestScheduleGridLimitFlags(t *testing.T) {
 	for name, def := range map[string]string{"grid_import_limit": "0", "grid_import_margin": "200"} {
 		flag := scdCmd.Flags().Lookup(name)
