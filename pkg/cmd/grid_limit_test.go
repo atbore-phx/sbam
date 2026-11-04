@@ -474,3 +474,26 @@ func TestReserveTelemetryRepeatedInReserveWindow(t *testing.T) {
 	assert.Nil(t, after.ReserveAtRisk, "outside the reserve window the sensors are not published")
 	assert.Nil(t, r.reserve)
 }
+
+func TestForceChargeCommandCappedByGridImportLimit(t *testing.T) {
+	w := &fakeBatteryWriter{}
+	withFakeWriter(t, w)
+	oldStorage := newStorage
+	t.Cleanup(func() { newStorage = oldStorage })
+	newStorage = func() storageClient { return &fakeStorageClient{capacityToCharge: 500, capacityMax: 10000, socPct: 40} }
+	r := newRunnerForTests(newFakeClient())
+	r.cfg.GridImportLimit = 3200
+	r.cfg.GridImportMargin = 200
+
+	stubPowerFlow(t, 2500, nil) // 500 W free
+	require.NoError(t, r.handleForceCharge(context.Background(), mqtt.Intent{Kind: mqtt.IntentForceCharge, TargetPct: 42}))
+	assert.Equal(t, int16(5), w.lastTargetPct, "500 W free on 10 kWh, not the 35 %% of max_charge")
+
+	stubPowerFlow(t, 0, errors.New("meter down"))
+	calls := w.forceChargeCalls
+	assert.Error(t, r.handleForceCharge(context.Background(), mqtt.Intent{Kind: mqtt.IntentForceCharge, TargetPct: 42}))
+	assert.Equal(t, calls, w.forceChargeCalls, "no blind charge under the limit")
+
+	require.NoError(t, r.handleForceCharge(context.Background(), mqtt.Intent{Kind: mqtt.IntentForceCharge, TargetPct: 100, IgnoreMaxCharge: true}))
+	assert.Equal(t, int16(100), w.lastTargetPct, "the explicit override is not capped")
+}

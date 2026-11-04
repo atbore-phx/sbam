@@ -82,6 +82,7 @@ With `grid_import_limit` set, sbam:
 - with `grid_charge_priority: loads`, sizes each grid charge to at most `grid_import_limit − grid_import_margin − (P_Grid + P_Akku)`. If a throttling load already takes the whole line, the battery waits;
 - re-reads the meter every 30 s while a grid charge runs and rewrites the charge rate when it moves by 5 points or more (to 0 % it writes the hold when `hold_battery` is on, otherwise the defaults);
 - does not charge from the grid when the meter cannot be read, since it cannot know how much power is free;
+- caps a manual MQTT `force_charge` to the power free under the limit when it is sent (and rejects it when the meter cannot be read). The rate is not re-checked while it runs. The full-charge override (`ignore_max_charge: true`) is not capped;
 - publishes `reserve_target_wh`, `reserve_deficit_wh`, `grid_charge_allowance_w` and `reserve_at_risk` (MQTT). `reserve_at_risk` turns on when the reserve deficit cannot be charged before the window ends at the power free now, so an automation can pause a load if you want.
 
 Use `battery` when the large load throttles itself (a dynamic EV charger). Both controllers aim at the same line, and with `loads` the one that yields first gets nothing, so the battery would wait all night behind an EV that starts first. With `battery`, a load that does not throttle can push the import over the limit for up to 10 s before sbam backs off. A typical setup charges the reserve first and keeps it with `hold_battery`:

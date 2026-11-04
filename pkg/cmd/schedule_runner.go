@@ -741,12 +741,14 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 }
 
 // resolveForceChargeTargetPct caps any requested force charge percentage
-// by configured max_charge and current battery max capacity.
+// by configured max_charge and current battery max capacity, and by the
+// power free under grid_import_limit when it is set.
 //
 // Effective target is:
-// min(requestedPct, max_charge*100/pw_batt_max)
+// min(requestedPct, min(max_charge, free)*100/pw_batt_max)
 //
-// When max_charge is 0 the effective target becomes 0 (no charge).
+// When the cap is 0 the effective target becomes 0 (no charge). When the
+// meter cannot be read under grid_import_limit the command is rejected.
 func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) {
 	if r.cfg.MaxCharge < 0 {
 		return 0, fmt.Errorf("invalid max_charge %.2f: must be greater than or equal to 0", r.cfg.MaxCharge)
@@ -761,8 +763,17 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 		return 0, fmt.Errorf("invalid battery capacity %.2f: must be greater than 0", capacityMax)
 	}
 
+	capW := r.cfg.MaxCharge
+	if r.cfg.GridImportLimit > 0 {
+		pf, err := readPowerFlow(r.cfg.FroniusIP)
+		if err != nil {
+			return 0, fmt.Errorf("grid_import_limit: cannot read the power flow for force_charge: %w", err)
+		}
+		capW = min(capW, max(0, r.cfg.GridImportLimit-r.cfg.GridImportMargin-pf.BaselineImportW()))
+	}
+
 	requestedLoad := capacityMax * float64(requestedPct) / 100.0
-	targetPct := fronius.SetChargePower(capacityMax, requestedLoad, r.cfg.MaxCharge)
+	targetPct := fronius.SetChargePower(capacityMax, requestedLoad, capW)
 
 	return targetPct, nil
 }

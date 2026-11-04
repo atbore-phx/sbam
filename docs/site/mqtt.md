@@ -99,8 +99,8 @@ Diagnostics expose extra scheduler and operating details. Several diagnostics us
 When discovery is enabled, Home Assistant receives two numeric selector MQTT `number` entities (mode: box):
 
 - **Force Charge Target**: retained selector on `<prefix>/control/force_charge_target_pct` with range `0..101`, step `1`, unit `%`.
-    - Values `0..100`: `{"target_pct":<value>,"ignore_max_charge":false}` — scheduler respects configured maximum charge limits.
-    - Value `101`: treated as an explicit full-charge override: `{"target_pct":100,"ignore_max_charge":true}` — ignores `max_charge` limits. Scheduler still respects battery capacity and won't overcharge.
+    - Values `0..100`: `{"target_pct":<value>,"ignore_max_charge":false}` — scheduler respects configured maximum charge limits and, with `grid_import_limit`, the power free under it when the command is sent.
+    - Value `101`: treated as an explicit full-charge override: `{"target_pct":100,"ignore_max_charge":true}` — ignores `max_charge` limits and `grid_import_limit`. Scheduler still respects battery capacity and won't overcharge.
 
 - **Pause Duration**: retained selector on `<prefix>/control/pause_duration_s` with range `0..86400` seconds, step `60`.
     - Value `0`: pause indefinitely.
