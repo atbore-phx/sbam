@@ -1133,7 +1133,7 @@ func TestRunner_ResolveForceChargeNegativeMaxCharge(t *testing.T) {
 	runner := newRunnerForTests(newFakeClient())
 	runner.cfg.MaxCharge = -1
 
-	_, err := runner.resolveForceChargeTargetPct(50)
+	_, err := runner.resolveForceChargeTargetPct(context.Background(), 50)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid max_charge")
 }
@@ -1145,7 +1145,7 @@ func TestRunner_ResolveForceChargeZeroMaxCapacity(t *testing.T) {
 	defer func() { newStorage = oldStorageFactory }()
 
 	runner := newRunnerForTests(newFakeClient())
-	_, err := runner.resolveForceChargeTargetPct(50)
+	_, err := runner.resolveForceChargeTargetPct(context.Background(), 50)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid battery capacity")
 }
@@ -1157,7 +1157,7 @@ func TestRunner_ResolveForceChargeNegativeCapacity(t *testing.T) {
 	defer func() { newStorage = oldStorageFactory }()
 
 	runner := newRunnerForTests(newFakeClient())
-	_, err := runner.resolveForceChargeTargetPct(50)
+	_, err := runner.resolveForceChargeTargetPct(context.Background(), 50)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid battery capacity")
 }
@@ -1169,7 +1169,7 @@ func TestRunner_ResolveForceChargeStorageError(t *testing.T) {
 	defer func() { newStorage = oldStorageFactory }()
 
 	runner := newRunnerForTests(newFakeClient())
-	_, err := runner.resolveForceChargeTargetPct(50)
+	_, err := runner.resolveForceChargeTargetPct(context.Background(), 50)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unable to resolve force_charge target")
 }

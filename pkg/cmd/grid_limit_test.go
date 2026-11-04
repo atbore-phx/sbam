@@ -22,7 +22,7 @@ func stubPowerFlow(t *testing.T, baselineW float64, err error) *int {
 	t.Helper()
 	calls := 0
 	old := readPowerFlow
-	readPowerFlow = func(string) (storage.PowerFlow, error) {
+	readPowerFlow = func(context.Context, string) (storage.PowerFlow, error) {
 		calls++
 		if err != nil {
 			return storage.PowerFlow{}, err
@@ -50,7 +50,7 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 0)
 		calls := stubPowerFlow(t, 9999, nil)
 
-		capW, allowance, err := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(context.Background(), 2500)
 
 		assert.NoError(t, err)
 		assert.Equal(t, 2500.0, capW)
@@ -61,7 +61,7 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 2850, nil)
 
-		capW, allowance, err := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(context.Background(), 2500)
 
 		assert.NoError(t, err)
 		assert.InDelta(t, 150, capW, 0.01, "3200 - 200 margin - 2850")
@@ -71,7 +71,7 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 300, nil)
 
-		capW, _, err := r.gridChargeAllowance(2500)
+		capW, _, err := r.gridChargeAllowance(context.Background(), 2500)
 
 		assert.NoError(t, err)
 		assert.Equal(t, 2500.0, capW)
@@ -80,7 +80,7 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 3600, nil)
 
-		capW, allowance, err := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(context.Background(), 2500)
 
 		assert.NoError(t, err)
 		assert.Zero(t, capW)
@@ -90,7 +90,7 @@ func TestGridChargeAllowance(t *testing.T) {
 		r, _ := limitRunner(t, 3200)
 		stubPowerFlow(t, 0, errors.New("timeout"))
 
-		capW, allowance, err := r.gridChargeAllowance(2500)
+		capW, allowance, err := r.gridChargeAllowance(context.Background(), 2500)
 
 		assert.Error(t, err)
 		assert.Zero(t, capW, "no grid charge without the meter")
@@ -374,14 +374,14 @@ func TestBatteryPriorityClaimsAtTick(t *testing.T) {
 	r.cfg.GridChargePriority = ""
 	stubPowerFlow(t, 3150, nil) // EV at ~2.85 kW + house
 
-	capW, allowance, err := r.gridChargeAllowance(2500)
+	capW, allowance, err := r.gridChargeAllowance(context.Background(), 2500)
 
 	assert.NoError(t, err)
 	assert.Equal(t, 2500.0, capW, "claim, do not wait for room")
 	assert.Zero(t, *allowance, "telemetry still reports the free power")
 
 	stubPowerFlow(t, 0, errors.New("meter down"))
-	capW, _, err = r.gridChargeAllowance(2500)
+	capW, _, err = r.gridChargeAllowance(context.Background(), 2500)
 	assert.Error(t, err)
 	assert.Zero(t, capW, "no grid charge without the meter, whatever the priority")
 }

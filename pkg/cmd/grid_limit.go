@@ -66,11 +66,11 @@ func (r *Runner) batteryPriority() bool {
 // When the power flow cannot be read it returns the error with capW 0: no
 // grid charge is allowed, since charging blind could exceed the contracted
 // power.
-func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW *float64, err error) {
+func (r *Runner) gridChargeAllowance(ctx context.Context, ceilingW float64) (capW float64, allowanceW *float64, err error) {
 	if r.cfg.GridImportLimit <= 0 {
 		return ceilingW, nil, nil
 	}
-	pf, err := readPowerFlow(r.cfg.FroniusIP)
+	pf, err := readPowerFlow(ctx, r.cfg.FroniusIP)
 	if err != nil {
 		return 0, nil, fmt.Errorf("cannot read the power flow, no grid charge until it is available: %w", err)
 	}
@@ -86,8 +86,8 @@ func (r *Runner) gridChargeAllowance(ceilingW float64) (capW float64, allowanceW
 // within the limit, back off by the excess when it is above, and grow back
 // when there is room below limit - margin. When the power flow cannot be
 // read it returns the error with 0 W.
-func (r *Runner) batteryPriorityCapW(s *limitSession) (float64, error) {
-	pf, err := readPowerFlow(r.cfg.FroniusIP)
+func (r *Runner) batteryPriorityCapW(ctx context.Context, s *limitSession) (float64, error) {
+	pf, err := readPowerFlow(ctx, r.cfg.FroniusIP)
 	if err != nil {
 		return 0, fmt.Errorf("cannot read the power flow, stopping the grid charge: %w", err)
 	}
@@ -166,9 +166,9 @@ func (r *Runner) handleLimitCheck(ctx context.Context) {
 	var capW float64
 	var err error
 	if s.battery {
-		capW, err = r.batteryPriorityCapW(s)
+		capW, err = r.batteryPriorityCapW(ctx, s)
 	} else {
-		capW, _, err = r.gridChargeAllowance(s.ceilingW)
+		capW, _, err = r.gridChargeAllowance(ctx, s.ceilingW)
 	}
 	var pct int16
 	if err != nil {

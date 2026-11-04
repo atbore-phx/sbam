@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ const livePowerFlow = `{"Body":{"Data":{"Site":{"Meter_Location":"grid","Mode":"
 func TestReadPowerFlow(t *testing.T) {
 	ip := powerFlowServer(t, http.StatusOK, livePowerFlow)
 
-	p, err := ReadPowerFlow(ip)
+	p, err := ReadPowerFlow(context.Background(), ip)
 
 	require.NoError(t, err)
 	assert.InDelta(t, 7.4, p.GridW, 0.001)
@@ -38,7 +39,7 @@ func TestReadPowerFlow(t *testing.T) {
 func TestReadPowerFlowBaselineWhileDischarging(t *testing.T) {
 	ip := powerFlowServer(t, http.StatusOK, `{"Body":{"Data":{"Site":{"P_Akku":800,"P_Grid":100}}},"Head":{"Status":{"Code":0}}}`)
 
-	p, err := ReadPowerFlow(ip)
+	p, err := ReadPowerFlow(context.Background(), ip)
 
 	require.NoError(t, err)
 	assert.InDelta(t, 900, p.BaselineImportW(), 0.001, "with the battery idle the grid would supply its 800 W too")
@@ -47,7 +48,7 @@ func TestReadPowerFlowBaselineWhileDischarging(t *testing.T) {
 func TestReadPowerFlowNoBattery(t *testing.T) {
 	ip := powerFlowServer(t, http.StatusOK, `{"Body":{"Data":{"Site":{"P_Akku":null,"P_Grid":1500}}},"Head":{"Status":{"Code":0}}}`)
 
-	p, err := ReadPowerFlow(ip)
+	p, err := ReadPowerFlow(context.Background(), ip)
 
 	require.NoError(t, err)
 	assert.Zero(t, p.BatteryW)
@@ -69,12 +70,22 @@ func TestReadPowerFlowErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ip := powerFlowServer(t, tc.status, tc.body)
 
-			_, err := ReadPowerFlow(ip)
+			_, err := ReadPowerFlow(context.Background(), ip)
 
 			assert.ErrorContains(t, err, tc.want)
 		})
 	}
 
-	_, err := ReadPowerFlow("127.0.0.1:1")
+	_, err := ReadPowerFlow(context.Background(), "127.0.0.1:1")
 	assert.ErrorContains(t, err, "read power flow")
+}
+
+func TestReadPowerFlowCanceled(t *testing.T) {
+	ip := powerFlowServer(t, http.StatusOK, livePowerFlow)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := ReadPowerFlow(ctx, ip)
+
+	assert.ErrorIs(t, err, context.Canceled)
 }

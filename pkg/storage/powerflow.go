@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,8 +50,12 @@ var powerFlowClient = &http.Client{Timeout: 5 * time.Second}
 
 // ReadPowerFlow reads the current grid and battery power from the Fronius
 // Solar API. A missing battery value is read as 0 W.
-func ReadPowerFlow(froniusIP string) (PowerFlow, error) {
-	resp, err := powerFlowClient.Get("http://" + froniusIP + powerFlowURL)
+func ReadPowerFlow(ctx context.Context, froniusIP string) (PowerFlow, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+froniusIP+powerFlowURL, nil)
+	if err != nil {
+		return PowerFlow{}, fmt.Errorf("read power flow: %w", err)
+	}
+	resp, err := powerFlowClient.Do(req)
 	if err != nil {
 		return PowerFlow{}, fmt.Errorf("read power flow: %w", err)
 	}

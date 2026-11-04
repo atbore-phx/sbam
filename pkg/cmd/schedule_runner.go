@@ -538,7 +538,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	// Grid charge power: the active window's max_charge, limited by what
 	// grid_import_limit leaves free right now.
-	chargeCapW, allowanceW, limitErr := r.gridChargeAllowance(effectiveMaxCharge)
+	chargeCapW, allowanceW, limitErr := r.gridChargeAllowance(ctx, effectiveMaxCharge)
 	if limitErr != nil {
 		u.Log.Warnw("grid_import_limit", "error", limitErr)
 		r.publishError(ctx, "grid_import_limit", limitErr)
@@ -731,7 +731,7 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 	case intent.TargetPct == 0:
 		targetPct = 0
 	default:
-		targetPct, err = r.resolveForceChargeTargetPct(intent.TargetPct)
+		targetPct, err = r.resolveForceChargeTargetPct(ctx, intent.TargetPct)
 		if err != nil {
 			r.publishError(ctx, "force_charge", err)
 			return err
@@ -759,7 +759,7 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 //
 // When the cap is 0 the effective target becomes 0 (no charge). When the
 // meter cannot be read under grid_import_limit the command is rejected.
-func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) {
+func (r *Runner) resolveForceChargeTargetPct(ctx context.Context, requestedPct int16) (int16, error) {
 	if r.cfg.MaxCharge < 0 {
 		return 0, fmt.Errorf("invalid max_charge %.2f: must be greater than or equal to 0", r.cfg.MaxCharge)
 	}
@@ -775,7 +775,7 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 
 	capW := r.cfg.MaxCharge
 	if r.cfg.GridImportLimit > 0 {
-		pf, err := readPowerFlow(r.cfg.FroniusIP)
+		pf, err := readPowerFlow(ctx, r.cfg.FroniusIP)
 		if err != nil {
 			return 0, fmt.Errorf("grid_import_limit: cannot read the power flow for force_charge: %w", err)
 		}
