@@ -224,3 +224,22 @@ func TestResolveActiveWindowReturnsWindow(t *testing.T) {
 	assert.Equal(t, "legacy", name)
 	assert.Nil(t, active, "the legacy path has no window config")
 }
+
+func TestWindowReserve(t *testing.T) {
+	r := reserveRunner(nightWindow, 1000)
+	now := localAt("03:00")
+
+	hold, reserve := r.windowReserve(now, nil, 5120, morningForecast())
+	assert.False(t, hold)
+	assert.InDelta(t, 1000, reserve, 0.01, "no window: pw_batt_reserve")
+
+	w := nightWindow
+	w.HoldBattery = boolPtr(true)
+	hold, reserve = r.windowReserve(now, &w, 5120, morningForecast())
+	assert.True(t, hold)
+	assert.InDelta(t, 1580, reserve, 0.01, "until_solar reserve")
+
+	w.ReserveHorizon = ""
+	_, reserve = r.windowReserve(now, &w, 5120, morningForecast())
+	assert.InDelta(t, 1000, reserve, 0.01)
+}

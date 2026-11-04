@@ -94,7 +94,8 @@ pkg/
     sunspec_test.go           - Unit tests for the sunspec_type option wiring
     reserve_hold_test.go      - Unit tests for reserve_horizon until_solar and hold_battery runner wiring
     hold_command_test.go      - Unit tests for the hold MQTT command and battery writer hold
-    grid_limit.go             - grid_import_limit: charge allowance from the meter, 30 s limit loop, reserve-at-risk
+    grid_limit.go             - grid_import_limit: charge allowance from the meter, 30 s limit loop, post-decision follow-up
+    reserve.go                - Window reserve and hold, until_solar reserve, reserve-at-risk and reserve telemetry
     grid_limit_test.go        - Unit tests for grid_import_limit, the limit loop and window-end defaults while paused
     dst_test.go               - Unit tests for window/clock arithmetic across daylight-saving changes
     estimate.go               - `estimate` command: display forecast & battery state

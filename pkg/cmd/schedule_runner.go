@@ -120,13 +120,6 @@ type Runner struct {
 	reserve       *reserveTelemetry // last reserve evaluation in the reserve window
 }
 
-// reserveTelemetry is the last reserve evaluation, repeated on every state
-// published while the reserve window is active.
-type reserveTelemetry struct {
-	targetWh, deficitWh float64
-	atRisk              bool
-}
-
 // NewRunner constructs a Runner with the provided configuration and MQTT
 // client. If `cfg.Now` is nil it defaults to `time.Now`. The runner is
 // initialized with a buffered intent queue and a battery writer.
@@ -530,11 +523,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		}
 	}
 
-	holdBattery := activeWindow != nil && activeWindow.HoldBattery != nil && *activeWindow.HoldBattery
-	effectiveReserve := r.cfg.PWBattReserve
-	if activeWindow != nil && activeWindow.ReserveHorizon == pw.ReserveHorizonUntilSolar {
-		effectiveReserve = r.untilSolarReserve(now, *activeWindow, capacityMax, siteForecasts)
-	}
+	holdBattery, effectiveReserve := r.windowReserve(now, activeWindow, capacityMax, siteForecasts)
 
 	// Grid charge power: the active window's max_charge, limited by what
 	// grid_import_limit leaves free right now.
@@ -594,35 +583,21 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	payload.ChargePct = &chargePct
 	payload.Paused = false
 
-	if r.cfg.GridImportLimit > 0 && chargePct > 0 {
-		r.startLimitLoop(limitSession{
-			needWh:     fronius.ChargeNeedWh(decision, powerState, r.cfg.PWUPT),
-			ceilingW:   effectiveMaxCharge,
-			capacityWh: capacityMax,
-			hold:       holdBattery,
-			lastPct:    chargePct,
-			battery:    r.batteryPriority(),
-		})
-	} else {
-		r.stopLimitLoop()
-	}
 	payload.GridChargeAllowanceW = allowanceW
-
-	if reserveWindowActive {
-		target := effectiveReserve
-		// At risk is judged on the power free now: with battery priority the
-		// charge claims more than that until the other loads yield.
-		riskCapW := chargeCapW
-		if allowanceW != nil {
-			riskCapW = min(riskCapW, *allowanceW)
-		}
-		deficit, atRisk := r.reserveRisk(now, activeWindow, target, capacityMax-capacityToCharge, riskCapW)
-		r.reserve = &reserveTelemetry{targetWh: target, deficitWh: deficit, atRisk: atRisk}
-		if atRisk {
-			u.Log.Warnw("reserve at risk: the reserve cannot be reached before the window ends at the grid power available now",
-				"deficit_wh", int(deficit), "charge_power_w", int(riskCapW))
-		}
-	}
+	r.followUpCharge(now, tickCharge{
+		decision:      decision,
+		powerState:    powerState,
+		chargePct:     chargePct,
+		ceilingW:      effectiveMaxCharge,
+		capW:          chargeCapW,
+		allowanceW:    allowanceW,
+		capacityWh:    capacityMax,
+		storedWh:      capacityMax - capacityToCharge,
+		hold:          holdBattery,
+		reserveWh:     effectiveReserve,
+		reserveWindow: reserveWindowActive,
+		window:        activeWindow,
+	})
 
 	r.publishState(payload)
 	return nil
@@ -1055,60 +1030,4 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		t = t.AddDate(0, 0, 1)
 	}
 	return t
-}
-
-// untilSolarReserve returns the battery reserve (Wh) for a window with
-// reserve_horizon until_solar: enough to keep the base load running from the
-// window end until the forecast PV output covers it, on top of the minimum
-// SoC the inverter keeps. It never returns less than pw_batt_reserve, and
-// falls back to it when no forecast is available.
-func (r *Runner) untilSolarReserve(now time.Time, w pw.Window, capacityMax float64, sites []pw.Forecasts) float64 {
-	static := r.cfg.PWBattReserve
-	if len(sites) == 0 {
-		u.Log.Warn("reserve_horizon until_solar: no forecast available, using pw_batt_reserve")
-		return static
-	}
-	windowEnd, err := nextClockAt(now, w.End)
-	if err != nil {
-		u.Log.Warnw("reserve_horizon until_solar: cannot parse window end, using pw_batt_reserve", "end", w.End, "error", err)
-		return static
-	}
-	baseLoad := r.cfg.PWBaseLoad
-	if baseLoad <= 0 {
-		baseLoad = r.cfg.PWConsumption / 24
-	}
-	gap, err := pw.SolarGapEnergy(sites, windowEnd, baseLoad)
-	if err != nil {
-		u.Log.Warnw("reserve_horizon until_solar: cannot read forecast periods, using pw_batt_reserve", "error", err)
-		return static
-	}
-	if !gap.Covered {
-		u.Log.Warnw("reserve_horizon until_solar: forecast PV never covers the base load within 24 h of the window end", "base_load_w", baseLoad)
-	}
-	effective := max(static, pw.UntilSolarReserve(capacityMax, r.cfg.BattMinSoC, gap))
-	if capacityMax > 0 {
-		effective = min(effective, capacityMax)
-	}
-	u.Log.Infow("reserve_horizon until_solar",
-		"window_end", windowEnd.Format(time.RFC3339),
-		"solar_covers_base_load_at", gap.CoveredAt.Format(time.RFC3339),
-		"base_load_w", baseLoad,
-		"gap_wh", int(gap.EnergyWh),
-		"min_soc_wh", int(capacityMax*r.cfg.BattMinSoC/100),
-		"reserve_wh", int(effective))
-	return effective
-}
-
-// nextClockAt returns the next occurrence of the HH:MM clock value at or
-// after now, in now's location.
-func nextClockAt(now time.Time, clock string) (time.Time, error) {
-	t, err := parseScheduleClock(clock, "end")
-	if err != nil {
-		return time.Time{}, err
-	}
-	at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
-	if at.Before(now) {
-		at = at.AddDate(0, 0, 1)
-	}
-	return at, nil
 }

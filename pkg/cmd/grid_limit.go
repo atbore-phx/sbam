@@ -103,6 +103,57 @@ func (r *Runner) batteryPriorityCapW(ctx context.Context, s *limitSession) (floa
 	}
 }
 
+// tickCharge is what a tick decided and wrote, for the steps that follow
+// the charge decision.
+type tickCharge struct {
+	decision      fronius.Decision
+	powerState    fronius.PowerState
+	chargePct     int16    // percent written by the decision
+	ceilingW      float64  // the active window's max_charge
+	capW          float64  // charge power the decision was given
+	allowanceW    *float64 // power free under grid_import_limit, nil when off
+	capacityWh    float64
+	storedWh      float64
+	hold          bool
+	reserveWh     float64 // effective reserve target
+	reserveWindow bool
+	window        *pw.Window
+}
+
+// followUpCharge runs after the tick's charge decision: it starts the
+// grid_import_limit loop for a grid charge (or stops it), and records the
+// reserve evaluation published while the reserve window is active.
+func (r *Runner) followUpCharge(now time.Time, c tickCharge) {
+	if r.cfg.GridImportLimit > 0 && c.chargePct > 0 {
+		r.startLimitLoop(limitSession{
+			needWh:     fronius.ChargeNeedWh(c.decision, c.powerState, r.cfg.PWUPT),
+			ceilingW:   c.ceilingW,
+			capacityWh: c.capacityWh,
+			hold:       c.hold,
+			lastPct:    c.chargePct,
+			battery:    r.batteryPriority(),
+		})
+	} else {
+		r.stopLimitLoop()
+	}
+
+	if !c.reserveWindow {
+		return
+	}
+	// At risk is judged on the power free now: with battery priority the
+	// charge claims more than that until the other loads yield.
+	riskCapW := c.capW
+	if c.allowanceW != nil {
+		riskCapW = min(riskCapW, *c.allowanceW)
+	}
+	deficit, atRisk := r.reserveRisk(now, c.window, c.reserveWh, c.storedWh, riskCapW)
+	r.reserve = &reserveTelemetry{targetWh: c.reserveWh, deficitWh: deficit, atRisk: atRisk}
+	if atRisk {
+		u.Log.Warnw("reserve at risk: the reserve cannot be reached before the window ends at the grid power available now",
+			"deficit_wh", int(deficit), "charge_power_w", int(riskCapW))
+	}
+}
+
 // startLimitLoop replaces any running loop with one that re-applies
 // grid_import_limit every limitCheckInterval through the runner queue.
 func (r *Runner) startLimitLoop(s limitSession) {
@@ -208,24 +259,6 @@ func limitRewriteNeeded(last, next int16) bool {
 		d = -d
 	}
 	return d >= limitRewriteStepPct
-}
-
-// reserveRisk reports the reserve deficit and whether it cannot be charged
-// before the window ends at the power available now.
-func (r *Runner) reserveRisk(now time.Time, active *pw.Window, targetWh, battWh, chargeCapW float64) (deficitWh float64, atRisk bool) {
-	deficitWh = max(0, targetWh-battWh)
-	if deficitWh == 0 {
-		return 0, false
-	}
-	end := r.cfg.EndHR
-	if active != nil {
-		end = active.End
-	}
-	endAt, err := nextClockAt(now, end)
-	if err != nil {
-		return deficitWh, false
-	}
-	return deficitWh, deficitWh > chargeCapW*endAt.Sub(now).Hours()
 }
 
 // checkGridLimitOptions validates grid_import_limit and grid_import_margin.
