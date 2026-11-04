@@ -594,13 +594,19 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	if reserveWindowActive {
 		target := effectiveReserve
-		deficit, atRisk := r.reserveRisk(now, activeWindow, target, capacityMax-capacityToCharge, chargeCapW)
+		// At risk is judged on the power free now: with battery priority the
+		// charge claims more than that until the other loads yield.
+		riskCapW := chargeCapW
+		if allowanceW != nil {
+			riskCapW = min(riskCapW, *allowanceW)
+		}
+		deficit, atRisk := r.reserveRisk(now, activeWindow, target, capacityMax-capacityToCharge, riskCapW)
 		payload.ReserveTargetWh = &target
 		payload.ReserveDeficitWh = &deficit
 		payload.ReserveAtRisk = &atRisk
 		if atRisk {
 			u.Log.Warnw("reserve at risk: the reserve cannot be reached before the window ends at the grid power available now",
-				"deficit_wh", int(deficit), "charge_power_w", int(chargeCapW))
+				"deficit_wh", int(deficit), "charge_power_w", int(riskCapW))
 		}
 	}
 

@@ -352,6 +352,33 @@ func TestBatteryPriorityTickStartsBatterySession(t *testing.T) {
 	assert.True(t, r.limit.battery)
 }
 
+// A load that holds the line leaves no free power: the reserve is at risk
+// even though battery priority still claims the window's max_charge.
+func TestBatteryPriorityReserveAtRiskUsesFreePower(t *testing.T) {
+	r, _ := limitRunner(t, 3200)
+	r.cfg.GridChargePriority = GridChargePriorityBattery
+	client := newFakeClient()
+	r.client = client
+	r.cfg.MQTT.Enabled = true
+	stubPowerFlow(t, 3400, nil) // a load that does not throttle, over the limit
+	t.Cleanup(r.stopLimitLoop)
+	oldStorage, oldPower, oldFronius := newStorage, newPower, newFronius
+	t.Cleanup(func() { newStorage, newPower, newFronius = oldStorage, oldPower, oldFronius })
+	newStorage = func() storageClient { return &fakeStorageClient{capacityToCharge: 3870, capacityMax: 5120, socPct: 24} }
+	newPower = func() powerClient { return &fakePowerClient{forecastWh: 12000, retrieved: true} }
+	tracker := &trackingFroniusClient{decision: "reserve_charge", reason: "test", chargePct: 11, powerState: fronius.PowerState{BattReserveNet: -550}}
+	newFronius = func(fronius.SunSpecType) froniusClient { return tracker }
+
+	require.NoError(t, r.Tick(context.Background(), localAt("03:00")))
+
+	assert.InDelta(t, 2500, tracker.lastMaxCharge, 0.01, "the charge is still claimed")
+	p := lastState(t, client)
+	require.NotNil(t, p.GridChargeAllowanceW)
+	assert.Zero(t, *p.GridChargeAllowanceW)
+	require.NotNil(t, p.ReserveAtRisk)
+	assert.True(t, *p.ReserveAtRisk, "550 Wh with no free power cannot be charged")
+}
+
 func TestBatteryPriorityLoop(t *testing.T) {
 	r, w := limitRunner(t, 3200)
 	r.cfg.GridChargePriority = GridChargePriorityBattery
