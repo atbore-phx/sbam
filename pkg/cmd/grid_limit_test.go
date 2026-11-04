@@ -264,20 +264,57 @@ func TestLimitLoopSubmitsChecksUntilStopped(t *testing.T) {
 	old, oldProbe := limitCheckInterval, limitProbeDelay
 	limitCheckInterval, limitProbeDelay = 5*time.Millisecond, time.Millisecond
 	t.Cleanup(func() { limitCheckInterval, limitProbeDelay = old, oldProbe })
-	r, _ := limitRunner(t, 3200)
+	r, w := limitRunner(t, 3200)
+	stubPowerFlow(t, 2850, nil) // 150 W free
+
+	next := func() mqtt.Intent {
+		t.Helper()
+		select {
+		case intent := <-r.intents:
+			return intent
+		case <-time.After(2 * time.Second):
+			t.Fatal("no limit check submitted")
+		}
+		return mqtt.Intent{}
+	}
 
 	r.startLimitLoop(limitSession{needWh: 850, ceilingW: 2500, capacityWh: 5120, lastPct: 16})
-	select {
-	case intent := <-r.intents:
-		assert.Equal(t, mqtt.IntentLimitCheck, intent.Kind)
-	case <-time.After(2 * time.Second):
-		t.Fatal("no limit check submitted")
-	}
+	probe := next()
+	assert.Equal(t, mqtt.IntentLimitCheck, probe.Kind, "the probe check")
+	r.handleIntent(context.Background(), probe)
+	assert.Equal(t, 1, w.forceChargeCalls, "the check runs through the runner and rewrites the rate")
+	assert.Equal(t, int16(2), r.limit.lastPct)
+
+	assert.Equal(t, mqtt.IntentLimitCheck, next().Kind, "then the periodic checks")
 
 	r.stopLimitLoop()
 	assert.Nil(t, r.limit)
 	assert.Nil(t, r.limitStop)
 	r.stopLimitLoop() // idempotent
+}
+
+// A full queue drops checks instead of blocking the loop, and the loop still
+// stops.
+func TestLimitLoopDropsChecksWhenQueueFull(t *testing.T) {
+	old, oldProbe := limitCheckInterval, limitProbeDelay
+	limitCheckInterval, limitProbeDelay = time.Millisecond, time.Millisecond
+	t.Cleanup(func() { limitCheckInterval, limitProbeDelay = old, oldProbe })
+	r, _ := limitRunner(t, 3200)
+	for len(r.intents) < cap(r.intents) {
+		r.intents <- mqtt.Intent{Kind: mqtt.IntentTick}
+	}
+
+	r.startLimitLoop(limitSession{needWh: 850, ceilingW: 2500, capacityWh: 5120, lastPct: 16})
+	time.Sleep(20 * time.Millisecond)
+	assert.Len(t, r.intents, cap(r.intents))
+	r.stopLimitLoop()
+
+	time.Sleep(10 * time.Millisecond) // a check already past the stop select may still land
+	for len(r.intents) > 0 {
+		<-r.intents
+	}
+	time.Sleep(10 * time.Millisecond)
+	assert.Empty(t, r.intents, "the loop stopped")
 }
 
 func TestCommandsStopLimitLoop(t *testing.T) {
