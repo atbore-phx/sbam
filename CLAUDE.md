@@ -125,6 +125,7 @@ pkg/
     sunspec_test.go           - Unit tests for SunSpec discovery and dispatch with mock Modbus server
     hold.go                   - Battery hold write (discharge blocked) for hold_battery windows
     hold_test.go              - Unit tests for the battery hold write and hold decision path
+    faults_test.go            - Unit tests for Modbus read/write fault paths with a fault-injecting mock inverter
     error_test.go             - Error handling tests
   mqtt/
     types.go                  - MQTT config and payload carrier types
