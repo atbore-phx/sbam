@@ -209,7 +209,7 @@ func validateWindowFields(w Window, weekdayFeature bool) error {
 		return fmt.Errorf("before_end_defaults must be >= 0, got %d", *w.BeforeEndDefaults)
 	}
 	if w.ReserveHorizon != "" {
-		if _, err := ValidateReserveHorizon(w.ReserveHorizon); err != nil {
+		if err := ValidateReserveHorizon(w.ReserveHorizon); err != nil {
 			return err
 		}
 	}

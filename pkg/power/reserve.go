@@ -20,14 +20,14 @@ const (
 	forecastPeriod = 30 * time.Minute
 )
 
-// ValidateReserveHorizon returns s if it names a known reserve horizon mode,
-// or an error otherwise.
-func ValidateReserveHorizon(s string) (string, error) {
+// ValidateReserveHorizon returns an error unless s names a known reserve
+// horizon mode.
+func ValidateReserveHorizon(s string) error {
 	switch s {
 	case ReserveHorizonUntilSolar:
-		return s, nil
+		return nil
 	default:
-		return "", fmt.Errorf("unknown reserve_horizon %q: must be until_solar", s)
+		return fmt.Errorf("unknown reserve_horizon %q: must be until_solar", s)
 	}
 }
 

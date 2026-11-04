@@ -89,12 +89,9 @@ func TestUntilSolarReserve(t *testing.T) {
 }
 
 func TestValidateReserveHorizon(t *testing.T) {
-	got, err := ValidateReserveHorizon("until_solar")
-	assert.NoError(t, err)
-	assert.Equal(t, ReserveHorizonUntilSolar, got)
-
-	_, err = ValidateReserveHorizon("full_day")
-	assert.ErrorContains(t, err, "unknown reserve_horizon")
+	assert.NoError(t, ValidateReserveHorizon("until_solar"))
+	assert.ErrorContains(t, ValidateReserveHorizon("full_day"), "unknown reserve_horizon")
+	assert.Error(t, ValidateReserveHorizon(""), "empty is handled by the caller, not a mode")
 }
 
 func TestValidateWindowsReserveHorizon(t *testing.T) {
