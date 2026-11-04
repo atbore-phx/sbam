@@ -301,7 +301,7 @@ var scdCmd = &cobra.Command{
 			}
 
 			if crontab != const_ct {
-				if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
+				if err := crontabSchedule(runCtx, runner, crontab, s_defaults || anyHoldBattery(windows), w_end_hr); err != nil {
 					u.Log.Error(err)
 					_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 					stop()
@@ -668,6 +668,17 @@ func waitForRunnerDone(runDone <-chan error) error {
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
 func strPtr(s string) *string { return &s }
+
+// anyHoldBattery reports whether a window holds the battery. Crontab mode
+// then needs the end_hr reset even with defaults off, to release the hold.
+func anyHoldBattery(windows []pw.Window) bool {
+	for _, w := range windows {
+		if w.HoldBattery != nil && *w.HoldBattery {
+			return true
+		}
+	}
+	return false
+}
 
 // crontabSchedule installs the `schedule` function into a cron scheduler
 // using the provided cron expression. Callbacks submit intents and return

@@ -205,9 +205,20 @@ func (r *Runner) startWindowsTicker(now time.Time) {
 	t := time.NewTicker(interval)
 	r.tickerCh = t.C
 
-	// Schedule per-window set_defaults if enabled.
-	if active != nil && active.Defaults != nil && *active.Defaults {
-		r.scheduleDefaults(active, now)
+	// Schedule the window-end reset: set_defaults when enabled, otherwise
+	// at the window end for a hold_battery window, so the hold never
+	// outlives the window.
+	if active != nil {
+		switch {
+		case active.Defaults != nil && *active.Defaults:
+			beforeEnd := 5 // default minutes
+			if active.BeforeEndDefaults != nil {
+				beforeEnd = *active.BeforeEndDefaults
+			}
+			r.scheduleDefaults(active, now, beforeEnd)
+		case active.HoldBattery != nil && *active.HoldBattery:
+			r.scheduleDefaults(active, now, 0)
+		}
 	}
 
 	// Schedule a one-shot timer at the next window's start boundary.
@@ -233,14 +244,9 @@ func (r *Runner) stopWindowsTicker() {
 
 // scheduleDefaults parses the active window's end time and schedules a
 // one-shot time.AfterFunc that fires set_defaults at
-// (window.end - before_end_defaults). The timer is tracked in r.defaultsTimer
+// (window.end - beforeEnd minutes). The timer is tracked in r.defaultsTimer
 // so it can be cancelled on window change.
-func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
-	beforeEnd := 5 // default minutes
-	if active.BeforeEndDefaults != nil {
-		beforeEnd = *active.BeforeEndDefaults
-	}
-
+func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time, beforeEnd int) {
 	endTime, err := parseScheduleClock(active.End, "end")
 	if err != nil {
 		u.Log.Warnw("cannot parse window end for set_defaults timer", "window", active.Name, "end", active.End, "error", err)

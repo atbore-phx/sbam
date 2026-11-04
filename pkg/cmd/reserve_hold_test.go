@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"sbam/pkg/fronius"
+	"sbam/pkg/mqtt"
 	pw "sbam/pkg/power"
 
 	"github.com/stretchr/testify/assert"
@@ -161,4 +162,45 @@ func TestScheduleReserveFlags(t *testing.T) {
 			assert.Equal(t, def, flag.DefValue, name)
 		}
 	}
+}
+
+// windowEndIntent starts the windows ticker just before the window end and
+// returns the first intent the window-end timer submits, if any.
+func windowEndIntent(t *testing.T, w pw.Window) (mqtt.Intent, bool) {
+	t.Helper()
+	oldTimer := newTimerFunc
+	newTimerFunc = func(time.Duration, func()) *time.Timer { return nil } // no boundary tick
+	t.Cleanup(func() { newTimerFunc = oldTimer })
+
+	r := NewRunner(RunnerConfig{SchedulerMode: "windows", Windows: []pw.Window{w}}, nil)
+	t.Cleanup(r.stopWindowsTicker)
+	now := localAt("08:00").Add(-20 * time.Millisecond)
+	r.startWindowsTicker(now)
+
+	select {
+	case intent := <-r.intents:
+		return intent, true
+	case <-time.After(time.Second):
+		return mqtt.Intent{}, false
+	}
+}
+
+func TestHoldWindowReleasedAtEndWithoutSetDefaults(t *testing.T) {
+	intent, ok := windowEndIntent(t, pw.Window{Name: "valle", Start: "00:00", End: "08:00", MaxCharge: 2500, HoldBattery: boolPtr(true)})
+
+	require.True(t, ok, "a hold_battery window must be released at its end")
+	assert.Equal(t, mqtt.IntentSetDefaults, intent.Kind)
+	assert.True(t, intent.System, "the release runs even while paused")
+}
+
+func TestWindowWithoutHoldOrDefaultsSchedulesNoReset(t *testing.T) {
+	_, ok := windowEndIntent(t, pw.Window{Name: "valle", Start: "00:00", End: "08:00", MaxCharge: 2500})
+
+	assert.False(t, ok, "nothing to release: the inverter is left alone")
+}
+
+func TestAnyHoldBattery(t *testing.T) {
+	assert.False(t, anyHoldBattery(nil))
+	assert.False(t, anyHoldBattery([]pw.Window{{HoldBattery: boolPtr(false)}, {}}))
+	assert.True(t, anyHoldBattery([]pw.Window{{}, {HoldBattery: boolPtr(true)}}))
 }

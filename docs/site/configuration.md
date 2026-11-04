@@ -54,7 +54,7 @@ Each window accepts these fields:
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
 | `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
 | `weekdays` | No | Day-of-week filter for the window. See [Weekday Filtering](weekdays.md). |
-| `hold_battery` | No | When `true`, block battery discharge while the window is active and sbam is not force-charging. Loads run from the grid at the window's price and the stored energy is kept for the expensive hours. PV can still charge the battery. The end-of-window `set_defaults` releases the hold. Default `false`. |
+| `hold_battery` | No | When `true`, block battery discharge while the window is active and sbam is not force-charging. Loads run from the grid at the window's price and the stored energy is kept for the expensive hours. PV can still charge the battery. sbam releases the hold when the window ends: with `set_defaults`, at its usual time; without it, at the window end. Default `false`. |
 | `reserve_horizon` | No | `until_solar` sizes the battery reserve for this window from the forecast. See [Reserve until solar](#reserve-until-solar). Empty keeps the static `pw_batt_reserve`. |
 
 ## Battery Reserve
