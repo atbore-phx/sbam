@@ -118,9 +118,11 @@ func ForceCharge(modbus_ip string, power_prc int16, port ...string) error {
 		p = port[0]
 	}
 	if power_prc > 100 {
-		modbusErr = fmt.Errorf("percent of charging %d exceeds 100", power_prc)
-		u.Log.Errorf("someting goes wrong when force charging, %s", modbusErr)
-		return modbusErr
+		// OutWRte is a percentage of WChaMax; above 100 % the value would be
+		// out of range (and wrap int16 above 327 %). Capped like the
+		// float/auto path (forceChargeSunSpec).
+		u.Log.Warnf("percent of charging %d%% is above 100%%, capping at 100%%", power_prc)
+		power_prc = 100
 	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%%", power_prc)
 	if power_prc > 0 {

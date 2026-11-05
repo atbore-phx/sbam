@@ -101,9 +101,17 @@ func roundPtr(value *float64, decimals int) *float64 {
 // PublishDiscovery publishes Home Assistant discovery. With cfg.Optimizer the
 // optimizer entities are included; otherwise their config topics receive
 // empty retained payloads (removing them in HA) and <prefix>/plan is cleared.
-// Both paths are idempotent.
+// With discovery disabled nothing is published except that plan clear outside
+// optimize mode, so a plan retained by an earlier optimize run does not
+// linger. All paths are idempotent.
 func PublishDiscovery(ctx context.Context, client Client, cfg Config, version string) {
-	if !cfg.Enabled || !cfg.HADiscovery {
+	if !cfg.Enabled {
+		return
+	}
+	if !cfg.HADiscovery {
+		if !cfg.Optimizer {
+			ClearPlan(ctx, client, cfg.TopicPrefix)
+		}
 		return
 	}
 

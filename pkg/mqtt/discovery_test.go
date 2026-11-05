@@ -640,3 +640,24 @@ func TestBuildDiscoveryExpectedCostCurrency(t *testing.T) {
 	}
 	assert.Equal(t, 1, found)
 }
+
+// With mqtt_ha_discovery false, outside optimize mode only the retained plan
+// is cleared; in optimize mode nothing is published.
+func TestPublishDiscoveryDisabledClearsPlanOnly(t *testing.T) {
+	cfg := goldenDiscoveryConfig(false, "")
+	cfg.HADiscovery = false
+	client := &fakeMQTTClient{}
+	PublishDiscovery(context.Background(), client, cfg, "1.0.0")
+	require.Len(t, client.publishes, 1)
+	assert.Equal(t, "sbam/plan", client.publishes[0].topic)
+	assert.Empty(t, client.publishes[0].payload)
+	assert.True(t, client.publishes[0].retained)
+
+	optCfg := goldenDiscoveryConfig(true, "DKK")
+	optCfg.HADiscovery = false
+	optClient := &fakeMQTTClient{}
+	PublishDiscovery(context.Background(), optClient, optCfg, "1.0.0")
+	assert.Empty(t, optClient.publishes)
+
+	assert.NotPanics(t, func() { PublishDiscovery(context.Background(), nil, cfg, "1.0.0") })
+}

@@ -494,15 +494,38 @@ func TestSetFroniusChargeBatteryModeForceChargeError(t *testing.T) {
 	_ = result
 }
 
-// T-0107 / TC-003e: ForceCharge rejects power_prc > 100 (no int16 wrap) and
-// writes nothing.
-func TestForceChargeRejectsAbove100_T0107(t *testing.T) {
+// T-0107 / TC-003e: ForceCharge caps power_prc > 100 at 100 % (no int16
+// wrap), the same as the float/auto path.
+func TestForceChargeCapsAbove100_T0107(t *testing.T) {
 	f := newFakeInverter(t, 5000, 0, -2)
 	for _, pct := range []int16{101, 400, 32767} {
+		f.set(OutWRte, 0)
 		err := ForceCharge(modbus_ip, pct, dispatchPort)
-		assert.Error(t, err, "power_prc %d", pct)
+		assert.NoError(t, err, "power_prc %d", pct)
+		assert.Equal(t, int16(-10000), f.get(OutWRte), "power_prc %d capped at -100 %%", pct)
 	}
-	assert.Empty(t, f.recorded())
+}
+
+// Legacy entry point of crontab/windows set_defaults and window-end defaults:
+// a read-back mismatch after a successful write is tolerated (logged only).
+func TestApplyDefaultsIntSFReadBackMismatchTolerated(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.corrupt[OutWRte] = true
+	f.mu.Unlock()
+
+	assert.NoError(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort))
+	assert.Equal(t, []uint16{StorCtl_Mod, OutWRte, InWRte, MinRsvPct, ChaGriSet}, addrOrder(f.recorded()))
+}
+
+// Intentional change: a write failure is still an error for the legacy path.
+func TestApplyDefaultsIntSFWriteFailureIsError(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.failWrite[InWRte] = true
+	f.mu.Unlock()
+
+	assert.ErrorIs(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort), ErrModbusWrite)
 }
 
 // T-0107 edge: 100 % is accepted and maps to OutWRte = -10000.
