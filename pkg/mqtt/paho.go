@@ -35,11 +35,11 @@ const (
 )
 
 type Paho struct {
-	cfg                Config
-	client             paho.Client
-	discoveryVersion   string
-	closeOnce          sync.Once
-	closed             atomic.Bool
+	cfg              Config
+	client           paho.Client
+	discoveryVersion string
+	closeOnce        sync.Once
+	closed           atomic.Bool
 	// callbacksMu guards onConnectCallbacks: OnConnect runs on the caller's
 	// goroutine and the paho connect handler on its own.
 	callbacksMu        sync.Mutex
