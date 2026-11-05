@@ -389,7 +389,7 @@ func TestHandlerUsesConfiguredSunSpecType(t *testing.T) {
 	f.SunSpecType = SunSpecFloat
 
 	// Same inputs as TestSetFroniusChargeBatteryMode cases that force-charge 31 %.
-	pct, _, _, _, err := f.Handler(1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
+	pct, _, _, _, err := f.Handler(1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, false, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, int16(31), pct)

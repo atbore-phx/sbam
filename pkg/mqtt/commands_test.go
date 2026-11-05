@@ -31,6 +31,8 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 		{name: "trigger_now empty", topic: "sbam/cmd/trigger_now", payload: nil, expectedKind: IntentTriggerNow},
 		{name: "trigger_now empty object", topic: "sbam/cmd/trigger_now", payload: []byte("{}"), expectedKind: IntentTriggerNow},
 		{name: "set_defaults empty", topic: "sbam/cmd/set_defaults", payload: nil, expectedKind: IntentSetDefaults},
+		{name: "hold empty", topic: "sbam/cmd/hold", payload: nil, expectedKind: IntentHold},
+		{name: "hold object", topic: "sbam/cmd/hold", payload: []byte("{}"), expectedKind: IntentHold},
 		{name: "resume empty object", topic: "sbam/cmd/resume", payload: []byte("{}"), expectedKind: IntentResume},
 		{name: "force_charge full payload", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":50,"duration_s":3600}`), expectedKind: IntentForceCharge, expectedTarget: 50, expectedDuration: 3600},
 		{name: "force_charge explicit override", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":100,"ignore_max_charge":true}`), expectedKind: IntentForceCharge, expectedTarget: 100, expectedIgnore: true},

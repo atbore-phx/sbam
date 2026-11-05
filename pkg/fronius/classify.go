@@ -6,8 +6,8 @@ type Decision string
 
 const (
 	decisionBatteryFull    Decision = "battery_full"
-	decisionForecastCharge Decision = "forecast_charge"
-	decisionReserveCharge  Decision = "reserve_charge"
+	DecisionForecastCharge Decision = "forecast_charge"
+	DecisionReserveCharge  Decision = "reserve_charge"
 	DecisionIdle           Decision = "idle"
 	DecisionSkip           Decision = "skip"
 )
@@ -60,9 +60,9 @@ func classifyDecision(
 	case pwBatt2charge == 0:
 		return decisionBatteryFull, reasonBatteryFull, pw, nil
 	case pw.Net < -1*pwLwt && forecastChargeEnabled:
-		return decisionForecastCharge, reasonForecastCharge, pw, nil
+		return DecisionForecastCharge, reasonForecastCharge, pw, nil
 	case pw.BattReserveNet < -1*pwLwt && battReserveChargeEnabled:
-		return decisionReserveCharge, reasonReserveCharge, pw, nil
+		return DecisionReserveCharge, reasonReserveCharge, pw, nil
 	case pw.Net >= -1*pwLwt:
 		return DecisionIdle, reasonIdle, pw, nil
 	case !forecastChargeEnabled:

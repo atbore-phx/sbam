@@ -5,10 +5,13 @@ import u "sbam/src/utils"
 // SetFroniusChargeBatteryMode runs the charge decision with the default
 // SunSpec type (int_sf).
 func SetFroniusChargeBatteryMode(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, Reason, PowerState, error) {
-	return setFroniusChargeBatteryMode(SunSpecIntSF, pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, fronius_port...)
+	return setFroniusChargeBatteryMode(SunSpecIntSF, false, pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve, start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, fronius_port...)
 }
 
-func setFroniusChargeBatteryMode(sunspecType SunSpecType, pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, Reason, PowerState, error) {
+// setFroniusChargeBatteryMode classifies the power state and writes the
+// result. When hold is true and no charge is needed, the battery is held
+// (discharge blocked) instead of being returned to defaults.
+func setFroniusChargeBatteryMode(sunspecType SunSpecType, hold bool, pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, fronius_port ...string) (int16, Decision, Reason, PowerState, error) {
 	p := "502"
 	if len(fronius_port) > 0 {
 		p = fronius_port[0]
@@ -40,10 +43,17 @@ func setFroniusChargeBatteryMode(sunspecType SunSpecType, pw_forecast float64, p
 	}
 
 	switch decision {
-	case decisionForecastCharge:
-		ch_pc = SetChargePower(pw_batt_max, -1*pw.Net+pw_upt, max_charge)
-	case decisionReserveCharge:
-		ch_pc = SetChargePower(pw_batt_max, pw_batt_reserve-pw.Batt, max_charge)
+	case DecisionForecastCharge, DecisionReserveCharge:
+		ch_pc = SetChargePower(pw_batt_max, ChargeNeedWh(decision, pw, pw_upt), max_charge)
+	}
+
+	if hold && ch_pc == 0 {
+		modbusErr = ApplyHold(sunspecType, fronius_ip, p)
+		if modbusErr != nil {
+			u.Log.Errorf("Error holding battery: %s", modbusErr)
+			return ch_pc, decision, reason, pw, modbusErr
+		}
+		return ch_pc, decision, reason, pw, nil
 	}
 
 	modbusErr = ApplyForceCharge(sunspecType, fronius_ip, ch_pc, p)
@@ -53,6 +63,18 @@ func setFroniusChargeBatteryMode(sunspecType SunSpecType, pw_forecast float64, p
 	}
 
 	return ch_pc, decision, reason, pw, nil
+}
+
+// ChargeNeedWh is the energy a charge decision asks for: the forecast
+// shortfall plus pw_upt, or the reserve deficit. Other decisions need none.
+func ChargeNeedWh(decision Decision, pw PowerState, pwUPT float64) float64 {
+	switch decision {
+	case DecisionForecastCharge:
+		return -pw.Net + pwUPT
+	case DecisionReserveCharge:
+		return -pw.BattReserveNet
+	}
+	return 0
 }
 
 func SetChargePower(max float64, load float64, limit float64) int16 {

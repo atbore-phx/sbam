@@ -1,6 +1,16 @@
 package power
 
-type Power struct{}
+// Power retrieves Solcast forecasts. The forecasts fetched by the last
+// Handler call are kept so callers can inspect individual periods.
+type Power struct {
+	lastForecasts []Forecasts
+}
+
+// LastForecasts returns the per-site forecasts retrieved by the last
+// successful Handler call (nil before that).
+func (power *Power) LastForecasts() []Forecasts {
+	return power.lastForecasts
+}
 
 type Forecast struct {
 	PVEstimate   float64 `json:"pv_estimate"`
