@@ -1168,6 +1168,8 @@ func legacyStatePayloads() map[string]StatePayload {
 			ActiveWindowMaxCharge: f64(3000), ActiveWindowForecastHorizon: strp("next_day"),
 			ChargeWindowActive: b(true), ReserveWindowActive: b(false), SchedulerMode: strp("cron"),
 			DeprecationWarning: strp("x"), Paused: true, NextRun: &next, Timestamp: ts,
+			// #208 reserve and grid import telemetry.
+			ReserveTargetWh: f64(2400), ReserveDeficitWh: f64(600), ReserveAtRisk: b(true), GridChargeAllowanceW: f64(1800),
 		},
 	}
 }

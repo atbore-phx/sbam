@@ -377,48 +377,11 @@ func assertGolden(t *testing.T, name string, got any) {
 	assert.Equal(t, strings.ReplaceAll(string(want), "\r\n", "\n"), string(body))
 }
 
-// assertGoldenSubset checks that every entity in testdata/name appears in got,
-// byte-for-byte and in the same relative order. Entities that got adds (for
-// example new legacy entities from later features) do not fail the check, so
-// the golden pins existing payloads without freezing the entity list.
-// Run `go test ./pkg/mqtt/ -run <Test> -update` to regenerate.
-func assertGoldenSubset(t *testing.T, name string, got []goldenDiscoveryEntity) {
-	t.Helper()
-	path := filepath.Join("testdata", name)
-	if *updateGolden {
-		body, err := json.MarshalIndent(got, "", "  ")
-		require.NoError(t, err)
-		require.NoError(t, os.MkdirAll("testdata", 0o755))
-		require.NoError(t, os.WriteFile(path, append(body, '\n'), 0o644))
-	}
-
-	raw, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var want []goldenDiscoveryEntity
-	require.NoError(t, json.Unmarshal(raw, &want))
-	require.NotEmpty(t, want)
-
-	next := 0
-	for _, w := range want {
-		found := false
-		for next < len(got) {
-			g := got[next]
-			next++
-			if g.Topic == w.Topic {
-				assert.Equal(t, w.Payload, g.Payload, "payload changed for %s", w.Topic)
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "golden entity %s missing or out of order", w.Topic)
-	}
-}
-
 // T-0112: existing entity IDs and payloads are byte-for-byte unchanged, both
 // without and with the optimizer enabled.
 func TestBuildDiscoveryLegacyEntitiesGolden(t *testing.T) {
 	legacy := BuildDiscoveryWithDeviceID(goldenDiscoveryConfig(false, ""), "1.0.0", "sbam_golden")
-	assertGoldenSubset(t, "discovery_legacy.golden.json", toGoldenEntities(legacy))
+	assertGolden(t, "discovery_legacy.golden.json", toGoldenEntities(legacy))
 }
 
 func optimizerEntities(entities []DiscoveryEntity) []DiscoveryEntity {
@@ -451,7 +414,7 @@ func TestBuildDiscoveryOptimizerEntities(t *testing.T) {
 
 	require.Len(t, withOpt, len(legacy)+41)
 	assert.Equal(t, legacy, withOpt[:len(legacy)], "existing entities must be byte-for-byte unchanged")
-	assertGoldenSubset(t, "discovery_legacy.golden.json", toGoldenEntities(withOpt[:len(legacy)]))
+	assertGolden(t, "discovery_legacy.golden.json", toGoldenEntities(withOpt[:len(legacy)]))
 
 	opt := optimizerEntities(withOpt)
 	require.Len(t, opt, 41)
