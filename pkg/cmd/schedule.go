@@ -244,15 +244,7 @@ var scdCmd = &cobra.Command{
 			u.Log.Error(err)
 			return nil
 		}
-		if err := checkReserveOptions(batt_min_soc, pw_base_load); err != nil {
-			u.Log.Error(err)
-			return nil
-		}
-		if err := checkGridChargePriority(grid_charge_priority); err != nil {
-			u.Log.Error(err)
-			return nil
-		}
-		if err := checkGridLimitOptions(grid_import_limit, grid_import_margin); err != nil {
+		if err := checkWindowModeOptions(optimizeMode); err != nil {
 			u.Log.Error(err)
 			return nil
 		}
@@ -292,7 +284,7 @@ var scdCmd = &cobra.Command{
 		}
 
 		runner := NewRunner(runnerCfg, mqttClient)
-		runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		runCtx, stop := scheduleRunContext()
 		defer stop()
 
 		runDone := make(chan error, 1)
@@ -765,6 +757,31 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
+}
+
+// scheduleRunContext returns the context the runner runs under: cancelled on
+// SIGINT/SIGTERM. A variable so command-level tests can run `sbam schedule`
+// past its startup checks without blocking on a signal.
+var scheduleRunContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+}
+
+// checkWindowModeOptions validates the reserve and grid import options of the
+// crontab/windows modes (batt_min_soc, pw_base_load, grid_charge_priority,
+// grid_import_limit/margin). Optimize mode ignores these options
+// (configuration.md) and validates its own, so they are skipped there; a
+// grid_import_limit above 0 is refused by checkOptimizeGridLimit instead.
+func checkWindowModeOptions(optimizeMode bool) error {
+	if optimizeMode {
+		return nil
+	}
+	if err := checkReserveOptions(batt_min_soc, pw_base_load); err != nil {
+		return err
+	}
+	if err := checkGridChargePriority(grid_charge_priority); err != nil {
+		return err
+	}
+	return checkGridLimitOptions(grid_import_limit, grid_import_margin)
 }
 
 // checkReserveOptions validates the options used by reserve_horizon
