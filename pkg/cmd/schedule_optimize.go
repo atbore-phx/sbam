@@ -289,7 +289,58 @@ func (r *Runner) optimizeTick(ctx context.Context) {
 
 	// The daily history rebuild runs after the write and publish, so it never
 	// delays the hourly re-assertion (design §Concurrency, T-0155).
-	if _, err := o.cache.rebuildIfStale(ctx, o.deps, o.cfg, now); err != nil {
+	r.optRebuildProfile(ctx, now)
+}
+
+// errRebuildYielded cancels a profile rebuild because an intent is queued.
+var errRebuildYielded = errors.New("profile rebuild yielded to a queued intent")
+
+// optRebuildPollInterval is how often a running rebuild checks the queue; a
+// variable so tests can shorten it.
+var optRebuildPollInterval = 200 * time.Millisecond
+
+// optRebuildProfile runs the daily consumption profile rebuild on the runner
+// goroutine without holding up commands for its full deadline: it is skipped
+// while intents are queued, and a running build is cancelled as soon as one
+// arrives. A yielded build is not a failure; the next hourly run retries it.
+// (Interim mitigation; moving the rebuild off the runner goroutine is a
+// follow-up.)
+func (r *Runner) optRebuildProfile(ctx context.Context, now time.Time) {
+	o := r.opt
+	if !o.cache.needsRebuild(now, optLoc(o.cfg)) {
+		return
+	}
+	if len(r.intents) > 0 {
+		u.Log.Debugw("consumption profile rebuild deferred: intents queued", "queued", len(r.intents))
+		return
+	}
+	yctx, cancel := context.WithCancelCause(ctx)
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(optRebuildPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if len(r.intents) > 0 {
+					cancel(errRebuildYielded)
+					return
+				}
+			}
+		}
+	}()
+	_, err := o.cache.rebuildIfStale(yctx, o.deps, o.cfg, now)
+	close(done)
+	yielded := errors.Is(context.Cause(yctx), errRebuildYielded)
+	cancel(nil)
+	switch {
+	case yielded:
+		// Not a failed build: keep the previous profile and retry next hour.
+		o.cache.lastFailed = false
+		u.Log.Infow("consumption profile rebuild yielded to a queued command; retrying at the next run")
+	case err != nil:
 		u.Log.Debugw("consumption profile rebuild failed; retrying later", "error", err)
 	}
 }

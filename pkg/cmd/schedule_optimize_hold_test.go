@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"sbam/pkg/fronius"
+	"sbam/pkg/homeassistant"
 	"sbam/pkg/mqtt"
 	"sbam/pkg/optimize"
 
@@ -222,4 +225,87 @@ func TestOptimizeRunner_TimedSubmitGivesUp(t *testing.T) {
 
 	assert.Len(t, h.timers.withDelay(optSubmitRetryDelay), optSubmitRetries, "no retry after the last attempt")
 	assert.True(t, h.logged("ev guard poll dropped: runner queue stayed full"))
+}
+
+// blockingHistoryHA blocks History until its context ends and queues an
+// intent first, simulating a command that arrives during a slow rebuild.
+type blockingHistoryHA struct {
+	inner   haClient
+	onBlock func()
+	calls   *int
+}
+
+func (f blockingHistoryHA) State(ctx context.Context, entity string) (homeassistant.State, error) {
+	return f.inner.State(ctx, entity)
+}
+
+func (f blockingHistoryHA) History(ctx context.Context, _ string, _, _ time.Time) ([]homeassistant.HistoryPoint, error) {
+	*f.calls++
+	if f.onBlock != nil {
+		f.onBlock()
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// rebuildHarness is a live optimize runner with the real pipeline and a
+// profile built yesterday, so the tick is due for its daily rebuild.
+func rebuildHarness(t *testing.T, ha func(env *optRunEnv) haClient) (*schOptHarness, *optRunEnv) {
+	t.Helper()
+	env := newOptRunEnv(t)
+	h := newSchOptHarness(t, false)
+	optRun = runOptimization
+	h.clock.set(env.now)
+	o := h.runner.opt
+	o.cfg = env.cfg
+	o.cfg.DryRun = false
+	o.deps = optimizeDeps{HA: ha(env), Forecasts: env.fc, Battery: env.bat}
+	yesterday := env.now.Add(-20 * time.Hour)
+	o.cache = profileCache{date: optLocalDate(yesterday, env.loc), profile: optStaticProfile(env.cfg), builtAt: yesterday, lastAttempt: yesterday}
+	return h, env
+}
+
+// Edge case: with an intent already queued the rebuild is deferred to the
+// next run, and it is not counted as a failed build.
+func TestOptimizeRunner_RebuildDeferredWhileIntentsQueued(t *testing.T) {
+	calls := 0
+	h, env := rebuildHarness(t, func(env *optRunEnv) haClient {
+		return blockingHistoryHA{inner: env.ha, calls: &calls}
+	})
+	// The run itself reads only states; the rebuild is the only History user.
+	h.runner.intents <- mqtt.Intent{Kind: mqtt.IntentSetDefaults}
+
+	h.tick()
+
+	assert.Zero(t, calls, "no history request while an intent is queued")
+	o := h.runner.opt
+	assert.NotEqual(t, optLocalDate(env.now, env.loc), o.cache.date)
+	assert.False(t, o.cache.lastFailed)
+	assert.True(t, o.cache.needsRebuild(env.now, env.loc), "retried at the next run")
+	assert.Len(t, h.runner.intents, 1)
+}
+
+// Expected use: a command that arrives during a slow rebuild cancels it
+// promptly instead of waiting for the 4-minute deadline.
+func TestOptimizeRunner_RebuildYieldsToQueuedIntent(t *testing.T) {
+	oldPoll := optRebuildPollInterval
+	optRebuildPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { optRebuildPollInterval = oldPoll })
+	calls := 0
+	var h *schOptHarness
+	h, env := rebuildHarness(t, func(env *optRunEnv) haClient {
+		return blockingHistoryHA{inner: env.ha, calls: &calls, onBlock: func() {
+			h.runner.intents <- mqtt.Intent{Kind: mqtt.IntentHold}
+		}}
+	})
+
+	start := time.Now()
+	h.tick()
+
+	assert.Less(t, time.Since(start), 5*time.Second, "the rebuild yields instead of running to its deadline")
+	assert.Equal(t, 1, calls)
+	o := h.runner.opt
+	assert.False(t, o.cache.lastFailed, "a yielded rebuild is not a failure")
+	assert.True(t, o.cache.needsRebuild(env.now, env.loc))
+	assert.True(t, h.logged("consumption profile rebuild yielded to a queued command; retrying at the next run"))
 }
