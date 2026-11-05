@@ -301,7 +301,7 @@ var scdCmd = &cobra.Command{
 		}()
 
 		if mqttCfg.Enabled && mqttClient != nil {
-			mqttClient.OnConnect(func() {
+			registerCommandSubscription(mqttClient, func() {
 				u.Log.Debug("mqtt onConnect: subscribing to command topics")
 				if err := subscribeScheduleCommands(runCtx, mqttClient, mqttCfg, runner); err != nil {
 					u.HandleError(err, "mqtt command subscription failed")
@@ -617,6 +617,18 @@ func publishStateSnapshot(mqttClient mqtt.Client, mqttCfg mqtt.Config, payload m
 	ctx, cancel := context.WithTimeout(context.Background(), const_mqtt_op_timeout)
 	defer cancel()
 	mqtt.PublishState(ctx, mqttClient, mqttCfg.TopicPrefix, payload)
+}
+
+// registerCommandSubscription runs subscribe on every broker connection. The
+// background connect started by mqtt.InitWithCleanup can finish before this
+// registration, and paho does not replay its callbacks, so a client that is
+// already connected subscribes here. Subscribing twice, if a connection lands
+// between the two steps, is harmless: it re-subscribes the same filter.
+func registerCommandSubscription(client mqtt.Client, subscribe func()) {
+	client.OnConnect(subscribe)
+	if client.IsConnected() {
+		subscribe()
+	}
 }
 
 // subscribeScheduleCommands subscribes to the scheduler command topic and

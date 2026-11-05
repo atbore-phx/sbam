@@ -281,6 +281,19 @@ func TestConnectFailsWithBadCredentials(t *testing.T) {
 	assert.False(t, client.IsConnected())
 }
 
+func TestPahoIsConnectedFalseWhileRetrying(t *testing.T) {
+	client, err := NewPaho(Config{Enabled: true, Broker: "tcp://127.0.0.1:1", ClientID: "retrying"})
+	require.NoError(t, err)
+	defer func() { _ = client.Disconnect(context.Background()) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = client.Connect(ctx) // gives up here while paho keeps retrying
+
+	require.True(t, client.client.IsConnected(), "paho counts a pending retry as connected")
+	assert.False(t, client.IsConnected(), "nothing can be subscribed until the connection is up")
+}
+
 func TestNewPahoFailsWithInvalidTLSCAFile(t *testing.T) {
 	client, err := NewPaho(Config{
 		Enabled:   true,
