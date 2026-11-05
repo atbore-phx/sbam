@@ -40,6 +40,9 @@ type Paho struct {
 	discoveryVersion   string
 	closeOnce          sync.Once
 	closed             atomic.Bool
+	// callbacksMu guards onConnectCallbacks: OnConnect runs on the caller's
+	// goroutine and the paho connect handler on its own.
+	callbacksMu        sync.Mutex
 	onConnectCallbacks []func()
 	// currencyMu guards cfg.Currency, which SetCurrency updates from the
 	// schedule runner while paho callbacks republish discovery.
@@ -146,12 +149,7 @@ func NewPaho(cfg Config) (*Paho, error) {
 			}
 		}
 
-		if len(p.onConnectCallbacks) > 0 {
-			utils.Log.Debugw("mqtt invoking onConnect callbacks", "count", len(p.onConnectCallbacks))
-			for _, cb := range p.onConnectCallbacks {
-				cb()
-			}
-		}
+		p.runOnConnectCallbacks()
 	})
 
 	opts.SetAutoReconnect(true)
@@ -261,12 +259,33 @@ func (p *Paho) Subscribe(ctx context.Context, topic string, qos byte, handler Me
 	return nil
 }
 
+// IsConnected reports whether the connection is up now. paho's own
+// IsConnected also returns true while ConnectRetry or AutoReconnect is still
+// trying, when an operation would fail with ErrNotConnected.
 func (p *Paho) IsConnected() bool {
-	return p.client != nil && p.client.IsConnected()
+	return p.client != nil && p.client.IsConnectionOpen()
 }
 
 func (p *Paho) OnConnect(cb func()) {
+	p.callbacksMu.Lock()
+	defer p.callbacksMu.Unlock()
 	p.onConnectCallbacks = append(p.onConnectCallbacks, cb)
+}
+
+// runOnConnectCallbacks runs the callbacks registered so far, outside the
+// lock so a callback may take as long as it needs.
+func (p *Paho) runOnConnectCallbacks() {
+	p.callbacksMu.Lock()
+	callbacks := append([]func(){}, p.onConnectCallbacks...)
+	p.callbacksMu.Unlock()
+
+	if len(callbacks) == 0 {
+		return
+	}
+	utils.Log.Debugw("mqtt invoking onConnect callbacks", "count", len(callbacks))
+	for _, cb := range callbacks {
+		cb()
+	}
 }
 
 func waitToken(ctx context.Context, token paho.Token) error {
