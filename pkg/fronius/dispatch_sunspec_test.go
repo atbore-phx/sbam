@@ -144,7 +144,7 @@ func TestReadInverterLimitsFloat(t *testing.T) {
 	defer teardown()
 	seedFloatInverter()
 
-	lim, err := ReadInverterLimits(SunSpecFloat, modbus_ip, modbus_port)
+	lim, err := ReadInverterLimits(storageRegistersAt(floatStorageModelAddr), modbus_ip, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, validLimits, lim)

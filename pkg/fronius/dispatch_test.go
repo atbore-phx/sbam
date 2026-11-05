@@ -332,14 +332,14 @@ func TestApplyDispatch_BadInverterLimitsWritesNothing_T0104(t *testing.T) {
 // ReadInverterLimits applies WChaMax_SF and returns the rate SF as read.
 func TestReadInverterLimits(t *testing.T) {
 	newFakeInverter(t, 1050, 1, -2)
-	lim, err := ReadInverterLimits(SunSpecIntSF, modbus_ip, dispatchPort)
+	lim, err := ReadInverterLimits(LegacyStorageRegisters(), modbus_ip, dispatchPort)
 	require.NoError(t, err)
 	assert.InDelta(t, 10500.0, lim.WChaMaxW, 1e-9)
 	assert.Equal(t, int16(-2), lim.RateSF)
 }
 
 func TestReadInverterLimitsConnectionError(t *testing.T) {
-	_, err := ReadInverterLimits(SunSpecIntSF, modbus_ip, dispatchPort)
+	_, err := ReadInverterLimits(LegacyStorageRegisters(), modbus_ip, dispatchPort)
 	assert.Error(t, err)
 }
 

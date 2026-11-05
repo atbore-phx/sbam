@@ -272,19 +272,15 @@ func readInverterLimits(r StorageRegisters) (InverterLimits, error) {
 	return lim, nil
 }
 
-// ReadInverterLimits opens a Modbus connection, locates the storage model for
-// sunspec type t, reads WChaMax, WChaMax_SF and InOutWRte_SF (40346, 40362 and
-// 40369 with int+SF) and closes the connection. The values are returned
-// unvalidated.
-func ReadInverterLimits(t SunSpecType, ip string, port ...string) (InverterLimits, error) {
+// ReadInverterLimits opens a Modbus connection, reads WChaMax, WChaMax_SF and
+// InOutWRte_SF of the resolved storage model r (40346, 40362 and 40369 with
+// int+SF, see LegacyStorageRegisters and DiscoverStorageRegisters) and closes
+// the connection. The values are returned unvalidated.
+func ReadInverterLimits(r StorageRegisters, ip string, port ...string) (InverterLimits, error) {
 	if err := openModbus(ip, port...); err != nil {
 		return InverterLimits{}, err
 	}
 	defer closeModbus()
-	r, err := resolveStorageRegisters(t)
-	if err != nil {
-		return InverterLimits{}, err
-	}
 	return readInverterLimits(r)
 }
 
