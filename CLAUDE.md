@@ -105,6 +105,7 @@ pkg/
     optimize.go               - `optimize` command: compute and print the cost-optimal plan once (always dry run; exit 0/1/2)
     optimize_test.go          - Unit tests for the optimize command (table golden, JSON, exit codes)
     optimize_config.go        - ha_*/opt_* flag registration, viper load and aggregated validation
+    optimize_keys.go          - optimizer: config group: nested viper keys, flat flag bindings, env names, deprecated flat-key fallback
     optimize_config_test.go   - Unit tests for optimize config parsing and validation
     optimize_types.go         - OptimizeConfig and optimizer run result types
     optimize_run.go           - One optimizer run: fetch inputs, build profile and grid, solve, map fallbacks
@@ -287,7 +288,7 @@ Rules:
 
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `ha_url`, `ha_token`, `opt_price_entity`, `opt_consumption_entity`, `opt_ev_entity`, `opt_ev_guard_w`, `opt_history_days`, `opt_battery_efficiency`, `opt_max_charge_rate_w`, `opt_max_discharge_rate_w`, `opt_min_soc_pct`, `opt_vat_rate`, `opt_sell_margin`, `opt_min_gain`, `opt_wear_cost`, `opt_purchase_surcharge`, `opt_dry_run`
+- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_entity`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
 
 ### Build
 

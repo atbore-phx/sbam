@@ -65,18 +65,18 @@ These are needed only for `scheduler_mode: optimize` ([Cost-optimized Dispatch](
 
 | Entity | Example | Requirements |
 |--------|---------|--------------|
-| Spot price sensor (`opt_price_entity`) | `sensor.nordpool_kwh_dk2_dkk_3_10_025` | From the [Nordpool integration](https://github.com/custom-components/nordpool), configured **with VAT** in your currency. Unit per kWh (or per MWh). Needs the `raw_today`/`raw_tomorrow` or `today`/`tomorrow` attributes; hourly and 15-minute prices both work. |
-| Household load power sensor (`opt_consumption_entity`) | `sensor.solarnet_power_load_consumed` | Instantaneous power of the whole house in W or kW, recorded by the HA recorder. |
-| EV charger power sensor (`opt_ev_entity`, optional) | `sensor.tesla_wall_connector_total_power` | Power in W or kW. Its energy is subtracted from the household load, so EV charging does not distort the profile. |
+| Spot price sensor (`optimizer.price_entity`) | `sensor.nordpool_kwh_dk2_dkk_3_10_025` | From the [Nordpool integration](https://github.com/custom-components/nordpool), configured **with VAT** in your currency. Unit per kWh (or per MWh). Needs the `raw_today`/`raw_tomorrow` or `today`/`tomorrow` attributes; hourly and 15-minute prices both work. |
+| Household load power sensor (`optimizer.consumption_entity`) | `sensor.solarnet_power_load_consumed` | Instantaneous power of the whole house in W or kW, recorded by the HA recorder. |
+| EV charger power sensor (`optimizer.ev_entity`, optional) | `sensor.tesla_wall_connector_total_power` | Power in W or kW. Its energy is subtracted from the household load, so EV charging does not distort the profile. |
 
-The recorder must keep at least `opt_history_days` days of history (default 10). Home Assistant's default `purge_keep_days` is 10, which matches. Sensors must be lower-case `sensor.<object_id>` entity IDs.
+The recorder must keep at least `optimizer.history_days` days of history (default 10). Home Assistant's default `purge_keep_days` is 10, which matches. Sensors must be lower-case `sensor.<object_id>` entity IDs.
 
 ### Home Assistant API access
 
 sbam reads states and history from the Home Assistant REST API (GET only).
 
 - **HA add-on:** nothing to configure. The add-on requests `homeassistant_api` access and uses the Supervisor token automatically.
-- **Docker / standalone binary:** create a long-lived access token in Home Assistant under **Profile → Security → Long-lived access tokens**, ideally for a dedicated non-admin user. Set `ha_url` (e.g. `http://homeassistant.local:8123`) and pass the token as the `HA_TOKEN` environment variable. Use `https` when Home Assistant is not on your local network.
+- **Docker / standalone binary:** create a long-lived access token in Home Assistant under **Profile → Security → Long-lived access tokens**, ideally for a dedicated non-admin user. Set `optimizer.ha_url` (e.g. `http://homeassistant.local:8123`) and pass the token as the `HA_TOKEN` environment variable. Use `https` when Home Assistant is not on your local network.
 
 ### Solcast
 

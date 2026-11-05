@@ -33,7 +33,7 @@ Official Home assistant guide: [Install a third-party Home Assistant app reposit
 
 Before starting, open the **Configuration** tab and set options as needed. See the [Configuration](configuration.md) page for a complete reference of all options.
 
-For `scheduler_mode: optimize`, the add-on needs no Home Assistant URL or token: it uses the Supervisor API automatically. Start with `opt_dry_run` on (the default); see [Cost-optimized Dispatch](optimizer.md).
+For `scheduler_mode: optimize`, the add-on needs no Home Assistant URL or token: it uses the Supervisor API automatically. Start with `optimizer.dry_run` on (the default); see [Cost-optimized Dispatch](optimizer.md).
 
 <img width="1362" height="495" alt="Screenshot 2026-06-17 154313" src="https://github.com/user-attachments/assets/4dc73d9c-35fd-4aad-99b9-e1b1b267a914" />
 

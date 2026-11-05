@@ -62,23 +62,23 @@ sbam schedule [flags]
 | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | Skip TLS verification | `false` |
 | `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
-| `--opt_price_entity` | `OPT_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
-| `--opt_consumption_entity` | `OPT_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
-| `--opt_ev_entity` | `OPT_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
-| `--opt_ev_guard_w` | `OPT_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |
-| `--opt_history_days` | `OPT_HISTORY_DAYS` | Days of consumption history for the profile (1..30) | `10` |
-| `--opt_battery_efficiency` | `OPT_BATTERY_EFFICIENCY` | Battery round-trip efficiency (0, 1] | `0.83` |
-| `--opt_max_charge_rate_w` | `OPT_MAX_CHARGE_RATE_W` | Maximum battery charge rate in W (0, 30000] | `4500` |
-| `--opt_max_discharge_rate_w` | `OPT_MAX_DISCHARGE_RATE_W` | Maximum battery discharge rate in W (0, 30000] | `4500` |
-| `--opt_min_soc_pct` | `OPT_MIN_SOC_PCT` | Minimum battery SoC in percent [0, 100) | `7` |
-| `--opt_vat_rate` | `OPT_VAT_RATE` | VAT rate as a fraction (0.25 = 25 %) | `0.25` |
-| `--opt_sell_margin` | `OPT_SELL_MARGIN` | Sell margin in currency/kWh incl. VAT [-5, 10] | `0` |
-| `--opt_min_gain` | `OPT_MIN_GAIN` | Minimum gain per hour before a charge or discharge replaces self-consumption; hold and standby need a tenth [0, 10] | `0.5` |
-| `--opt_wear_cost` | `OPT_WEAR_COST` | Battery wear cost per kWh a forced charge or discharge moves [0, 5] | `0` |
-| `--opt_purchase_surcharge` | `OPT_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
-| `--opt_dry_run` | `OPT_DRY_RUN` | Compute and publish the plan without writing to the inverter | `true` |
+| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
+| `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
+| `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
+| `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |
+| `--opt_history_days` | `OPTIMIZER_HISTORY_DAYS` | Days of consumption history for the profile (1..30) | `10` |
+| `--opt_battery_efficiency` | `OPTIMIZER_BATTERY_EFFICIENCY` | Battery round-trip efficiency (0, 1] | `0.83` |
+| `--opt_max_charge_rate_w` | `OPTIMIZER_MAX_CHARGE_RATE_W` | Maximum battery charge rate in W (0, 30000] | `4500` |
+| `--opt_max_discharge_rate_w` | `OPTIMIZER_MAX_DISCHARGE_RATE_W` | Maximum battery discharge rate in W (0, 30000] | `4500` |
+| `--opt_min_soc_pct` | `OPTIMIZER_MIN_SOC_PCT` | Minimum battery SoC in percent [0, 100) | `7` |
+| `--opt_vat_rate` | `OPTIMIZER_VAT_RATE` | VAT rate as a fraction (0.25 = 25 %) | `0.25` |
+| `--opt_sell_margin` | `OPTIMIZER_SELL_MARGIN` | Sell margin in currency/kWh incl. VAT [-5, 10] | `0` |
+| `--opt_min_gain` | `OPTIMIZER_MIN_GAIN` | Minimum gain per hour before a charge or discharge replaces self-consumption; hold and standby need a tenth [0, 10] | `0.5` |
+| `--opt_wear_cost` | `OPTIMIZER_WEAR_COST` | Battery wear cost per kWh a forced charge or discharge moves [0, 5] | `0` |
+| `--opt_purchase_surcharge` | `OPTIMIZER_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
+| `--opt_dry_run` | `OPTIMIZER_DRY_RUN` | Compute and publish the plan without writing to the inverter | `true` |
 
-The `--ha_*` and `--opt_*` flags are used only with `--scheduler_mode optimize`. See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
+The `--ha_*` and `--opt_*` flags are used only with `--scheduler_mode optimize`. In `config.yaml` the same options live under the `optimizer:` map (`--opt_price_entity` → `optimizer.price_entity`). See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
 
 ### `optimize`
 
@@ -88,7 +88,7 @@ Compute the cost-optimal battery plan for the current price horizon once, print 
 sbam optimize [flags]
 ```
 
-`sbam optimize` is **always a dry run**. It never writes to the inverter and publishes nothing over MQTT, whatever `opt_dry_run` says. Inverter writes only happen from `sbam schedule` with `scheduler_mode: optimize`.
+`sbam optimize` is **always a dry run**. It never writes to the inverter and publishes nothing over MQTT, whatever `optimizer.dry_run` says. Inverter writes only happen from `sbam schedule` with `scheduler_mode: optimize`.
 
 | Flag | Env var | Description | Default |
 |------|---------|-------------|---------|
@@ -103,21 +103,21 @@ sbam optimize [flags]
 | `-c, --pw_consumption` | `PW_CONSUMPTION` | Daily consumption (Wh); static fallback for hours without history. Must be > 0. | `0` |
 | `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
-| `--opt_price_entity` | `OPT_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
-| `--opt_consumption_entity` | `OPT_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
-| `--opt_ev_entity` | `OPT_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
-| `--opt_ev_guard_w` | `OPT_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |
-| `--opt_history_days` | `OPT_HISTORY_DAYS` | Days of consumption history for the profile (1..30) | `10` |
-| `--opt_battery_efficiency` | `OPT_BATTERY_EFFICIENCY` | Battery round-trip efficiency (0, 1] | `0.83` |
-| `--opt_max_charge_rate_w` | `OPT_MAX_CHARGE_RATE_W` | Maximum battery charge rate in W (0, 30000] | `4500` |
-| `--opt_max_discharge_rate_w` | `OPT_MAX_DISCHARGE_RATE_W` | Maximum battery discharge rate in W (0, 30000] | `4500` |
-| `--opt_min_soc_pct` | `OPT_MIN_SOC_PCT` | Minimum battery SoC in percent [0, 100) | `7` |
-| `--opt_vat_rate` | `OPT_VAT_RATE` | VAT rate as a fraction (0.25 = 25 %) | `0.25` |
-| `--opt_sell_margin` | `OPT_SELL_MARGIN` | Sell margin in currency/kWh incl. VAT [-5, 10] | `0` |
-| `--opt_min_gain` | `OPT_MIN_GAIN` | Minimum gain per hour before a charge or discharge replaces self-consumption; hold and standby need a tenth [0, 10] | `0.5` |
-| `--opt_wear_cost` | `OPT_WEAR_COST` | Battery wear cost per kWh a forced charge or discharge moves [0, 5] | `0` |
-| `--opt_purchase_surcharge` | `OPT_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
-| `--opt_dry_run` | `OPT_DRY_RUN` | Accepted; the command never writes regardless of its value | `true` |
+| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
+| `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
+| `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
+| `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |
+| `--opt_history_days` | `OPTIMIZER_HISTORY_DAYS` | Days of consumption history for the profile (1..30) | `10` |
+| `--opt_battery_efficiency` | `OPTIMIZER_BATTERY_EFFICIENCY` | Battery round-trip efficiency (0, 1] | `0.83` |
+| `--opt_max_charge_rate_w` | `OPTIMIZER_MAX_CHARGE_RATE_W` | Maximum battery charge rate in W (0, 30000] | `4500` |
+| `--opt_max_discharge_rate_w` | `OPTIMIZER_MAX_DISCHARGE_RATE_W` | Maximum battery discharge rate in W (0, 30000] | `4500` |
+| `--opt_min_soc_pct` | `OPTIMIZER_MIN_SOC_PCT` | Minimum battery SoC in percent [0, 100) | `7` |
+| `--opt_vat_rate` | `OPTIMIZER_VAT_RATE` | VAT rate as a fraction (0.25 = 25 %) | `0.25` |
+| `--opt_sell_margin` | `OPTIMIZER_SELL_MARGIN` | Sell margin in currency/kWh incl. VAT [-5, 10] | `0` |
+| `--opt_min_gain` | `OPTIMIZER_MIN_GAIN` | Minimum gain per hour before a charge or discharge replaces self-consumption; hold and standby need a tenth [0, 10] | `0.5` |
+| `--opt_wear_cost` | `OPTIMIZER_WEAR_COST` | Battery wear cost per kWh a forced charge or discharge moves [0, 5] | `0` |
+| `--opt_purchase_surcharge` | `OPTIMIZER_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
+| `--opt_dry_run` | `OPTIMIZER_DRY_RUN` | Accepted; the command never writes regardless of its value | `true` |
 
 Example (the token is read from `HA_TOKEN`; do not pass it as a flag in shell history):
 

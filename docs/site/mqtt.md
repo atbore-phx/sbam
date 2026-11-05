@@ -186,7 +186,7 @@ With `scheduler_mode: optimize`, the topics and payloads are the same, but the s
 | `set_defaults` | **Always accepted**, also while paused. Writes defaults and ends a manual override. The next hourly run (or `resume`) applies the plan again. |
 | `force_charge` | Rejected while paused. Otherwise it writes the force charge **plus an inverter revert timeout** of `duration_s` + 300 s (end of the current hour + 300 s without `duration_s`), and starts a manual override until `duration_s` has passed or the current hour ends. During the override, runs publish the plan with reason `optimizer_manual_override` and write nothing. `target_pct: 0` restores defaults and ends the override. |
 | `hold` | Rejected while paused. Otherwise it applies the optimizer `hold` action (discharge blocked, PV may still charge) **with the inverter revert timeout**, and starts a manual override until the end of the current hour; the next hourly run applies the plan again. `pause`, `set_defaults` and shutdown release it. In dry run nothing is written: the ack is accepted and `last_decision_reason` is `dry run: hold not written`. |
-| `set_reserve` | Rejected: `accepted: false, error: "not supported in scheduler_mode=optimize"`. The optimizer uses `opt_min_soc_pct`. |
+| `set_reserve` | Rejected: `accepted: false, error: "not supported in scheduler_mode=optimize"`. The optimizer uses `optimizer.min_soc_pct`. |
 
 The manual force-charge sequence above is not needed in optimize mode: `force_charge` with `duration_s` keeps the optimizer from overwriting it, for example `{"target_pct":80,"duration_s":1800}`. For an emergency stop, send `pause` and then `set_defaults`.
 
