@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
 	"sbam/pkg/optimize"
 
@@ -58,8 +59,8 @@ func newOptCLIEnv(t *testing.T) *optCLIEnv {
 	newHAClient = func(OptimizeConfig) (haClient, error) { return e.run.ha, nil }
 	newForecastLoader = func() forecastLoader { return e.run.fc }
 	newBatteryReader = func() batteryReader { return e.run.bat }
-	newBatteryWriter = func() batteryWriter { e.spy.batteryWriter++; return nil }
-	newFronius = func() froniusClient { e.spy.fronius++; return nil }
+	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { e.spy.batteryWriter++; return nil }
+	newFronius = func(fronius.SunSpecType) froniusClient { e.spy.fronius++; return nil }
 	newDispatchWriter = func() dispatchWriter { e.spy.dispatchWriter++; return nil }
 	optCLINow = func() time.Time { return e.run.now }
 	optCLILocation = func() *time.Location { return e.run.loc }

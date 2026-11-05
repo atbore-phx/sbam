@@ -113,7 +113,7 @@ func TestScheduleRunWiresSunSpecType(t *testing.T) {
 		viper.Set("sunspec_type", "auto")
 
 		// No apikey/url: Run stops at config validation, after the verify.
-		scdCmd.Run(scdCmd, nil)
+		_ = scdCmd.RunE(scdCmd, nil)
 
 		assert.Equal(t, []verifyCall{{fronius.SunSpecAuto, "192.0.2.10"}}, *calls)
 	})
@@ -123,7 +123,7 @@ func TestScheduleRunWiresSunSpecType(t *testing.T) {
 		viper.Set("fronius_ip", "192.0.2.10")
 		viper.Set("sunspec_type", "bogus")
 
-		scdCmd.Run(scdCmd, nil)
+		_ = scdCmd.RunE(scdCmd, nil)
 
 		assert.Empty(t, *calls)
 	})
@@ -132,7 +132,7 @@ func TestScheduleRunWiresSunSpecType(t *testing.T) {
 		calls := stubVerifySunSpecType(t)
 		viper.Set("sunspec_type", "float")
 
-		scdCmd.Run(scdCmd, nil)
+		_ = scdCmd.RunE(scdCmd, nil)
 
 		assert.Empty(t, *calls)
 	})
