@@ -1373,11 +1373,35 @@ func (r *Runner) optScheduleNextHour(now, clock time.Time) {
 		delay = 0
 	}
 	o.hourTimer = newTimerFunc(delay, func() {
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
-			u.Log.Warn("optimizer hourly run dropped because runner queue is full")
-		}
+		r.optSubmitTimed(mqtt.Intent{Kind: mqtt.IntentTick}, "optimizer hourly run", 0)
 	})
 	u.Log.Debugw("optimizer next run scheduled", "at", next.Format(time.RFC3339), "delay", delay.Round(time.Second))
+}
+
+// optSubmitRetries and optSubmitRetryDelay bound the retries of a timer
+// intent that met a full runner queue; variables so tests can shorten them.
+var (
+	optSubmitRetries    = 10
+	optSubmitRetryDelay = 30 * time.Second
+)
+
+// optSubmitTimed submits an intent from a timer callback. The hourly run and
+// the EV poll re-arm their timers only when they run, so a dropped intent
+// would silently end that chain until restart. On a full queue it retries
+// on a fresh timer (touching no runner state from the timer goroutine) up to
+// optSubmitRetries times.
+func (r *Runner) optSubmitTimed(intent mqtt.Intent, what string, attempt int) {
+	if r.Submit(intent) {
+		return
+	}
+	if attempt >= optSubmitRetries {
+		u.Log.Errorw(what+" dropped: runner queue stayed full", "attempts", attempt+1)
+		return
+	}
+	u.Log.Warnw(what+" deferred because runner queue is full", "retry_in", optSubmitRetryDelay)
+	newTimerFunc(optSubmitRetryDelay, func() {
+		r.optSubmitTimed(intent, what, attempt+1)
+	})
 }
 
 func optStopTimer(t **time.Timer) {
@@ -1907,9 +1931,7 @@ func (r *Runner) optArmWatchdog() {
 		return
 	}
 	o.watchdogTimer = newTimerFunc(optWatchdogInterval, func() {
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentWatchdog}) {
-			u.Log.Warn("optimizer watchdog check dropped because runner queue is full")
-		}
+		r.optSubmitTimed(mqtt.Intent{Kind: mqtt.IntentWatchdog}, "optimizer watchdog check", 0)
 	})
 }
 
@@ -2015,9 +2037,7 @@ func (r *Runner) optPause(ctx context.Context, intent mqtt.Intent) {
 			delay = 0
 		}
 		o.pauseTimer = newTimerFunc(delay, func() {
-			if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
-				u.Log.Warn("optimizer pause-expiry run dropped because runner queue is full")
-			}
+			r.optSubmitTimed(mqtt.Intent{Kind: mqtt.IntentTick}, "optimizer pause-expiry run", 0)
 		})
 	}
 

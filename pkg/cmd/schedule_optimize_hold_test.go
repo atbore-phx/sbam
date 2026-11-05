@@ -160,3 +160,66 @@ func TestOptimizeRunner_UnknownIntentRejected(t *testing.T) {
 	assert.Contains(t, acks[0].Error, errUnsupportedIntent.Error())
 	assert.Zero(t, legacy.holdCalls+legacy.forceChargeCalls+legacy.setDefaultsCalls)
 }
+
+// fillRunnerQueue fills the intent queue so the next Submit fails.
+func fillRunnerQueue(t *testing.T, r *Runner) {
+	t.Helper()
+	for len(r.intents) < cap(r.intents) {
+		r.intents <- mqtt.Intent{Kind: mqtt.IntentResume}
+	}
+}
+
+// drainRunnerQueue empties the intent queue and returns what it held.
+func drainRunnerQueue(r *Runner) []mqtt.Intent {
+	var out []mqtt.Intent
+	for {
+		select {
+		case i := <-r.intents:
+			out = append(out, i)
+		default:
+			return out
+		}
+	}
+}
+
+// Expected use: an hourly tick that meets a full queue is retried on a new
+// timer instead of being dropped, so hourly planning continues.
+func TestOptimizeRunner_HourlyTickRetriedWhenQueueFull(t *testing.T) {
+	h := newSchOptHarness(t, true)
+	h.tick()
+	hourly := h.hourTimers()
+	require.Len(t, hourly, 1)
+
+	fillRunnerQueue(t, h.runner)
+	hourly[0].fn()
+
+	retries := h.timers.withDelay(optSubmitRetryDelay)
+	require.Len(t, retries, 1, "a retry timer is armed")
+	assert.True(t, h.logged("optimizer hourly run deferred because runner queue is full"))
+
+	drainRunnerQueue(h.runner)
+	retries[0].fn()
+	queued := drainRunnerQueue(h.runner)
+	require.Len(t, queued, 1)
+	assert.Equal(t, mqtt.IntentTick, queued[0].Kind)
+}
+
+// Failure case: retries are bounded; when the queue stays full the intent is
+// dropped with an error log.
+func TestOptimizeRunner_TimedSubmitGivesUp(t *testing.T) {
+	oldRetries := optSubmitRetries
+	optSubmitRetries = 2
+	t.Cleanup(func() { optSubmitRetries = oldRetries })
+	h := newSchOptHarness(t, true)
+	fillRunnerQueue(t, h.runner)
+
+	h.runner.optSubmitTimed(mqtt.Intent{Kind: mqtt.IntentEVPoll}, "ev guard poll", 0)
+	for i := 0; i < optSubmitRetries; i++ {
+		retries := h.timers.withDelay(optSubmitRetryDelay)
+		require.Len(t, retries, i+1)
+		retries[i].fn()
+	}
+
+	assert.Len(t, h.timers.withDelay(optSubmitRetryDelay), optSubmitRetries, "no retry after the last attempt")
+	assert.True(t, h.logged("ev guard poll dropped: runner queue stayed full"))
+}

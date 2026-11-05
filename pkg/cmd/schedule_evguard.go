@@ -68,9 +68,7 @@ func (r *Runner) optArmEVPoll() {
 		return
 	}
 	o.ev.timer = newTimerFunc(optEVPollInterval, func() {
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentEVPoll}) {
-			u.Log.Warn("ev guard poll dropped because runner queue is full")
-		}
+		r.optSubmitTimed(mqtt.Intent{Kind: mqtt.IntentEVPoll}, "ev guard poll", 0)
 	})
 }
 
