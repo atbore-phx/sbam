@@ -1,39 +1,83 @@
 package power
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	u "sbam/src/utils"
 	"time"
 )
 
+// maxForecastBodyBytes caps the Solcast response body (S-018).
+const maxForecastBodyBytes = 4 << 20 // 4 MiB
+
+// forecastHTTPTimeout is the per-request timeout for Solcast downloads.
+const forecastHTTPTimeout = 10 * time.Second
+
+// GetForecast downloads a Solcast forecast. It is a thin wrapper around
+// GetForecastCtx using context.Background, kept for existing callers.
+// ErrQuotaExceeded is returned for HTTP 429 from Solcast. On the free
+// (hobbyist) plan this means the daily request limit is used up; it resets at
+// 00:00 UTC. The message is unchanged from earlier releases.
+var ErrQuotaExceeded = errors.New("you have exceeded your free daily limit, too many Request to the forecast API")
+
 func GetForecast(apiKey string, url string) (Forecasts, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	return GetForecastCtx(context.Background(), apiKey, url)
+}
+
+// GetForecastCtx downloads a Solcast forecast from url, authenticating with
+// apiKey as a Bearer token. Only a 200 response is decoded, and the body is
+// capped at 4 MiB. Returned errors never contain the API key or the URL.
+func GetForecastCtx(ctx context.Context, apiKey string, url string) (Forecasts, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return Forecasts{}, err
+		return Forecasts{}, fmt.Errorf("build forecast request: %w", sanitizeURLError(err))
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: forecastHTTPTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Forecasts{}, err
+		return Forecasts{}, fmt.Errorf("fetch forecast: %w", sanitizeURLError(err))
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 429 {
-		return Forecasts{}, errors.New("you have exceeded your free daily limit, too many Request to the forecast API")
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return Forecasts{}, ErrQuotaExceeded
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Forecasts{}, fmt.Errorf("fetch forecast: unexpected status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxForecastBodyBytes+1))
+	if err != nil {
+		return Forecasts{}, fmt.Errorf("read forecast body: %w", sanitizeURLError(err))
+	}
+	if len(body) > maxForecastBodyBytes {
+		return Forecasts{}, fmt.Errorf("read forecast body: response exceeds %d bytes", maxForecastBodyBytes)
 	}
 
 	var forecasts Forecasts
-	err = json.NewDecoder(resp.Body).Decode(&forecasts)
-	if err != nil {
-		return Forecasts{}, err
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&forecasts); err != nil {
+		return Forecasts{}, fmt.Errorf("decode forecast: %w", err)
 	}
 	return forecasts, nil
+}
+
+// sanitizeURLError strips the request URL from *url.Error values so that
+// site IDs or query-string credentials never reach logs or MQTT errors.
+func sanitizeURLError(err error) error {
+	var uerr *neturl.Error
+	if errors.As(err, &uerr) {
+		return fmt.Errorf("%s: %w", uerr.Op, uerr.Err)
+	}
+	return err
 }
 
 func GetForecastChache(apiKey string, url string, cache_file_name string, cache_time int32) (Forecasts, error) {
@@ -90,19 +134,25 @@ func GetForecastChache(apiKey string, url string, cache_file_name string, cache_
 	}
 
 	// Write the json to the cachefile
+	_ = writeForecastCache(cache_file_name, forecasts)
+
+	return forecasts, nil
+}
+
+// writeForecastCache stores forecasts as indented JSON in cache_file_name.
+// Failures are logged and returned; callers may treat them as non-fatal.
+func writeForecastCache(cache_file_name string, forecasts Forecasts) error {
 	jsonData, err := json.MarshalIndent(forecasts, "", "  ") // Use "  " for 2-space indentation
 	if err != nil {
 		u.Log.Errorf("Error: Unable to marshall forecast")
-	} else {
-		err = os.WriteFile(cache_file_name, jsonData, 0644)
-		if err != nil {
-			u.Log.Errorf("Error: Unable to write cachefile %s", cache_file_name)
-		} else {
-			u.Log.Infof("Cachefile %s written successfully", cache_file_name)
-		}
+		return fmt.Errorf("marshal forecast cache: %w", err)
 	}
-
-	return forecasts, nil
+	if err := os.WriteFile(cache_file_name, jsonData, 0644); err != nil {
+		u.Log.Errorf("Error: Unable to write cachefile %s", cache_file_name)
+		return fmt.Errorf("write forecast cache: %w", err)
+	}
+	u.Log.Infof("Cachefile %s written successfully", cache_file_name)
+	return nil
 }
 
 func ReadForecastCache(cache_file_name string) (Forecasts, bool, error) {

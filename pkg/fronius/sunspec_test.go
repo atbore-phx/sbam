@@ -114,11 +114,15 @@ func TestDiscoverStorageRegistersIntSFMatchesLegacyConstants(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, StorageRegisters{
-		StorCtlMod: StorCtl_Mod,
-		MinRsvPct:  MinRsvPct,
-		OutWRte:    OutWRte,
-		InWRte:     InWRte,
-		ChaGriSet:  ChaGriSet,
+		StorCtlMod:       StorCtl_Mod,
+		MinRsvPct:        MinRsvPct,
+		OutWRte:          OutWRte,
+		InWRte:           InWRte,
+		ChaGriSet:        ChaGriSet,
+		WChaMax:          WChaMax,
+		InOutWRteRvrtTms: InOutWRte_RvrtTms,
+		WChaMaxSF:        WChaMax_SF,
+		InOutWRteSF:      InOutWRte_SF,
 	}, regs)
 }
 
@@ -131,11 +135,15 @@ func TestDiscoverStorageRegistersFloat(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, StorageRegisters{
-		StorCtlMod: 40359,
-		MinRsvPct:  40361,
-		OutWRte:    40366,
-		InWRte:     40367,
-		ChaGriSet:  40371,
+		StorCtlMod:       40359,
+		MinRsvPct:        40361,
+		OutWRte:          40366,
+		InWRte:           40367,
+		ChaGriSet:        40371,
+		WChaMax:          40356,
+		InOutWRteRvrtTms: 40369,
+		WChaMaxSF:        40372,
+		InOutWRteSF:      40379,
 	}, regs)
 }
 

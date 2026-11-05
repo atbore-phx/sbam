@@ -75,11 +75,13 @@ docs/
     configuration.md            # Single config reference with deployment annotations
     mqtt.md                     # MQTT guide (topic map, payloads, commands, discovery)
     cli.md                      # Full CLI command and flag reference
+    optimizer.md                # Cost-optimized dispatch (scheduler_mode: optimize): how it works, dry run, hardware checklist, fail-safes, reason codes
     changelog.md                # Release history
   vibe/                       - Contributor workflow docs for Compound Engineering skills
   brainstorms/                # CE brainstorm artifacts
   plans/                      # CE implementation plans
   implementations/            # Archived pre-CE implementation plans
+  decisions/                  - ADRs (HA REST client, DP solver, dispatch register mapping, fail-safes, optimize-mode MQTT commands)
 
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
@@ -100,8 +102,23 @@ pkg/
     dst_test.go               - Unit tests for window/clock arithmetic across daylight-saving changes
     estimate.go               - `estimate` command: display forecast & battery state
     estimate_test.go          - Unit tests for the estimate command
+    optimize.go               - `optimize` command: compute and print the cost-optimal plan once (always dry run; exit 0/1/2)
+    optimize_test.go          - Unit tests for the optimize command (table golden, JSON, exit codes)
+    optimize_config.go        - ha_*/opt_* flag registration, viper load and aggregated validation
+    optimize_keys.go          - optimizer: config group: nested viper keys, flat flag bindings, env names, deprecated flat-key fallback
+    optimize_config_test.go   - Unit tests for optimize config parsing and validation
+    optimize_types.go         - OptimizeConfig and optimizer run result types
+    optimize_run.go           - One optimizer run: fetch inputs, build profile and grid, solve, map fallbacks
+    optimize_run_test.go      - Unit tests for optimizer runs and fallback reason codes
+    optimize_adapters.go      - Production adapters (HA client, Solcast forecast cache, battery reader) for optimizer runs
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
+    schedule_optimize.go      - Optimize-mode runner: hourly optimizer tick, dispatch, fail-safes, watchdog, optimize-mode commands
+    schedule_optimize_test.go - Unit tests for the runner in scheduler_mode: optimize (hourly ticks, fail-safes, watchdog, commands)
+    schedule_optimize_hold_test.go - Unit tests for hold in optimize mode, exhaustive intent handling and timer retries
+    schedule_evguard.go       - EV guard for optimize mode: holds the battery in self_consume hours while the car charges
+    schedule_evguard_test.go  - Unit tests for the EV guard
+    legacy_additivity_test.go - Legacy-path tests for intentional shared changes (Solcast non-200 handling)
     schedule_runner_test.go   - Unit tests for runner command handling and queue behavior
     schedule_test.go           - Unit tests for the schedule command
     schedule_validation_test.go - Unit tests for schedule parameter validation
@@ -110,6 +127,7 @@ pkg/
     schedule_cron_test.go     - Unit tests for cron-based scheduling
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
     config_schema_test.go     - Unit tests for HA add-on config.json schema regex validation
+    testdata/                 - Golden files (optimize command table output)
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher
@@ -126,6 +144,9 @@ pkg/
     hold.go                   - Battery hold write (discharge blocked) for hold_battery windows
     hold_test.go              - Unit tests for the battery hold write and hold decision path
     faults_test.go            - Unit tests for Modbus read/write fault paths with a fault-injecting mock inverter
+    dispatch.go               - Optimizer action→register mapping, ordered writes with read-back, revert timeout; addresses per sunspec_type (ADR-0003)
+    dispatch_test.go          - Register-level tests for dispatch actions with mock Modbus server
+    dispatch_sunspec_test.go  - Dispatch tests on the float SunSpec layout (discovered addresses, no-write failures)
     error_test.go             - Error handling tests
   mqtt/
     types.go                  - MQTT config and payload carrier types
@@ -142,6 +163,41 @@ pkg/
     discovery_test.go         - Unit tests for Home Assistant discovery generation
     identity_test.go          - Unit tests for identity persistence, override, and fallback
     init_test.go              - Unit tests for client initialization and async connect
+    intent_kinds_test.go      - Keeps IntentKinds complete against the declared intent kinds
+    paho_currency_test.go     - Unit tests for Paho currency setter and discovery republish
+    testdata/                 - Golden discovery, state and plan payloads
+  homeassistant/
+    types.go                  - GET-only Home Assistant REST client types (ADR-0001)
+    access.go                 - HA access resolution (Supervisor token vs ha_url/ha_token), URL and entity ID validation
+    access_test.go            - Unit tests for HA access resolution and validation
+    client.go                 - States and history client with timeouts, body limits and no redirects
+    client_test.go            - HTTP mock tests for the HA client
+    testdata/                 - Recorded HA state and history fixtures
+  optimize/
+    reasons.go                - Package doc and stable optimizer reason codes
+    types.go                  - Plan, grid, battery and parameter types; solver defaults
+    input_types.go            - History sample and Solcast PV period input types
+    inputs_validate.go        - Unit conversion and plausibility checks for HA power samples
+    inputs_validate_test.go   - Unit tests for input validation
+    consumption.go            - Hourly consumption profile from load/EV history with static fallback
+    consumption_test.go       - Unit tests for the consumption profile
+    price.go                  - Nordpool price parsing, hourly means, buy/sell derivation
+    price_test.go             - Unit tests for price parsing and buy/sell
+    pv.go                     - Solcast PV periods to hourly slot energy
+    pv_test.go                - Unit tests for PV slotting
+    grid.go                   - Hourly slot and grid construction (DST-aware)
+    grid_test.go              - Unit tests for slots and grid
+    solver.go                 - Backward dynamic-programming solver (ADR-0002)
+    label.go                  - Action labelling and deterministic reason classification
+    label_test.go             - Unit tests for labelling
+    simulate.go               - Independent plan re-evaluation
+    validate.go               - Grid and plan invariant checks
+    validate_test.go          - Unit tests for grid and plan validation
+    solver_test.go            - Unit tests for the solver
+    bruteforce_test.go        - Brute-force reference comparison for the solver
+    race_on_test.go           - Race-detector build flag for timing tests
+    race_off_test.go          - Race-detector build flag for timing tests
+    testdata/                 - Recorded Nordpool price fixture
   power/
     types.go                  - Solcast forecast struct definitions
     handler.go                - Get daily solar production estimate
@@ -153,6 +209,8 @@ pkg/
     reserve_test.go           - Unit tests for the until_solar reserve calculation
     estimate.go               - Forecast retrieval, caching, power calculations
     power_test.go             - HTTP mock tests for Solcast API
+    forecasts.go              - Per-URL Solcast forecasts via the cache with age metadata (optimizer)
+    forecasts_test.go         - Unit tests for forecast cache loading
   storage/
     types.go                  - Fronius battery JSON response structs
     handler.go                - Main handler fetching battery data
@@ -230,7 +288,7 @@ Rules:
 
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`
+- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_entity`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
 
 ### Build
 

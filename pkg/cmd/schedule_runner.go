@@ -57,6 +57,10 @@ type RunnerConfig struct {
 	SunSpecType        fronius.SunSpecType
 	MQTT               mqtt.Config
 	Now                func() time.Time
+	// Optimize and OptimizeDeps are used only when SchedulerMode is
+	// "optimize" (SPEC-0001); schedule.go validates and builds them.
+	Optimize     OptimizeConfig
+	OptimizeDeps optimizeDeps
 }
 
 type batteryWriter interface {
@@ -118,6 +122,8 @@ type Runner struct {
 	limit         *limitSession
 	limitStop     chan struct{}
 	reserve       *reserveTelemetry // last reserve evaluation in the reserve window
+	// opt holds the optimize-mode state; nil in the other scheduler modes.
+	opt *optRunnerState
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -128,12 +134,16 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 		cfg.Now = time.Now
 	}
 
-	return &Runner{
+	r := &Runner{
 		cfg:     cfg,
 		client:  client,
 		writer:  newBatteryWriter(cfg.SunSpecType),
 		intents: make(chan mqtt.Intent, runnerIntentQueueSize),
 	}
+	if cfg.SchedulerMode == schedulerModeOptimize {
+		r.opt = newOptRunnerState(cfg)
+	}
+	return r
 }
 
 // Submit enqueues an intent for the runner to process. It returns true on
@@ -162,6 +172,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			r.optimizeShutdown()
 			return ctx.Err()
 		case <-r.tickerCh:
 			if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
@@ -170,6 +181,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		case intent := <-r.intents:
 			r.handleIntent(ctx, intent)
 			if intent.Kind == mqtt.IntentShutdown {
+				r.optimizeShutdown()
 				return nil
 			}
 		}
@@ -614,6 +626,10 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		r.stopLimitLoop()
 	}
 
+	if r.opt != nil && r.handleOptimizeIntent(ctx, intent) {
+		return
+	}
+
 	switch intent.Kind {
 	case mqtt.IntentShutdown:
 		return
@@ -684,33 +700,10 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
-	if intent.TargetPct < 0 || intent.TargetPct > 100 {
-		err := fmt.Errorf("%w: target_pct must be between 0 and 100", mqtt.ErrInvalidPayload)
-		r.publishError(ctx, "force_charge", err)
+
+	targetPct, err := r.forceChargeTargetPct(ctx, intent)
+	if err != nil {
 		return err
-	}
-
-	var (
-		targetPct int16
-		err       error
-	)
-
-	switch {
-	case intent.IgnoreMaxCharge:
-		if intent.TargetPct != 100 {
-			err = fmt.Errorf("%w: ignore_max_charge requires target_pct 100", mqtt.ErrInvalidPayload)
-			r.publishError(ctx, "force_charge", err)
-			return err
-		}
-		targetPct = 100
-	case intent.TargetPct == 0:
-		targetPct = 0
-	default:
-		targetPct, err = r.resolveForceChargeTargetPct(ctx, intent.TargetPct)
-		if err != nil {
-			r.publishError(ctx, "force_charge", err)
-			return err
-		}
 	}
 
 	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
@@ -723,6 +716,41 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 	payload.ChargePct = &targetPct
 	r.publishState(payload)
 	return nil
+}
+
+// forceChargeTargetPct validates a force_charge intent and resolves the
+// percentage to write. Validation errors are published to the error topic.
+func (r *Runner) forceChargeTargetPct(ctx context.Context, intent mqtt.Intent) (int16, error) {
+	if intent.TargetPct < 0 || intent.TargetPct > 100 {
+		err := fmt.Errorf("%w: target_pct must be between 0 and 100", mqtt.ErrInvalidPayload)
+		r.publishError(ctx, "force_charge", err)
+		return 0, err
+	}
+
+	var (
+		targetPct int16
+		err       error
+	)
+
+	switch {
+	case intent.IgnoreMaxCharge:
+		if intent.TargetPct != 100 {
+			err = fmt.Errorf("%w: ignore_max_charge requires target_pct 100", mqtt.ErrInvalidPayload)
+			r.publishError(ctx, "force_charge", err)
+			return 0, err
+		}
+		targetPct = 100
+	case intent.TargetPct == 0:
+		targetPct = 0
+	default:
+		targetPct, err = r.resolveForceChargeTargetPct(ctx, intent.TargetPct)
+		if err != nil {
+			r.publishError(ctx, "force_charge", err)
+			return 0, err
+		}
+	}
+
+	return targetPct, nil
 }
 
 // resolveForceChargeTargetPct caps any requested force charge percentage
@@ -813,6 +841,10 @@ func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
 // computing current window flags and returning a payload ready for
 // callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
+	if r.opt != nil {
+		// Charge and reserve windows have no meaning in optimize mode (UX §2.5).
+		return makeBasePayload(lastDecision, reason, false, false, r.cfg.SchedulerMode)
+	}
 	inChargeWindow, _, _, _, _, _ := r.resolveActiveWindow(now)
 
 	reserveWindowActive, reserveErr := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
@@ -830,6 +862,9 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 // so paths that do not evaluate it (pause, cooldown, errors, commands) do not
 // clear the reserve sensors.
 func (r *Runner) publishState(payload mqtt.StatePayload) {
+	if r.opt != nil {
+		r.opt.mergeLast(&payload)
+	}
 	if payload.ReserveWindowActive == nil || !*payload.ReserveWindowActive {
 		r.reserve = nil
 	} else if rt := r.reserve; rt != nil && payload.ReserveAtRisk == nil {

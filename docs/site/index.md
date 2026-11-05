@@ -14,6 +14,7 @@ sbam combines three signals your inverter ignores — weather forecasts, daily c
 - **Weather-driven** — uses Solcast solar forecasts, not static schedules
 - **MQTT-wired** — publishes state and accepts commands for Home Assistant automations
 - **Multi-window** — define multiple charge windows per day, each with its own power limit
+- **Cost-optimized dispatch** — optional hourly plan (charge / hold / standby / discharge) on spot prices; see [Cost-optimized Dispatch](optimizer.md)
 - **Open source** — no black box, no vendor lock-in
 
 !!! warning

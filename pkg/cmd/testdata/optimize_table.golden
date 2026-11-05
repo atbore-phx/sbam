@@ -1,0 +1,51 @@
+sbam optimize - DRY RUN (nothing written to the inverter)
+Run at      2026-10-05 10:20 +02:00     Horizon  36 h (until 2026-10-06 21:59)
+Battery     SoC 50.0 %  capacity 10 000 Wh  min SoC 7 %  usable 4 300 Wh
+Model       efficiency 0.83  max charge 4 500 W  max discharge 4 500 W
+Prices      sensor.nordpool_test (DKK/kWh, incl. VAT)  VAT 0.25  sell margin 0.10
+Consumption sensor.load_test - EV sensor.ev_test
+            history 10 days; static fallback hours: none
+PV          Solcast (forecast cache)
+
+START             CONS Wh   PV Wh    BUY    SELL  ACTION         RATE W  SOC END %
+Mon 10-05 10:00       333    1333   1.50    1.10  self_consume        0       59.1
+Mon 10-05 11:00       500    2000   1.50    1.10  self_consume        0       72.6
+Mon 10-05 12:00       500    2000   1.50    1.10  self_consume        0       86.0
+Mon 10-05 13:00       500    2000   1.50    1.10  self_consume        0       99.5
+Mon 10-05 14:00       500    2000   1.50    1.10  self_consume        0      100.0
+Mon 10-05 15:00       500    2000   1.50    1.10  self_consume        0      100.0
+Mon 10-05 16:00       500       0   1.50    1.10  hold                0      100.0
+Mon 10-05 17:00       500       0   3.00    2.30  self_consume        0       94.4
+Mon 10-05 18:00       500       0   3.00    2.30  discharge        4278       51.6
+Mon 10-05 19:00       500       0   3.00    2.30  discharge        4464        7.0
+Mon 10-05 20:00       500       0   1.50    1.10  self_consume        0        7.0
+Mon 10-05 21:00       500       0   1.50    1.10  self_consume        0        7.0
+Mon 10-05 22:00       500       0   1.50    1.10  self_consume        0        7.0
+Mon 10-05 23:00       500       0   1.50    1.10  self_consume        0        7.0
+Tue 10-06 00:00       500       0   0.80    0.54  self_consume        0        7.0
+Tue 10-06 01:00       500       0   0.80    0.54  self_consume        0        7.0
+Tue 10-06 02:00       500       0   0.80    0.54  self_consume        0        7.0
+Tue 10-06 03:00       500       0   0.80    0.54  self_consume        0        7.0
+Tue 10-06 04:00       500       0   0.80    0.54  charge           4464       51.6
+Tue 10-06 05:00       500       0   0.80    0.54  charge           4464       96.3
+Tue 10-06 06:00       500       0   1.50    1.10  self_consume        0       90.7
+Tue 10-06 07:00       500       0   1.50    1.10  self_consume        0       85.1
+Tue 10-06 08:00       500       0   1.50    1.10  self_consume        0       79.5
+Tue 10-06 09:00       500    2000   1.50    1.10  self_consume        0       93.0
+Tue 10-06 10:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 11:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 12:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 13:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 14:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 15:00       500    2000   1.50    1.10  self_consume        0      100.0
+Tue 10-06 16:00       500       0   1.50    1.10  hold                0      100.0
+Tue 10-06 17:00       500       0   3.00    2.30  self_consume        0       94.4
+Tue 10-06 18:00       500       0   3.00    2.30  discharge        4278       51.6
+Tue 10-06 19:00       500       0   3.00    2.30  discharge        4464        7.0
+Tue 10-06 20:00       500       0   1.50    1.10  self_consume        0        7.0
+Tue 10-06 21:00       500       0   1.50    1.10  self_consume        0        7.0
+
+Expected cost   -28.22 DKK  (import 16.27 - export 44.49 - terminal value 0.00)
+Terminal value    0.00 DKK  (0 Wh left above min SoC x 0.83 x mean buy 1.63)
+Decision        hour 0: self_consume 0 W - optimizer_self_consume_no_gain
+Reasons         optimizer_self_consume_no_gain
