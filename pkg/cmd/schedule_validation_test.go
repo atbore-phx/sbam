@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"sbam/pkg/fronius"
+	pw "sbam/pkg/power"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -491,4 +492,55 @@ func snapshotScheduleGlobals(t *testing.T) {
 		s_cache_time = cacheTime
 		scdCmd.SilenceUsage, scdCmd.SilenceErrors = silenceUsage, silenceErrors
 	})
+}
+
+func TestCheckOptimizeGridLimit(t *testing.T) {
+	assert.NoError(t, checkOptimizeGridLimit(0))
+	assert.ErrorIs(t, checkOptimizeGridLimit(3000), errOptimizeGridLimit)
+	assert.ErrorIs(t, checkOptimizeGridLimit(0.5), errOptimizeGridLimit)
+}
+
+// grid_import_limit > 0 refuses optimize mode at startup (exit code 1) after
+// the live defaults attempt, so the allowance is never silently bypassed.
+func TestScheduleCommand_OptimizeRefusesGridImportLimit(t *testing.T) {
+	snapshotScheduleGlobals(t)
+	oldLimit := grid_import_limit
+	t.Cleanup(func() { grid_import_limit = oldLimit })
+	setOptimizeStartupViper(t, strings.TrimSuffix(strings.Repeat("0.1,", 24), ","), false)
+	viper.Set("scheduler_mode", "optimize")
+	viper.Set("apikey", "test-api-key")
+	viper.Set("url", "https://solcast.example.invalid/forecasts")
+	viper.Set("cache_time", 7200)
+	viper.Set("forecast_horizon", "default")
+	viper.Set("consumption_horizon", "full_day")
+	viper.Set("grid_import_limit", 3000.0)
+	w := withStartupWriter(t)
+
+	err := scdCmd.RunE(scdCmd, nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errOptimizeGridLimit)
+	_, defaults, _ := w.counts()
+	assert.Equal(t, 1, defaults)
+}
+
+// Optimize mode ignores crontab, windows, start_hr/end_hr/max_charge and the
+// reserve window, so they are not validated there; the other modes still are.
+func TestCheckScheduleschedule_OptimizeSkipsLegacyChecks(t *testing.T) {
+	oldStart, oldEnd := batt_reserve_start_hr, batt_reserve_end_hr
+	t.Cleanup(func() { batt_reserve_start_hr, batt_reserve_end_hr = oldStart, oldEnd })
+	batt_reserve_start_hr, batt_reserve_end_hr = "25:00", "26:00"
+	badWindows := []pw.Window{{Name: "bad", Start: "99:00", End: "06:00", MaxCharge: 1000}}
+
+	err := checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, -1, 0, "bogus", "", badWindows, schedulerModeOptimize, false)
+	assert.NoError(t, err)
+
+	err = checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", nil, "crontab", false)
+	assert.Error(t, err, "crontab mode still requires crontab")
+
+	err = checkScheduleschedule(const_ct, "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", badWindows, "windows", false)
+	assert.Error(t, err, "windows mode still validates windows")
+
+	err = checkScheduleschedule("", "", "https://solcast.example.invalid", "192.0.2.10", 12000, 0, 0, "", "", nil, schedulerModeOptimize, false)
+	assert.Error(t, err, "optimize mode still requires the Solcast API key")
 }

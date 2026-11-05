@@ -145,6 +145,17 @@ const (
 	IntentEVPoll IntentKind = "ev_poll"
 )
 
+// IntentKinds returns every IntentKind, so runner tests can check that each
+// kind is handled deliberately. TestIntentKindsComplete keeps it in sync with
+// the declarations above.
+func IntentKinds() []IntentKind {
+	return []IntentKind{
+		IntentTick, IntentShutdown, IntentPause, IntentResume, IntentForceCharge,
+		IntentSetDefaults, IntentHold, IntentLimitCheck, IntentSetReserve,
+		IntentTriggerNow, IntentWatchdog, IntentEVPoll,
+	}
+}
+
 // Intent describes a validated command request routed through the schedule runner.
 //
 // Intent carries normalized command kind and optional command-specific fields

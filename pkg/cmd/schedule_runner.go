@@ -1296,6 +1296,8 @@ func (r *Runner) handleOptimizeIntent(ctx context.Context, intent mqtt.Intent) b
 		r.publishIntentAck(ctx, intent, r.optSetDefaults(ctx))
 	case mqtt.IntentForceCharge:
 		r.publishIntentAck(ctx, intent, r.optForceCharge(ctx, intent))
+	case mqtt.IntentHold:
+		r.publishIntentAck(ctx, intent, r.optHold(ctx, intent))
 	case mqtt.IntentSetReserve:
 		r.publishError(ctx, "runner", errSetReserveOptimize)
 		r.publishIntentAck(ctx, intent, errSetReserveOptimize)
@@ -1303,8 +1305,19 @@ func (r *Runner) handleOptimizeIntent(ctx context.Context, intent mqtt.Intent) b
 		r.optWatchdog(ctx)
 	case mqtt.IntentEVPoll:
 		r.optEVPoll(ctx)
+	case mqtt.IntentShutdown:
+		// Run calls optimizeShutdown after the loop ends; nothing to do here.
+	case mqtt.IntentLimitCheck:
+		// grid_import_limit is refused in optimize mode at startup, so the
+		// limit loop never runs; a stray check is ignored.
+		u.Log.Debug("optimize mode: limit_check ignored")
 	default:
-		return false
+		// Every intent is handled here in optimize mode: a new command must
+		// never fall through to the legacy handlers, which write without the
+		// revert timeout and ignore dry run.
+		err := fmt.Errorf("%w: %s", errUnsupportedIntent, intent.Kind)
+		r.publishError(ctx, "runner", err)
+		r.publishIntentAck(ctx, intent, err)
 	}
 	return true
 }
@@ -2112,6 +2125,50 @@ func (r *Runner) optForceCharge(ctx context.Context, intent mqtt.Intent) error {
 
 	payload := r.newCommandPayload(string(mqtt.IntentForceCharge), reason, now)
 	payload.ChargePct = &targetPct
+	r.publishState(payload)
+	return nil
+}
+
+// optHold blocks battery discharge until the end of the current hour, as an
+// optimizer hold action through optDispatch: it carries the revert timeout,
+// is tracked in lastApplied (so pause and shutdown restore defaults) and
+// starts a manual override like force_charge. In dry run nothing is written.
+func (r *Runner) optHold(ctx context.Context, intent mqtt.Intent) error {
+	o := r.opt
+	now := r.now()
+	if paused, _ := r.pauseStateAt(now); paused {
+		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+	loc := optLoc(o.cfg)
+	until := optNextBoundary(now, loc)
+	d := optDecision{action: optimize.ActionHold}
+
+	reason := string(optimize.ReasonManualOverride)
+	if o.cfg.DryRun {
+		r.optLogWouldWrite(d)
+		reason = "dry run: hold not written"
+	} else {
+		if _, failReason, err := r.optDispatch(ctx, d); err != nil {
+			u.Log.Errorw("hold command failed", "reason", failReason, "error", err)
+			r.publishError(ctx, "hold", err)
+			return err
+		}
+		optStopTimer(&o.watchdogTimer)
+		o.optEVGuardIneligible("hold")
+		r.optNoteActionChange(optimize.ActionHold, "hold")
+		o.overrideUntil = until
+		u.Log.Infow("manual override active", "until", until.In(loc).Format(time.RFC3339), "action", optimize.ActionHold)
+		if o.last != nil {
+			last := *o.last
+			last.action, last.rateW = optimize.ActionHold, 0
+			last.reasons = optSortReasons(append(append([]optimize.Reason(nil), last.reasons...), optimize.ReasonManualOverride))
+			o.last = &last
+		}
+	}
+
+	payload := r.newCommandPayload(string(mqtt.IntentHold), reason, now)
 	r.publishState(payload)
 	return nil
 }

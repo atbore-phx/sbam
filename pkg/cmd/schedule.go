@@ -233,6 +233,7 @@ var scdCmd = &cobra.Command{
 		if optimizeMode {
 			// Optimize mode fails with exit code 1 after the ADR-0004 §3
 			// defaults attempt; the other modes keep their exit behaviour.
+			err = errors.Join(err, checkOptimizeGridLimit(grid_import_limit))
 			optCfg, optDeps, err = prepareOptimizeMode(err, sunspecType)
 			if err != nil {
 				cmd.SilenceUsage = true
@@ -522,7 +523,11 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
 	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string, weekdayFeature bool) error {
 
-	if len(windows) > 0 {
+	// Optimize mode ignores crontab, windows, start_hr/end_hr/max_charge and
+	// the reserve window (configuration.md), so they are not validated there.
+	legacy := scheduler_mode != schedulerModeOptimize
+
+	if legacy && len(windows) > 0 {
 		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
 		if err := pw.ValidateWindows(windows, weekdayFeature); err != nil {
 			return fmt.Errorf("invalid windows configuration: %w", err)
@@ -554,7 +559,7 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if len(windows) == 0 {
+	} else if legacy && len(windows) == 0 {
 		// Legacy window validation — skipped when windows: is configured.
 		if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
 			return err
@@ -564,11 +569,12 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 			return err
 		}
 	}
-	if len(crontab) == 0 {
+	if legacy && len(crontab) == 0 {
 		fmt.Printf("the --crontab must be set")
 		err := errors.New("crontab must to be integer > 0")
 		return err
-	} else if pw_consumption < 0 {
+	}
+	if pw_consumption < 0 {
 		err := errors.New("pw_consumption must to be float > 0")
 		return err
 	} else if pw_lwt < 0 {
@@ -580,14 +586,18 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if pw_batt_reserve < 0 {
 		err := errors.New("pw_batt_reserve must to be float > 0")
 		return err
-	} else if _, _, err := validateScheduleWindow("batt_reserve_start_hr", batt_reserve_start_hr, "batt_reserve_end_hr", batt_reserve_end_hr); err != nil {
-		return err
-	} else if contained, err := isWindowContainedIn(batt_reserve_start_hr, batt_reserve_end_hr, start_hr, end_hr); err != nil {
-		return err
-	} else if !contained {
-		err := errors.New("batt_reserve_start_hr/batt_reserve_end_hr must be contained within start_hr/end_hr")
-		return err
-	} else if (s_cache_time < 0) || (s_cache_time > 86400) {
+	}
+	if legacy {
+		if _, _, err := validateScheduleWindow("batt_reserve_start_hr", batt_reserve_start_hr, "batt_reserve_end_hr", batt_reserve_end_hr); err != nil {
+			return err
+		} else if contained, err := isWindowContainedIn(batt_reserve_start_hr, batt_reserve_end_hr, start_hr, end_hr); err != nil {
+			return err
+		} else if !contained {
+			err := errors.New("batt_reserve_start_hr/batt_reserve_end_hr must be contained within start_hr/end_hr")
+			return err
+		}
+	}
+	if (s_cache_time < 0) || (s_cache_time > 86400) {
 		err := errors.New("The cache_time must be between 0 and 86400 seconds")
 		return err
 	} else if _, err := pw.ValidateForecastHorizon(forecast_horizon); err != nil {
@@ -765,6 +775,21 @@ func checkReserveOptions(battMinSoC, pwBaseLoad float64) error {
 	}
 	if pwBaseLoad < 0 {
 		return fmt.Errorf("pw_base_load must be >= 0, got %.2f", pwBaseLoad)
+	}
+	return nil
+}
+
+// errOptimizeGridLimit is returned when grid_import_limit is set together
+// with scheduler_mode optimize.
+var errOptimizeGridLimit = errors.New("grid_import_limit is not supported with scheduler_mode optimize yet: planned charging does not apply the grid import allowance; set grid_import_limit to 0 or use scheduler_mode windows")
+
+// checkOptimizeGridLimit refuses grid_import_limit > 0 in optimize mode. The
+// optimizer caps charging only by opt_max_charge_rate_w, so the allowance
+// would be silently bypassed; until optDispatchCommand applies it, optimize
+// mode does not start with the limit set.
+func checkOptimizeGridLimit(limit float64) error {
+	if limit > 0 {
+		return errOptimizeGridLimit
 	}
 	return nil
 }
