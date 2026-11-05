@@ -64,7 +64,7 @@ type clockSegment struct {
 // scheduler. It's defined here so tests can inject a fake implementation
 // without changing production logic.
 type froniusClient interface {
-	Handler(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve float64,
+	Handler(ctx context.Context, pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve float64,
 		start_hr, end_hr, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt, pw_upt float64,
 		forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
 }
@@ -184,7 +184,7 @@ var scdCmd = &cobra.Command{
 		// the verify is a blocking Modbus session and must not run between the
 		// connect and the OnConnect registration below, and no command may be
 		// handled before the selected type is in place.
-		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, strings.TrimSpace(fronius_ip) != "")
+		sunspecType, err := setupSunSpecType(commandContext(cmd), sunspec_type, fronius_ip, strings.TrimSpace(fronius_ip) != "")
 		if err != nil {
 			u.Log.Error(err)
 			return nil

@@ -1,6 +1,7 @@
 package fronius
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ func TestApplyHoldIntSFWritesLegacyAddresses(t *testing.T) {
 	defer teardown()
 	setHolding(OutWRte, uint16(0xEC78)) // -5000: a force charge in progress
 
-	err := ApplyHold(SunSpecIntSF, modbus_ip, modbus_port)
+	err := ApplyHold(context.Background(), SunSpecIntSF, modbus_ip, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, int16(2), getHolding(StorCtl_Mod), "discharge limited")
@@ -26,7 +27,7 @@ func TestApplyHoldFloatWritesDiscoveredRegisters(t *testing.T) {
 	defer teardown()
 	seedSunSpec(floatChain)
 
-	err := ApplyHold(SunSpecAuto, modbus_ip, modbus_port)
+	err := ApplyHold(context.Background(), SunSpecAuto, modbus_ip, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, int16(2), getHolding(40359), "StorCtl_Mod")
@@ -43,14 +44,14 @@ func TestApplyHoldWritesNothingWithoutModel(t *testing.T) {
 	seedSunSpec(floatChain[:len(floatChain)-1])
 	before := snapshot()
 
-	err := ApplyHold(SunSpecFloat, modbus_ip, modbus_port)
+	err := ApplyHold(context.Background(), SunSpecFloat, modbus_ip, modbus_port)
 
 	assert.ErrorIs(t, err, ErrStorageModelNotFound)
 	assert.Equal(t, before, mockServer.HoldingRegisters)
 }
 
 func TestApplyHoldUnreachable(t *testing.T) {
-	assert.Error(t, ApplyHold(SunSpecIntSF, modbus_ip, "6599"))
+	assert.Error(t, ApplyHold(context.Background(), SunSpecIntSF, modbus_ip, "6599"))
 }
 
 // With hold enabled, a tick that needs no charge holds the battery instead of
@@ -61,7 +62,7 @@ func TestChargeModeHold(t *testing.T) {
 		defer teardown()
 
 		// Plenty of forecast: idle.
-		pct, decision, _, _, err := setFroniusChargeBatteryMode(SunSpecIntSF, true, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
+		pct, decision, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecIntSF, true, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 
 		require.NoError(t, err)
 		assert.Equal(t, DecisionIdle, decision)
@@ -73,7 +74,7 @@ func TestChargeModeHold(t *testing.T) {
 		setup()
 		defer teardown()
 
-		_, decision, _, _, err := setFroniusChargeBatteryMode(SunSpecIntSF, true, 1000, 0, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
+		_, decision, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecIntSF, true, 1000, 0, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 
 		require.NoError(t, err)
 		assert.Equal(t, decisionBatteryFull, decision)
@@ -84,7 +85,7 @@ func TestChargeModeHold(t *testing.T) {
 		setup()
 		defer teardown()
 
-		pct, decision, _, _, err := setFroniusChargeBatteryMode(SunSpecIntSF, true, 1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
+		pct, decision, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecIntSF, true, 1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 
 		require.NoError(t, err)
 		assert.Equal(t, DecisionForecastCharge, decision)
@@ -96,7 +97,7 @@ func TestChargeModeHold(t *testing.T) {
 		defer teardown()
 		setHolding(StorCtl_Mod, 2)
 
-		_, _, _, _, err := setFroniusChargeBatteryMode(SunSpecIntSF, false, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
+		_, _, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecIntSF, false, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, modbus_port)
 
 		require.NoError(t, err)
 		assert.Equal(t, int16(0), getHolding(StorCtl_Mod))
@@ -111,7 +112,7 @@ func TestHandlerPassesHold(t *testing.T) {
 	f := New()
 	f.SunSpecType = SunSpecFloat
 
-	_, _, _, _, err := f.Handler(20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, true, modbus_port)
+	_, _, _, _, err := f.Handler(context.Background(), 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, true, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, int16(2), getHolding(40359), "held at the discovered StorCtl_Mod")

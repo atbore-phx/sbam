@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"sbam/pkg/fronius"
 	u "sbam/src/utils"
@@ -38,13 +39,13 @@ var cfgCmd = &cobra.Command{
 			return
 		}
 
-		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, false)
+		sunspecType, err := setupSunSpecType(commandContext(cmd), sunspec_type, fronius_ip, false)
 		if err != nil {
 			u.Log.Error(err)
 			return
 		}
 
-		configure(sunspecType, fronius_ip, power)
+		configure(commandContext(cmd), sunspecType, fronius_ip, power)
 
 	},
 }
@@ -66,9 +67,9 @@ func checkConfigure(fronius_ip string) error {
 	return nil
 }
 
-func configure(sunspecType fronius.SunSpecType, fronius_ip string, power int) {
+func configure(ctx context.Context, sunspecType fronius.SunSpecType, fronius_ip string, power int) {
 	if c_defaults {
-		err := fronius.ApplyDefaults(sunspecType, fronius_ip)
+		err := fronius.ApplyDefaults(ctx, sunspecType, fronius_ip)
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)
@@ -78,7 +79,7 @@ func configure(sunspecType fronius.SunSpecType, fronius_ip string, power int) {
 			u.Log.Error("The --power flag must be set when using --force_charge")
 			return
 		}
-		err := fronius.ApplyForceCharge(sunspecType, fronius_ip, int16(power))
+		err := fronius.ApplyForceCharge(ctx, sunspecType, fronius_ip, int16(power))
 		if err != nil {
 			u.Log.Error(err)
 			panic(err)

@@ -20,7 +20,7 @@ type recordingFronius struct {
 	forecastEnabled bool
 }
 
-func (s *recordingFronius) Handler(pw_forecast float64, _ float64, _ float64, _ float64, _ float64, _ float64, _ string, _ string, _ string, _ bool, _ float64, _ float64, forecast_charge_enabled bool, _ bool, _ ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+func (s *recordingFronius) Handler(_ context.Context, pw_forecast float64, _ float64, _ float64, _ float64, _ float64, _ float64, _ string, _ string, _ string, _ bool, _ float64, _ float64, forecast_charge_enabled bool, _ bool, _ ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	s.calls++
 	s.forecastWh = pw_forecast
 	s.forecastEnabled = forecast_charge_enabled

@@ -1,7 +1,10 @@
 package fronius
 
 import (
+	"context"
+	"net"
 	"testing"
+	"time"
 
 	u "sbam/src/utils"
 
@@ -66,7 +69,7 @@ func discover(t *testing.T, st SunSpecType) (StorageRegisters, error) {
 	t.Helper()
 	require.NoError(t, OpenModbusClient("tcp", modbus_ip, modbus_port))
 	defer ClosemodbusClient()
-	return DiscoverStorageRegisters(st)
+	return DiscoverStorageRegisters(context.Background(), st)
 }
 
 // observeLogs routes u.Log to an in-memory observer for one test.
@@ -209,11 +212,11 @@ func TestDiscoveryMatchesLegacyWritesOnIntSF(t *testing.T) {
 	}
 	for _, pct := range []int16{0, 1, 48, 100} {
 		legacy := run(t, func() error { return ForceCharge(modbus_ip, pct, modbus_port) })
-		discovered := run(t, func() error { return ApplyForceCharge(SunSpecAuto, modbus_ip, pct, modbus_port) })
+		discovered := run(t, func() error { return ApplyForceCharge(context.Background(), SunSpecAuto, modbus_ip, pct, modbus_port) })
 		assert.Equal(t, legacy, discovered, "force charge %d%%", pct)
 	}
 	legacy := run(t, func() error { return Setdefaults(modbus_ip, modbus_port) })
-	discovered := run(t, func() error { return ApplyDefaults(SunSpecAuto, modbus_ip, modbus_port) })
+	discovered := run(t, func() error { return ApplyDefaults(context.Background(), SunSpecAuto, modbus_ip, modbus_port) })
 	assert.Equal(t, legacy, discovered, "defaults")
 }
 
@@ -224,7 +227,7 @@ func TestApplyForceChargeIntSFUsesLegacyAddresses(t *testing.T) {
 			defer teardown()
 			seedSunSpec(floatChain)
 
-			err := ApplyForceCharge(st, modbus_ip, 50, modbus_port)
+			err := ApplyForceCharge(context.Background(), st, modbus_ip, 50, modbus_port)
 
 			assert.NoError(t, err)
 			assert.Equal(t, int16(2), getHolding(StorCtl_Mod), "int_sf keeps writing the legacy StorCtl_Mod")
@@ -241,7 +244,7 @@ func TestApplyForceChargeFloatWritesDiscoveredRegisters(t *testing.T) {
 			defer teardown()
 			seedSunSpec(floatChain)
 
-			err := ApplyForceCharge(st, modbus_ip, 50, modbus_port)
+			err := ApplyForceCharge(context.Background(), st, modbus_ip, 50, modbus_port)
 
 			assert.NoError(t, err)
 			assert.Equal(t, int16(2), getHolding(40359), "StorCtl_Mod")
@@ -261,7 +264,7 @@ func TestApplyForceChargeCapsAt100(t *testing.T) {
 	defer teardown()
 	seedSunSpec(floatChain)
 
-	err := ApplyForceCharge(SunSpecFloat, modbus_ip, 117, modbus_port)
+	err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 117, modbus_port)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int16(-10000), getHolding(40366), "OutWRte capped at -100 %")
@@ -274,7 +277,7 @@ func TestApplyForceChargeZeroSetsDefaults(t *testing.T) {
 	setHolding(40359, 2)
 	setHolding(40366, uint16(0xEC78)) // -5000
 
-	err := ApplyForceCharge(SunSpecFloat, modbus_ip, 0, modbus_port)
+	err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 0, modbus_port)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int16(0), getHolding(40359), "StorCtl_Mod")
@@ -287,7 +290,7 @@ func TestApplyForceChargeNegative(t *testing.T) {
 	seedSunSpec(floatChain)
 	before := snapshot()
 
-	err := ApplyForceCharge(SunSpecFloat, modbus_ip, -1, modbus_port)
+	err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, -1, modbus_port)
 
 	assert.ErrorContains(t, err, "negative")
 	assert.Equal(t, before, mockServer.HoldingRegisters)
@@ -300,7 +303,7 @@ func TestApplyForceChargeWritesNothingOnBadModel(t *testing.T) {
 		seedSunSpec(floatChain[:len(floatChain)-1])
 		before := snapshot()
 
-		err := ApplyForceCharge(SunSpecFloat, modbus_ip, 50, modbus_port)
+		err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 50, modbus_port)
 
 		assert.ErrorIs(t, err, ErrStorageModelNotFound)
 		assert.Equal(t, before, mockServer.HoldingRegisters)
@@ -312,7 +315,7 @@ func TestApplyForceChargeWritesNothingOnBadModel(t *testing.T) {
 		setHolding(floatStorageModelAddr+offInOutWRteSF, 0)
 		before := snapshot()
 
-		err := ApplyForceCharge(SunSpecFloat, modbus_ip, 50, modbus_port)
+		err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 50, modbus_port)
 
 		assert.ErrorIs(t, err, ErrUnexpectedStorageModel)
 		assert.Equal(t, before, mockServer.HoldingRegisters)
@@ -320,7 +323,7 @@ func TestApplyForceChargeWritesNothingOnBadModel(t *testing.T) {
 }
 
 func TestApplyForceChargeUnreachable(t *testing.T) {
-	err := ApplyForceCharge(SunSpecFloat, modbus_ip, 50, "6599")
+	err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 50, "6599")
 
 	assert.Error(t, err)
 }
@@ -331,7 +334,7 @@ func TestApplyDefaultsFloatWritesDiscoveredRegisters(t *testing.T) {
 	seedSunSpec(floatChain)
 	setHolding(40359, 2)
 
-	err := ApplyDefaults(SunSpecFloat, modbus_ip, modbus_port)
+	err := ApplyDefaults(context.Background(), SunSpecFloat, modbus_ip, modbus_port)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int16(0), getHolding(40359), "StorCtl_Mod")
@@ -343,7 +346,7 @@ func TestApplyDefaultsIntSFUsesLegacyAddresses(t *testing.T) {
 	setup()
 	defer teardown()
 
-	err := ApplyDefaults(SunSpecIntSF, modbus_ip, modbus_port)
+	err := ApplyDefaults(context.Background(), SunSpecIntSF, modbus_ip, modbus_port)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int16(10000), getHolding(OutWRte))
@@ -355,7 +358,7 @@ func TestApplyDefaultsFloatWithoutMarkerWritesNothing(t *testing.T) {
 	defer teardown()
 	before := snapshot()
 
-	err := ApplyDefaults(SunSpecFloat, modbus_ip, modbus_port)
+	err := ApplyDefaults(context.Background(), SunSpecFloat, modbus_ip, modbus_port)
 
 	assert.ErrorIs(t, err, ErrSunSpecMarkerNotFound)
 	assert.Equal(t, before, mockServer.HoldingRegisters)
@@ -368,23 +371,23 @@ func TestReadStorageControlMode(t *testing.T) {
 	setHolding(40359, 2)
 	setHolding(StorCtl_Mod, 0)
 
-	value, err := ReadStorageControlMode(SunSpecIntSF, modbus_ip, modbus_port)
+	value, err := ReadStorageControlMode(context.Background(), SunSpecIntSF, modbus_ip, modbus_port)
 	assert.NoError(t, err)
 	assert.Equal(t, int16(0), value, "int_sf reads the legacy address")
 
-	value, err = ReadStorageControlMode(SunSpecFloat, modbus_ip, modbus_port)
+	value, err = ReadStorageControlMode(context.Background(), SunSpecFloat, modbus_ip, modbus_port)
 	assert.NoError(t, err)
 	assert.Equal(t, int16(2), value, "float reads the discovered address")
 }
 
 func TestReadStorageControlModeErrors(t *testing.T) {
-	_, err := ReadStorageControlMode(SunSpecFloat, modbus_ip, "6599")
+	_, err := ReadStorageControlMode(context.Background(), SunSpecFloat, modbus_ip, "6599")
 	assert.Error(t, err, "unreachable inverter")
 
 	setup()
 	defer teardown()
 	seedSunSpec(floatChain[:len(floatChain)-1])
-	_, err = ReadStorageControlMode(SunSpecFloat, modbus_ip, modbus_port)
+	_, err = ReadStorageControlMode(context.Background(), SunSpecFloat, modbus_ip, modbus_port)
 	assert.ErrorIs(t, err, ErrStorageModelNotFound)
 }
 
@@ -397,7 +400,7 @@ func TestHandlerUsesConfiguredSunSpecType(t *testing.T) {
 	f.SunSpecType = SunSpecFloat
 
 	// Same inputs as TestSetFroniusChargeBatteryMode cases that force-charge 31 %.
-	pct, _, _, _, err := f.Handler(1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, false, modbus_port)
+	pct, _, _, _, err := f.Handler(context.Background(), 1000, 11000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, false, modbus_port)
 
 	require.NoError(t, err)
 	assert.Equal(t, int16(31), pct)
@@ -413,28 +416,28 @@ func TestDetectSunSpecType(t *testing.T) {
 	defer teardown()
 
 	seedSunSpec(intSFChain)
-	got, err := DetectSunSpecType(modbus_ip, modbus_port)
+	got, err := DetectSunSpecType(context.Background(), modbus_ip, modbus_port)
 	assert.NoError(t, err)
 	assert.Equal(t, SunSpecIntSF, got)
 
 	seedSunSpec(floatChain)
-	got, err = DetectSunSpecType(modbus_ip, modbus_port)
+	got, err = DetectSunSpecType(context.Background(), modbus_ip, modbus_port)
 	assert.NoError(t, err)
 	assert.Equal(t, SunSpecFloat, got)
 }
 
 func TestDetectSunSpecTypeErrors(t *testing.T) {
-	_, err := DetectSunSpecType(modbus_ip, "6599")
+	_, err := DetectSunSpecType(context.Background(), modbus_ip, "6599")
 	assert.Error(t, err, "unreachable inverter")
 
 	setup()
 	defer teardown()
 
-	_, err = DetectSunSpecType(modbus_ip, modbus_port)
+	_, err = DetectSunSpecType(context.Background(), modbus_ip, modbus_port)
 	assert.ErrorIs(t, err, ErrSunSpecMarkerNotFound)
 
 	seedSunSpec([]sunspecModel{{1, 65}, {120, 26}, {124, 24}})
-	_, err = DetectSunSpecType(modbus_ip, modbus_port)
+	_, err = DetectSunSpecType(context.Background(), modbus_ip, modbus_port)
 	assert.ErrorIs(t, err, ErrInverterModelNotFound)
 }
 
@@ -466,7 +469,7 @@ func TestVerifySunSpecType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := observeLogs(t)
 
-			VerifySunSpecType(tc.configured, modbus_ip, tc.port)
+			VerifySunSpecType(context.Background(), tc.configured, modbus_ip, tc.port)
 
 			matched := logs.FilterLevelExact(tc.level).FilterMessageSnippet(tc.message).All()
 			assert.Len(t, matched, 1, "expected %s log %q, got %v", tc.level, tc.message, logs.All())
@@ -476,4 +479,103 @@ func TestVerifySunSpecType(t *testing.T) {
 		})
 	}
 	assert.Equal(t, before, mockServer.HoldingRegisters)
+}
+
+// A cancelled call stops before contacting the inverter: the port is closed,
+// so any other error would mean it tried to connect.
+func TestCanceledContextStopsBeforeConnecting(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	const closedPort = "6599"
+
+	cases := map[string]func() error{
+		"detect": func() error {
+			_, err := DetectSunSpecType(ctx, modbus_ip, closedPort)
+			return err
+		},
+	}
+	for _, st := range []SunSpecType{SunSpecIntSF, SunSpecFloat} {
+		cases["read "+string(st)] = func() error {
+			_, err := ReadStorageControlMode(ctx, st, modbus_ip, closedPort)
+			return err
+		}
+		cases["defaults "+string(st)] = func() error { return ApplyDefaults(ctx, st, modbus_ip, closedPort) }
+		cases["force charge "+string(st)] = func() error { return ApplyForceCharge(ctx, st, modbus_ip, 50, closedPort) }
+		cases["hold "+string(st)] = func() error { return ApplyHold(ctx, st, modbus_ip, closedPort) }
+	}
+
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.ErrorIs(t, call(), context.Canceled)
+		})
+	}
+}
+
+func TestDiscoveryStopsBetweenReads(t *testing.T) {
+	setup()
+	defer teardown()
+	seedSunSpec(floatChain)
+	require.NoError(t, OpenModbusClient("tcp", modbus_ip, modbus_port))
+	defer func() { _ = ClosemodbusClient() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	_, _, _, found, err := findModel(ctx, func(uint16) bool {
+		cancel() // after the first header; the next read must not happen
+		return false
+	})
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, found)
+}
+
+func TestConnectStorageCancelAfterDiscoveryWritesNothing(t *testing.T) {
+	setup()
+	defer teardown()
+	seedSunSpec(floatChain)
+	before := snapshot()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := connectStorage(ctx, SunSpecFloat, modbus_ip, func(r StorageRegisters) map[uint16]int16 {
+		cancel()
+		return r.defaults()
+	}, modbus_port)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, before, mockServer.HoldingRegisters)
+}
+
+// An inverter that accepts the connection and never answers: the deadline
+// shortens the client timeout, so the call ends well before modbusTimeout.
+func TestContextDeadlineBoundsStalledInverter(t *testing.T) {
+	listener, err := net.Listen("tcp", modbus_ip+":0")
+	require.NoError(t, err)
+	defer listener.Close()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		<-done
+		_ = conn.Close()
+	}()
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = DetectSunSpecType(ctx, modbus_ip, port)
+
+	assert.Error(t, err)
+	assert.Less(t, time.Since(start), modbusTimeout)
+}
+
+func TestExpiredDeadlineDoesNotConnect(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	assert.ErrorIs(t, openModbusClient(ctx, "tcp", modbus_ip, "6599"), context.DeadlineExceeded)
 }
