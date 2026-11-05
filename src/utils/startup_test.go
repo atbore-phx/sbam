@@ -264,6 +264,22 @@ func TestDumpStartupParams_RedactsHAToken(t *testing.T) {
 	}
 }
 
+// The nested optimizer.ha_token / optimizer.ha_url keys (add-on optimizer:
+// map) are redacted like their flat names.
+func TestDumpStartupParams_RedactsNestedOptimizerHAKeys(t *testing.T) {
+	resetViper(t)
+	cmd := &cobra.Command{Use: "schedule", Run: func(*cobra.Command, []string) {}}
+	writeConfig(t, "optimizer:\n  ha_token: test-ha-token\n  ha_url: http://user:test-pw@ha.local:8123\n")
+	require.NoError(t, bindFlags(cmd))
+
+	out := DumpStartupParams(cmd, nil)
+
+	assert.Regexp(t, `optimizer\.ha_token\s+=\s+\*\*\*`, out)
+	assert.Contains(t, out, `"http://***@ha.local:8123"`)
+	assert.NotContains(t, out, "test-ha-token")
+	assert.NotContains(t, out, "test-pw")
+}
+
 // T-0124 / S-013: userinfo in ha_url is redacted; host and port stay visible.
 func TestDumpStartupParams_RedactsHAURLUserinfo(t *testing.T) {
 	cases := []struct {

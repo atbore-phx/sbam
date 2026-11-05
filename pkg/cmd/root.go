@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	u "sbam/src/utils"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -48,6 +49,10 @@ func Execute() error {
 
 func init() {
 	viper.AutomaticEnv()
+	// Nested keys map to env vars with "_" (optimizer.price_entity →
+	// OPTIMIZER_PRICE_ENTITY). Flat keys have no dot and are unaffected.
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	bindOptimizeEnv()
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -95,7 +100,11 @@ func bindFlags(cmd *cobra.Command) error {
 		if _, local := f.Annotations[flagAnnotationNoViper]; local {
 			return
 		}
-		if err := viper.BindPFlag(f.Name, f); err != nil {
+		key := f.Name
+		if ann, ok := f.Annotations[flagAnnotationViperKey]; ok && len(ann) == 1 {
+			key = ann[0] // e.g. --opt_price_entity → optimizer.price_entity
+		}
+		if err := viper.BindPFlag(key, f); err != nil {
 			firstErr = err
 		}
 	})

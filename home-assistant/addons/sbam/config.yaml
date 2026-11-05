@@ -49,21 +49,22 @@ options:
   reset: false
   debug: false
   log_type: console
-  opt_price_entity: ""
-  opt_consumption_entity: ""
-  opt_ev_entity: ""
-  opt_ev_guard_w: 1000
-  opt_purchase_surcharge: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
-  opt_vat_rate: 0.25
-  opt_sell_margin: 0
-  opt_min_gain: 0.5
-  opt_wear_cost: 0
-  opt_battery_efficiency: 0.83
-  opt_max_charge_rate_w: 4500
-  opt_max_discharge_rate_w: 4500
-  opt_min_soc_pct: 7
-  opt_history_days: 10
-  opt_dry_run: true
+  optimizer:
+    price_entity: ""
+    consumption_entity: ""
+    ev_entity: ""
+    ev_guard_w: 1000
+    purchase_surcharge: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+    vat_rate: 0.25
+    sell_margin: 0
+    min_gain: 0.5
+    wear_cost: 0
+    battery_efficiency: 0.83
+    max_charge_rate_w: 4500
+    max_discharge_rate_w: 4500
+    min_soc_pct: 7
+    history_days: 10
+    dry_run: true
 
 schema:
   url: str
@@ -114,20 +115,21 @@ schema:
   reset: bool
   debug: bool
   log_type: list(console|json)
-  ha_url: str?
-  ha_token: password?
-  opt_price_entity: match(^$|^sensor\.[a-z0-9_]+$)
-  opt_consumption_entity: match(^$|^sensor\.[a-z0-9_]+$)
-  opt_ev_entity: match(^$|^sensor\.[a-z0-9_]+$)
-  opt_ev_guard_w: float(0,50000)
-  opt_purchase_surcharge: match(^\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)(\s*,\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)){23}\s*$)
-  opt_vat_rate: float(0,1)
-  opt_sell_margin: float(-5,10)
-  opt_min_gain: float(0,10)
-  opt_wear_cost: float(0,5)
-  opt_battery_efficiency: float(0.01,1)
-  opt_max_charge_rate_w: float(1,30000)
-  opt_max_discharge_rate_w: float(1,30000)
-  opt_min_soc_pct: float(0,99.9)
-  opt_history_days: int(1,30)
-  opt_dry_run: bool
+  optimizer:
+    price_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    consumption_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    ev_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    ev_guard_w: float(0,50000)
+    purchase_surcharge: match(^\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)(\s*,\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)){23}\s*$)
+    vat_rate: float(0,1)
+    sell_margin: float(-5,10)
+    min_gain: float(0,10)
+    wear_cost: float(0,5)
+    battery_efficiency: float(0.01,1)
+    max_charge_rate_w: float(1,30000)
+    max_discharge_rate_w: float(1,30000)
+    min_soc_pct: float(0,99.9)
+    history_days: int(1,30)
+    dry_run: bool
+    ha_url: str?
+    ha_token: password?

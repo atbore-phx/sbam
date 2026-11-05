@@ -18,23 +18,25 @@ import (
 
 // Viper keys for scheduler_mode: optimize and `sbam optimize` (UX §2.1).
 const (
-	keyHAURL                 = "ha_url"
-	keyHAToken               = "ha_token"
-	keyOptPriceEntity        = "opt_price_entity"
-	keyOptConsumptionEntity  = "opt_consumption_entity"
-	keyOptEVEntity           = "opt_ev_entity"
-	keyOptHistoryDays        = "opt_history_days"
-	keyOptBatteryEfficiency  = "opt_battery_efficiency"
-	keyOptMaxChargeRateW     = "opt_max_charge_rate_w"
-	keyOptMaxDischargeRateW  = "opt_max_discharge_rate_w"
-	keyOptMinSocPct          = "opt_min_soc_pct"
-	keyOptVATRate            = "opt_vat_rate"
-	keyOptSellMargin         = "opt_sell_margin"
-	keyOptMinGain            = "opt_min_gain"
-	keyOptWearCost           = "opt_wear_cost"
-	keyOptPurchaseSurcharge  = "opt_purchase_surcharge"
-	keyOptDryRun             = "opt_dry_run"
-	keyOptEVGuardW           = "opt_ev_guard_w"
+	// Nested keys of the optimizer: map (see optimize_keys.go); the flags
+	// keep the flat --opt_* / --ha_* names.
+	keyHAURL                 = "optimizer.ha_url"
+	keyHAToken               = "optimizer.ha_token"
+	keyOptPriceEntity        = "optimizer.price_entity"
+	keyOptConsumptionEntity  = "optimizer.consumption_entity"
+	keyOptEVEntity           = "optimizer.ev_entity"
+	keyOptHistoryDays        = "optimizer.history_days"
+	keyOptBatteryEfficiency  = "optimizer.battery_efficiency"
+	keyOptMaxChargeRateW     = "optimizer.max_charge_rate_w"
+	keyOptMaxDischargeRateW  = "optimizer.max_discharge_rate_w"
+	keyOptMinSocPct          = "optimizer.min_soc_pct"
+	keyOptVATRate            = "optimizer.vat_rate"
+	keyOptSellMargin         = "optimizer.sell_margin"
+	keyOptMinGain            = "optimizer.min_gain"
+	keyOptWearCost           = "optimizer.wear_cost"
+	keyOptPurchaseSurcharge  = "optimizer.purchase_surcharge"
+	keyOptDryRun             = "optimizer.dry_run"
+	keyOptEVGuardW           = "optimizer.ev_guard_w"
 	optCfgMaxEVGuardW        = 50000.0
 	optCfgSurchargeHours     = 24
 	optCfgSurchargeMin       = -5.0
@@ -71,23 +73,31 @@ var optCfgEntityPattern = regexp.MustCompile(`^sensor\.[a-z0-9_]+$`)
 // not registered here: it is command-local to `sbam optimize`.
 func registerOptimizeFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.String(keyHAURL, "", "Home Assistant base URL (not needed in the HA add-on)")
-	f.String(keyHAToken, "", "HA long-lived access token (prefer HA_TOKEN env var)")
-	f.String(keyOptPriceEntity, "", "Nordpool price sensor entity ID (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025")
-	f.String(keyOptConsumptionEntity, "", "Household load power sensor entity ID")
-	f.String(keyOptEVEntity, "", "Optional EV charger power sensor entity ID")
-	f.Int(keyOptHistoryDays, defOptHistoryDays, "Days of consumption history used for the profile (1..30)")
-	f.Float64(keyOptBatteryEfficiency, defOptBatteryEfficiency, "Battery round-trip efficiency (0, 1]")
-	f.Float64(keyOptMaxChargeRateW, defOptMaxChargeRateW, "Maximum battery charge rate in W")
-	f.Float64(keyOptMaxDischargeRateW, defOptMaxDischargeRateW, "Maximum battery discharge rate in W")
-	f.Float64(keyOptMinSocPct, defOptMinSocPct, "Minimum battery SoC in percent [0, 100)")
-	f.Float64(keyOptVATRate, defOptVATRate, "VAT rate as a fraction (0.25 = 25 %)")
-	f.Float64(keyOptSellMargin, defOptSellMargin, "Sell margin in currency/kWh incl. VAT")
-	f.Float64(keyOptEVGuardW, defOptEVGuardW, "EV charger power in W above which the battery is held instead of discharging into the car in self_consume hours; 0 disables (needs opt_ev_entity)")
-	f.Float64(keyOptMinGain, defOptMinGain, "Minimum gain in currency per hour before a charge or discharge replaces self-consumption (hold and standby need a tenth); 0 disables")
-	f.Float64(keyOptWearCost, defOptWearCost, "Battery wear cost in currency per kWh a forced charge or discharge moves; 0 disables")
-	f.String(keyOptPurchaseSurcharge, "", "24 comma-separated values, hour 00..23 (default 24 x 0)")
-	f.Bool(keyOptDryRun, defOptDryRun, "In sbam schedule: compute and publish the plan without writing to the inverter (sbam optimize never writes)")
+	bindOptimizeEnv()
+	flag := func(key string) string {
+		spec, _ := optSpecByKey(key)
+		return spec.flag
+	}
+	f.String(flag(keyHAURL), "", "Home Assistant base URL (not needed in the HA add-on)")
+	f.String(flag(keyHAToken), "", "HA long-lived access token (prefer HA_TOKEN env var)")
+	f.String(flag(keyOptPriceEntity), "", "Nordpool price sensor entity ID (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025")
+	f.String(flag(keyOptConsumptionEntity), "", "Household load power sensor entity ID")
+	f.String(flag(keyOptEVEntity), "", "Optional EV charger power sensor entity ID")
+	f.Int(flag(keyOptHistoryDays), defOptHistoryDays, "Days of consumption history used for the profile (1..30)")
+	f.Float64(flag(keyOptBatteryEfficiency), defOptBatteryEfficiency, "Battery round-trip efficiency (0, 1]")
+	f.Float64(flag(keyOptMaxChargeRateW), defOptMaxChargeRateW, "Maximum battery charge rate in W")
+	f.Float64(flag(keyOptMaxDischargeRateW), defOptMaxDischargeRateW, "Maximum battery discharge rate in W")
+	f.Float64(flag(keyOptMinSocPct), defOptMinSocPct, "Minimum battery SoC in percent [0, 100)")
+	f.Float64(flag(keyOptVATRate), defOptVATRate, "VAT rate as a fraction (0.25 = 25 %)")
+	f.Float64(flag(keyOptSellMargin), defOptSellMargin, "Sell margin in currency/kWh incl. VAT")
+	f.Float64(flag(keyOptEVGuardW), defOptEVGuardW, "EV charger power in W above which the battery is held instead of discharging into the car in self_consume hours; 0 disables (needs opt_ev_entity)")
+	f.Float64(flag(keyOptMinGain), defOptMinGain, "Minimum gain in currency per hour before a charge or discharge replaces self-consumption (hold and standby need a tenth); 0 disables")
+	f.Float64(flag(keyOptWearCost), defOptWearCost, "Battery wear cost in currency per kWh a forced charge or discharge moves; 0 disables")
+	f.String(flag(keyOptPurchaseSurcharge), "", "24 comma-separated values, hour 00..23 (default 24 x 0)")
+	f.Bool(flag(keyOptDryRun), defOptDryRun, "In sbam schedule: compute and publish the plan without writing to the inverter (sbam optimize never writes)")
+	for _, spec := range optKeySpecs {
+		_ = f.SetAnnotation(spec.flag, flagAnnotationViperKey, []string{spec.key})
+	}
 }
 
 // optimizeConfigError aggregates every validation problem into one message
@@ -120,6 +130,14 @@ func loadOptimizeConfig() (OptimizeConfig, []string, error) {
 // optCfgLoad is loadOptimizeConfig with an injectable getenv for tests.
 func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	var problems, warnings []string
+	seenDepr := map[string]bool{}
+	deprecated := func(msg string) {
+		if !seenDepr[msg] {
+			seenDepr[msg] = true
+			warnings = append(warnings, msg)
+		}
+	}
+	warnings = append(warnings, optDeprecatedEnvWarnings(getenv)...)
 	addErr := func(err error) {
 		if err != nil {
 			problems = append(problems, err.Error())
@@ -127,11 +145,11 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 
 	cfg := OptimizeConfig{
-		HAURL:             strings.TrimSpace(viper.GetString(keyHAURL)),
-		HAToken:           strings.TrimSpace(viper.GetString(keyHAToken)),
-		PriceEntity:       strings.TrimSpace(viper.GetString(keyOptPriceEntity)),
-		ConsumptionEntity: strings.TrimSpace(viper.GetString(keyOptConsumptionEntity)),
-		EVEntity:          strings.TrimSpace(viper.GetString(keyOptEVEntity)),
+		HAURL:             optGetString(keyHAURL, deprecated),
+		HAToken:           optGetString(keyHAToken, deprecated),
+		PriceEntity:       optGetString(keyOptPriceEntity, deprecated),
+		ConsumptionEntity: optGetString(keyOptConsumptionEntity, deprecated),
+		EVEntity:          optGetString(keyOptEVEntity, deprecated),
 		FroniusIP:         strings.TrimSpace(viper.GetString("fronius_ip")),
 		SolcastURLs:       optCfgSplitList(viper.GetString("url")),
 		SolcastAPIKey:     viper.GetString("apikey"),
@@ -164,19 +182,19 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	switch {
 	case err == nil:
 		if access.PlainHTTPToPublicHost() {
-			warnings = append(warnings, "ha_url uses plain http to a non-private host; the HA token is sent unencrypted, use https")
+			warnings = append(warnings, keyHAURL+" uses plain http to a non-private host; the HA token is sent unencrypted, use https")
 		}
 	case cfg.HAURL != "" && cfg.HAToken == "":
-		problems = append(problems, "ha_token: required when ha_url is set")
+		problems = append(problems, keyHAToken+": required when "+keyHAURL+" is set")
 	case cfg.HAURL == "":
-		problems = append(problems, "home assistant access: no Supervisor token found and ha_url/ha_token are not set; set HA_URL and HA_TOKEN (Docker/CLI) or enable homeassistant_api (add-on)")
+		problems = append(problems, "home assistant access: no Supervisor token found and "+keyHAURL+"/"+keyHAToken+" are not set; set HA_URL and HA_TOKEN (Docker/CLI) or enable homeassistant_api (add-on)")
 	default:
-		problems = append(problems, "ha_url: "+strings.TrimPrefix(err.Error(), "homeassistant: "))
+		problems = append(problems, keyHAURL+": "+strings.TrimPrefix(err.Error(), "homeassistant: "))
 	}
 
 	// Numeric bounds (AC-20, S-016).
 	var v float64
-	if v, err = optCfgFloatKey(keyOptBatteryEfficiency, defOptBatteryEfficiency); err == nil {
+	if v, err = optCfgFloatKey(keyOptBatteryEfficiency, defOptBatteryEfficiency, deprecated); err == nil {
 		cfg.Efficiency = v
 		if !(v > 0 && v <= 1) {
 			err = fmt.Errorf("%s: must be greater than 0 and at most 1, got %v", keyOptBatteryEfficiency, v)
@@ -192,7 +210,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 		{keyOptMaxChargeRateW, defOptMaxChargeRateW, &cfg.MaxChargeW},
 		{keyOptMaxDischargeRateW, defOptMaxDischargeRateW, &cfg.MaxDischargeW},
 	} {
-		if v, err = optCfgFloatKey(k.key, k.def); err == nil {
+		if v, err = optCfgFloatKey(k.key, k.def, deprecated); err == nil {
 			*k.dst = v
 			if !(v > 0 && v <= optCfgMaxRateW) {
 				err = fmt.Errorf("%s: must be greater than 0 and at most %v W, got %v", k.key, optCfgMaxRateW, v)
@@ -201,7 +219,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 		addErr(err)
 	}
 
-	if v, err = optCfgFloatKey(keyOptMinSocPct, defOptMinSocPct); err == nil {
+	if v, err = optCfgFloatKey(keyOptMinSocPct, defOptMinSocPct, deprecated); err == nil {
 		cfg.MinSocPct = v
 		switch {
 		case !(v >= 0 && v < 100):
@@ -212,7 +230,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	if v, err = optCfgFloatKey(keyOptVATRate, defOptVATRate); err == nil {
+	if v, err = optCfgFloatKey(keyOptVATRate, defOptVATRate, deprecated); err == nil {
 		cfg.VATRate = v
 		switch {
 		case v > 1:
@@ -223,7 +241,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	if v, err = optCfgFloatKey(keyOptSellMargin, defOptSellMargin); err == nil {
+	if v, err = optCfgFloatKey(keyOptSellMargin, defOptSellMargin, deprecated); err == nil {
 		cfg.SellMargin = v
 		if !(v >= optCfgSurchargeMin && v <= optCfgSurchargeMax) {
 			err = fmt.Errorf("%s: must be between %v and %v, got %v", keyOptSellMargin, optCfgSurchargeMin, optCfgSurchargeMax, v)
@@ -231,7 +249,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	if v, err = optCfgFloatKey(keyOptMinGain, defOptMinGain); err == nil {
+	if v, err = optCfgFloatKey(keyOptMinGain, defOptMinGain, deprecated); err == nil {
 		cfg.MinGain = v
 		if !(v >= 0 && v <= optimize.MaxMinGain) {
 			err = fmt.Errorf("%s: must be between 0 and %v currency per hour, got %v", keyOptMinGain, optimize.MaxMinGain, v)
@@ -239,7 +257,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	if v, err = optCfgFloatKey(keyOptWearCost, defOptWearCost); err == nil {
+	if v, err = optCfgFloatKey(keyOptWearCost, defOptWearCost, deprecated); err == nil {
 		cfg.WearCost = v
 		if !(v >= 0 && v <= optimize.MaxWearCost) {
 			err = fmt.Errorf("%s: must be between 0 and %v currency per kWh, got %v", keyOptWearCost, optimize.MaxWearCost, v)
@@ -247,7 +265,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	if v, err = optCfgFloatKey(keyOptEVGuardW, defOptEVGuardW); err == nil {
+	if v, err = optCfgFloatKey(keyOptEVGuardW, defOptEVGuardW, deprecated); err == nil {
 		cfg.EVGuardW = v
 		if !(v >= 0 && v <= optCfgMaxEVGuardW) {
 			err = fmt.Errorf("%s: must be between 0 and %v W, got %v", keyOptEVGuardW, optCfgMaxEVGuardW, v)
@@ -256,9 +274,9 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	addErr(err)
 
 	cfg.HistoryDays = defOptHistoryDays
-	if viper.Get(keyOptHistoryDays) != nil {
+	if hd := optGet(keyOptHistoryDays, deprecated); hd != nil {
 		var n int
-		if n, err = optCfgInt(keyOptHistoryDays, viper.Get(keyOptHistoryDays)); err == nil {
+		if n, err = optCfgInt(keyOptHistoryDays, hd); err == nil {
 			cfg.HistoryDays = n
 			if n < 1 || n > 30 {
 				err = fmt.Errorf("%s: must be between 1 and 30, got %d", keyOptHistoryDays, n)
@@ -267,7 +285,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 		addErr(err)
 	}
 
-	if v, err = optCfgFloatKey("pw_consumption", 0); err == nil {
+	if v, err = optCfgFloatKey("pw_consumption", 0, deprecated); err == nil {
 		cfg.StaticDailyWh = v
 		if !(v > 0) {
 			err = fmt.Errorf("pw_consumption: must be greater than 0 in scheduler_mode=optimize (static consumption fallback), got %v", v)
@@ -275,12 +293,12 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	}
 	addErr(err)
 
-	cfg.Surcharge, err = parseSurcharge(viper.Get(keyOptPurchaseSurcharge))
+	cfg.Surcharge, err = parseSurcharge(optGet(keyOptPurchaseSurcharge, deprecated))
 	addErr(err)
 
 	cfg.DryRun = defOptDryRun
-	if viper.Get(keyOptDryRun) != nil {
-		cfg.DryRun, err = optCfgBool(keyOptDryRun, viper.Get(keyOptDryRun))
+	if dr := optGet(keyOptDryRun, deprecated); dr != nil {
+		cfg.DryRun, err = optCfgBool(keyOptDryRun, dr)
 		if err != nil {
 			cfg.DryRun = true // fail safe: never go live on a malformed value
 		}
@@ -379,11 +397,12 @@ func optCfgCheckEntity(key, id string, required bool) error {
 // optCfgFloatKey reads a float key, returning def when it has no value
 // (neither flag default, env, yaml nor explicit set). Unlike
 // viper.GetFloat64 it reports malformed and non-finite values.
-func optCfgFloatKey(key string, def float64) (float64, error) {
-	if viper.Get(key) == nil {
+func optCfgFloatKey(key string, def float64, deprecated func(string)) (float64, error) {
+	v := optGet(key, deprecated)
+	if v == nil {
 		return def, nil
 	}
-	return optCfgFloat(key, viper.Get(key))
+	return optCfgFloat(key, v)
 }
 
 func optCfgFloat(key string, v any) (float64, error) {

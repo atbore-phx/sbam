@@ -349,14 +349,14 @@ func TestCheckScheduleScheduleOptimizeMode(t *testing.T) {
 func setOptimizeStartupViper(t *testing.T, surcharge string, dryRun bool) {
 	t.Helper()
 	resetViper(t)
-	viper.Set("ha_url", "http://homeassistant.local:8123")
-	viper.Set("ha_token", "test-ha-token")
-	viper.Set("opt_price_entity", "sensor.price")
-	viper.Set("opt_consumption_entity", "sensor.load")
+	viper.Set("optimizer.ha_url", "http://homeassistant.local:8123")
+	viper.Set("optimizer.ha_token", "test-ha-token")
+	viper.Set("optimizer.price_entity", "sensor.price")
+	viper.Set("optimizer.consumption_entity", "sensor.load")
 	viper.Set("pw_consumption", 12000.0)
 	viper.Set("fronius_ip", schOptIP)
-	viper.Set("opt_purchase_surcharge", surcharge)
-	viper.Set("opt_dry_run", dryRun)
+	viper.Set("optimizer.purchase_surcharge", surcharge)
+	viper.Set("optimizer.dry_run", dryRun)
 }
 
 func withStartupWriter(t *testing.T) *schOptWriter {
@@ -385,10 +385,10 @@ func TestPrepareOptimizeMode_T0153_StartupFailSafe(t *testing.T) {
 		wantErr      string
 		wantDefaults int
 	}{
-		{name: "live, 23 surcharge values", surcharge: surcharge23, wantErr: "opt_purchase_surcharge", wantDefaults: 1},
-		{name: "dry-run, 23 surcharge values", surcharge: surcharge23, dryRun: true, wantErr: "opt_purchase_surcharge", wantDefaults: 0},
+		{name: "live, 23 surcharge values", surcharge: surcharge23, wantErr: "optimizer.purchase_surcharge", wantDefaults: 1},
+		{name: "dry-run, 23 surcharge values", surcharge: surcharge23, dryRun: true, wantErr: "optimizer.purchase_surcharge", wantDefaults: 0},
 		{name: "live, generic validation error", surcharge: surcharge24, baseErr: errors.New("the --apikey flag must be set"), wantErr: "--apikey", wantDefaults: 1},
-		{name: "live, no fronius_ip", surcharge: surcharge23, froniusIP: new(string), wantErr: "opt_purchase_surcharge", wantDefaults: 0},
+		{name: "live, no fronius_ip", surcharge: surcharge23, froniusIP: new(string), wantErr: "optimizer.purchase_surcharge", wantDefaults: 0},
 		{name: "live, valid", surcharge: surcharge24, wantDefaults: 0},
 	}
 	for _, tc := range cases {
@@ -450,7 +450,7 @@ func TestScheduleCommand_T0153_OptimizeValidationFailureExits(t *testing.T) {
 	err := scdCmd.RunE(scdCmd, nil)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "opt_purchase_surcharge")
+	assert.Contains(t, err.Error(), "optimizer.purchase_surcharge")
 	_, defaults, _ := w.counts()
 	assert.Equal(t, 1, defaults)
 	assert.True(t, scdCmd.SilenceUsage)

@@ -29,10 +29,10 @@ func optCfgSupervisorEnv(k string) string {
 func optCfgValidBase(t *testing.T) {
 	t.Helper()
 	resetViper(t)
-	viper.Set("ha_url", "http://homeassistant.local:8123")
-	viper.Set("ha_token", "test-ha-token")
-	viper.Set("opt_price_entity", "sensor.nordpool_kwh_dk2_dkk_3_10_025")
-	viper.Set("opt_consumption_entity", "sensor.solarnet_power_load_consumed")
+	viper.Set("optimizer.ha_url", "http://homeassistant.local:8123")
+	viper.Set("optimizer.ha_token", "test-ha-token")
+	viper.Set("optimizer.price_entity", "sensor.nordpool_kwh_dk2_dkk_3_10_025")
+	viper.Set("optimizer.consumption_entity", "sensor.solarnet_power_load_consumed")
 	viper.Set("pw_consumption", 12000.0)
 }
 
@@ -123,7 +123,7 @@ func TestParseSurcharge_T0120_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseSurcharge(tc.in)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "opt_purchase_surcharge: ")
+			assert.Contains(t, err.Error(), "optimizer.purchase_surcharge: ")
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
@@ -136,13 +136,13 @@ func TestParseSurcharge_T0120_ItemMessage(t *testing.T) {
 	items[6] = "0.78x"
 	_, err := parseSurcharge(strings.Join(items, ","))
 	require.Error(t, err)
-	assert.Equal(t, `opt_purchase_surcharge: item 7 ("0.78x") is not a number`, err.Error())
+	assert.Equal(t, `optimizer.purchase_surcharge: item 7 ("0.78x") is not a number`, err.Error())
 }
 
 func TestLoadOptimizeConfig_Expected(t *testing.T) {
 	optCfgValidBase(t)
-	viper.Set("opt_ev_entity", "sensor.tesla_wall_connector_total_power")
-	viper.Set("opt_purchase_surcharge", optCfgTestSurcharge)
+	viper.Set("optimizer.ev_entity", "sensor.tesla_wall_connector_total_power")
+	viper.Set("optimizer.purchase_surcharge", optCfgTestSurcharge)
 	viper.Set("fronius_ip", "192.0.2.10")
 	viper.Set("url", "https://example.invalid/a, https://example.invalid/b,")
 	viper.Set("apikey", "test-api-key")
@@ -181,7 +181,7 @@ func TestLoadOptimizeConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 0.25, cfg.VATRate)
 	assert.Equal(t, 0.0, cfg.SellMargin)
 	assert.Equal(t, [24]float64{}, cfg.Surcharge)
-	assert.True(t, cfg.DryRun, "opt_dry_run defaults to true for every target")
+	assert.True(t, cfg.DryRun, "optimizer.dry_run defaults to true for every target")
 	assert.Equal(t, "", cfg.EVEntity)
 	assert.Equal(t, "cached_forecast", cfg.CacheFilePref)
 	assert.Equal(t, int32(7200), cfg.CacheTime)
@@ -215,27 +215,27 @@ func TestLoadOptimizeConfig_T0121_Bounds(t *testing.T) {
 		val  any
 		want string
 	}{
-		{"opt_battery_efficiency", 0.0, "opt_battery_efficiency: must be greater than 0 and at most 1, got 0"},
-		{"opt_battery_efficiency", 1.2, "opt_battery_efficiency: must be greater than 0 and at most 1, got 1.2"},
-		{"opt_battery_efficiency", "NaN", "opt_battery_efficiency: must be a finite number"},
-		{"opt_max_charge_rate_w", 0.0, "opt_max_charge_rate_w: must be greater than 0"},
-		{"opt_max_charge_rate_w", -1.0, "opt_max_charge_rate_w: must be greater than 0"},
-		{"opt_max_charge_rate_w", 1e9, "opt_max_charge_rate_w: must be greater than 0 and at most 30000 W, got 1e+09"},
-		{"opt_max_discharge_rate_w", 0.0, "opt_max_discharge_rate_w: must be greater than 0"},
-		{"opt_max_discharge_rate_w", 30001.0, "opt_max_discharge_rate_w"},
-		{"opt_min_soc_pct", 100.0, "opt_min_soc_pct: must be at least 0 and below 100, got 100"},
-		{"opt_min_soc_pct", -1.0, "opt_min_soc_pct"},
-		{"opt_vat_rate", 25.0, "opt_vat_rate: must be a fraction between 0 and 1, got 25; did you mean 0.25?"},
-		{"opt_vat_rate", -0.1, "opt_vat_rate: must be a fraction between 0 and 1"},
-		{"opt_sell_margin", 11.0, "opt_sell_margin: must be between -5 and 10, got 11"},
-		{"opt_sell_margin", -5.5, "opt_sell_margin"},
-		{"opt_sell_margin", "1,5", `opt_sell_margin: "1,5" is not a number; use '.' as decimal separator`},
-		{"opt_history_days", 0, "opt_history_days: must be between 1 and 30, got 0"},
-		{"opt_history_days", 31, "opt_history_days: must be between 1 and 30, got 31"},
-		{"opt_history_days", "ten", `opt_history_days: "ten" is not a whole number`},
+		{"optimizer.battery_efficiency", 0.0, "optimizer.battery_efficiency: must be greater than 0 and at most 1, got 0"},
+		{"optimizer.battery_efficiency", 1.2, "optimizer.battery_efficiency: must be greater than 0 and at most 1, got 1.2"},
+		{"optimizer.battery_efficiency", "NaN", "optimizer.battery_efficiency: must be a finite number"},
+		{"optimizer.max_charge_rate_w", 0.0, "optimizer.max_charge_rate_w: must be greater than 0"},
+		{"optimizer.max_charge_rate_w", -1.0, "optimizer.max_charge_rate_w: must be greater than 0"},
+		{"optimizer.max_charge_rate_w", 1e9, "optimizer.max_charge_rate_w: must be greater than 0 and at most 30000 W, got 1e+09"},
+		{"optimizer.max_discharge_rate_w", 0.0, "optimizer.max_discharge_rate_w: must be greater than 0"},
+		{"optimizer.max_discharge_rate_w", 30001.0, "optimizer.max_discharge_rate_w"},
+		{"optimizer.min_soc_pct", 100.0, "optimizer.min_soc_pct: must be at least 0 and below 100, got 100"},
+		{"optimizer.min_soc_pct", -1.0, "optimizer.min_soc_pct"},
+		{"optimizer.vat_rate", 25.0, "optimizer.vat_rate: must be a fraction between 0 and 1, got 25; did you mean 0.25?"},
+		{"optimizer.vat_rate", -0.1, "optimizer.vat_rate: must be a fraction between 0 and 1"},
+		{"optimizer.sell_margin", 11.0, "optimizer.sell_margin: must be between -5 and 10, got 11"},
+		{"optimizer.sell_margin", -5.5, "optimizer.sell_margin"},
+		{"optimizer.sell_margin", "1,5", `optimizer.sell_margin: "1,5" is not a number; use '.' as decimal separator`},
+		{"optimizer.history_days", 0, "optimizer.history_days: must be between 1 and 30, got 0"},
+		{"optimizer.history_days", 31, "optimizer.history_days: must be between 1 and 30, got 31"},
+		{"optimizer.history_days", "ten", `optimizer.history_days: "ten" is not a whole number`},
 		{"pw_consumption", 0.0, "pw_consumption: must be greater than 0"},
-		{"opt_purchase_surcharge", "1,5", "opt_purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 2"},
-		{"opt_dry_run", "maybe", `opt_dry_run: "maybe" is not true or false`},
+		{"optimizer.purchase_surcharge", "1,5", "optimizer.purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 2"},
+		{"optimizer.dry_run", "maybe", `optimizer.dry_run: "maybe" is not true or false`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
@@ -262,18 +262,18 @@ func TestLoadOptimizeConfig_T0018_MinGain(t *testing.T) {
 
 	for _, ok := range []any{0.0, 0.5, 10.0} {
 		optCfgValidBase(t)
-		viper.Set("opt_min_gain", ok)
+		viper.Set("optimizer.min_gain", ok)
 		cfg, _, err = optCfgLoad(optCfgNoEnv)
 		require.NoError(t, err, "value %v", ok)
 		assert.Equal(t, ok, cfg.MinGain)
 	}
 	for _, bad := range []any{-1.0, 11.0, "NaN", "0,5"} {
 		optCfgValidBase(t)
-		viper.Set("opt_min_gain", bad)
+		viper.Set("optimizer.min_gain", bad)
 		_, _, err = optCfgLoad(optCfgNoEnv)
 		problems := optCfgProblems(t, err)
 		require.Len(t, problems, 1, "value %v", bad)
-		assert.Contains(t, problems[0], "opt_min_gain")
+		assert.Contains(t, problems[0], "optimizer.min_gain")
 	}
 }
 
@@ -287,7 +287,7 @@ func TestLoadOptimizeConfig_T0097_WearCost(t *testing.T) {
 
 	for _, ok := range []any{0.0, 0.15, "0.15", 5.0} {
 		optCfgValidBase(t)
-		viper.Set("opt_wear_cost", ok)
+		viper.Set("optimizer.wear_cost", ok)
 		cfg, _, err = optCfgLoad(optCfgNoEnv)
 		require.NoError(t, err, "value %v", ok)
 		assert.Contains(t, []float64{0, 0.15, 5}, cfg.WearCost)
@@ -296,11 +296,11 @@ func TestLoadOptimizeConfig_T0097_WearCost(t *testing.T) {
 
 	for _, bad := range []any{-0.1, 5.5, "NaN", "0,15"} {
 		optCfgValidBase(t)
-		viper.Set("opt_wear_cost", bad)
+		viper.Set("optimizer.wear_cost", bad)
 		_, _, err = optCfgLoad(optCfgNoEnv)
 		problems := optCfgProblems(t, err)
 		require.Len(t, problems, 1, "value %v", bad)
-		assert.Contains(t, problems[0], "opt_wear_cost")
+		assert.Contains(t, problems[0], "optimizer.wear_cost")
 	}
 }
 
@@ -314,31 +314,31 @@ func TestLoadOptimizeConfig_T0211_EVGuardW(t *testing.T) {
 
 	for in, want := range map[any]float64{0.0: 0, 1500.0: 1500, 50000.0: 50000, "2500": 2500} {
 		optCfgValidBase(t)
-		viper.Set("opt_ev_guard_w", in)
+		viper.Set("optimizer.ev_guard_w", in)
 		cfg, _, err = optCfgLoad(optCfgNoEnv)
 		require.NoError(t, err, "value %v", in)
 		assert.Equal(t, want, cfg.EVGuardW)
 	}
 	for _, bad := range []any{-1.0, 50001.0, "NaN", "1,5"} {
 		optCfgValidBase(t)
-		viper.Set("opt_ev_guard_w", bad)
+		viper.Set("optimizer.ev_guard_w", bad)
 		_, _, err = optCfgLoad(optCfgNoEnv)
 		problems := optCfgProblems(t, err)
 		require.Len(t, problems, 1, "value %v", bad)
-		assert.Contains(t, problems[0], "opt_ev_guard_w")
+		assert.Contains(t, problems[0], "optimizer.ev_guard_w")
 	}
 }
 
 // T-0121 edge: inclusive bounds are accepted.
 func TestLoadOptimizeConfig_T0121_InclusiveBounds(t *testing.T) {
 	optCfgValidBase(t)
-	viper.Set("opt_battery_efficiency", 1.0)
-	viper.Set("opt_max_charge_rate_w", 30000.0)
-	viper.Set("opt_min_soc_pct", 0.0)
-	viper.Set("opt_vat_rate", 1.0)
-	viper.Set("opt_sell_margin", -5.0)
-	viper.Set("opt_history_days", 30)
-	viper.Set("opt_dry_run", "false")
+	viper.Set("optimizer.battery_efficiency", 1.0)
+	viper.Set("optimizer.max_charge_rate_w", 30000.0)
+	viper.Set("optimizer.min_soc_pct", 0.0)
+	viper.Set("optimizer.vat_rate", 1.0)
+	viper.Set("optimizer.sell_margin", -5.0)
+	viper.Set("optimizer.history_days", 30)
+	viper.Set("optimizer.dry_run", "false")
 
 	cfg, _, err := optCfgLoad(optCfgNoEnv)
 	require.NoError(t, err)
@@ -350,75 +350,75 @@ func TestLoadOptimizeConfig_T0121_InclusiveBounds(t *testing.T) {
 func TestLoadOptimizeConfig_T0122_Required(t *testing.T) {
 	t.Run("empty price entity", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_price_entity", "")
+		viper.Set("optimizer.price_entity", "")
 		_, _, err := optCfgLoad(optCfgNoEnv)
-		assert.Equal(t, []string{"opt_price_entity: required when scheduler_mode=optimize (e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025)"}, optCfgProblems(t, err))
+		assert.Equal(t, []string{"optimizer.price_entity: required when scheduler_mode=optimize (e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025)"}, optCfgProblems(t, err))
 	})
 	t.Run("empty consumption entity", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_consumption_entity", "  ")
+		viper.Set("optimizer.consumption_entity", "  ")
 		_, _, err := optCfgLoad(optCfgNoEnv)
 		problems := optCfgProblems(t, err)
 		require.Len(t, problems, 1)
-		assert.Contains(t, problems[0], "opt_consumption_entity: required")
+		assert.Contains(t, problems[0], "optimizer.consumption_entity: required")
 	})
 	t.Run("non-sensor domain", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_price_entity", "input_number.price")
+		viper.Set("optimizer.price_entity", "input_number.price")
 		_, _, err := optCfgLoad(optCfgNoEnv)
-		assert.Contains(t, optCfgProblems(t, err)[0], `opt_price_entity: "input_number.price" must match ^sensor\.[a-z0-9_]+$`)
+		assert.Contains(t, optCfgProblems(t, err)[0], `optimizer.price_entity: "input_number.price" must match ^sensor\.[a-z0-9_]+$`)
 	})
 	t.Run("no HA access", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("ha_url", "")
-		viper.Set("ha_token", "")
+		viper.Set("optimizer.ha_url", "")
+		viper.Set("optimizer.ha_token", "")
 		_, _, err := optCfgLoad(optCfgNoEnv)
 		problems := optCfgProblems(t, err)
 		require.Len(t, problems, 1)
-		assert.Contains(t, problems[0], "home assistant access: no Supervisor token found and ha_url/ha_token are not set")
+		assert.Contains(t, problems[0], "home assistant access: no Supervisor token found and optimizer.ha_url/optimizer.ha_token are not set")
 	})
 	t.Run("ha_url without token", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("ha_token", "")
+		viper.Set("optimizer.ha_token", "")
 		_, _, err := optCfgLoad(optCfgNoEnv)
-		assert.Equal(t, []string{"ha_token: required when ha_url is set"}, optCfgProblems(t, err))
+		assert.Equal(t, []string{"optimizer.ha_token: required when optimizer.ha_url is set"}, optCfgProblems(t, err))
 	})
 	t.Run("supervisor token suffices", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("ha_url", "")
-		viper.Set("ha_token", "")
+		viper.Set("optimizer.ha_url", "")
+		viper.Set("optimizer.ha_token", "")
 		cfg, _, err := optCfgLoad(optCfgSupervisorEnv)
 		require.NoError(t, err)
 		assert.Empty(t, cfg.HAToken, "the Supervisor token must never be copied into the config")
 	})
 	t.Run("empty EV entity is OK", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_ev_entity", "")
+		viper.Set("optimizer.ev_entity", "")
 		_, _, err := optCfgLoad(optCfgNoEnv)
 		assert.NoError(t, err)
 	})
 	t.Run("invalid EV entity", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_ev_entity", "sensor.Tesla")
+		viper.Set("optimizer.ev_entity", "sensor.Tesla")
 		_, _, err := optCfgLoad(optCfgNoEnv)
-		assert.Contains(t, optCfgProblems(t, err)[0], "opt_ev_entity")
+		assert.Contains(t, optCfgProblems(t, err)[0], "optimizer.ev_entity")
 	})
 }
 
 // UX §5.2: all problems are aggregated into one message.
 func TestLoadOptimizeConfig_AggregatesProblems(t *testing.T) {
 	resetViper(t)
-	viper.Set("opt_purchase_surcharge", strings.Repeat("0.5,", 22)+"0.5")
-	viper.Set("opt_battery_efficiency", 0.0)
+	viper.Set("optimizer.purchase_surcharge", strings.Repeat("0.5,", 22)+"0.5")
+	viper.Set("optimizer.battery_efficiency", 0.0)
 	viper.Set("pw_consumption", 1000.0)
 
 	_, _, err := optCfgLoad(optCfgNoEnv)
 	problems := optCfgProblems(t, err)
 	assert.Len(t, problems, 5)
 	msg := err.Error()
-	assert.True(t, strings.HasPrefix(msg, "invalid configuration for scheduler_mode=optimize (5 problems):\n  - opt_price_entity: required"))
-	assert.Contains(t, msg, "\n  - opt_purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 23")
-	assert.Contains(t, msg, "\n  - opt_battery_efficiency: must be greater than 0 and at most 1, got 0")
+	assert.True(t, strings.HasPrefix(msg, "invalid configuration for scheduler_mode=optimize (5 problems):\n  - optimizer.price_entity: required"))
+	assert.Contains(t, msg, "\n  - optimizer.purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 23")
+	assert.Contains(t, msg, "\n  - optimizer.battery_efficiency: must be greater than 0 and at most 1, got 0")
 	assert.Contains(t, msg, "\n  - home assistant access:")
 }
 
@@ -430,13 +430,13 @@ func TestOptimizeConfigError_SingularNoun(t *testing.T) {
 // T-0123 (TC-006c): min SoC below 5 % warns but does not fail.
 func TestLoadOptimizeConfig_T0123_MinSocWarning(t *testing.T) {
 	optCfgValidBase(t)
-	viper.Set("opt_min_soc_pct", 2.0)
+	viper.Set("optimizer.min_soc_pct", 2.0)
 
 	cfg, warns, err := optCfgLoad(optCfgNoEnv)
 	require.NoError(t, err)
 	assert.Equal(t, 2.0, cfg.MinSocPct)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0], "opt_min_soc_pct is 2")
+	assert.Contains(t, warns[0], "optimizer.min_soc_pct is 2")
 }
 
 // TC-014a (S-014): unsafe ha_url values fail validation without echoing secrets.
@@ -445,11 +445,11 @@ func TestLoadOptimizeConfig_TC014a_HAURL(t *testing.T) {
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
 			optCfgValidBase(t)
-			viper.Set("ha_url", in)
+			viper.Set("optimizer.ha_url", in)
 			_, _, err := optCfgLoad(optCfgNoEnv)
 			problems := optCfgProblems(t, err)
 			require.Len(t, problems, 1)
-			assert.True(t, strings.HasPrefix(problems[0], "ha_url: "), problems[0])
+			assert.True(t, strings.HasPrefix(problems[0], "optimizer.ha_url: "), problems[0])
 			assert.NotContains(t, err.Error(), "test-pw")
 			assert.NotContains(t, err.Error(), "test-ha-token")
 		})
@@ -457,16 +457,16 @@ func TestLoadOptimizeConfig_TC014a_HAURL(t *testing.T) {
 
 	t.Run("entity id injection (TC-014c)", func(t *testing.T) {
 		optCfgValidBase(t)
-		viper.Set("opt_price_entity", "sensor.a&end_time=2000")
+		viper.Set("optimizer.price_entity", "sensor.a&end_time=2000")
 		_, _, err := optCfgLoad(optCfgNoEnv)
-		assert.Contains(t, optCfgProblems(t, err)[0], "opt_price_entity")
+		assert.Contains(t, optCfgProblems(t, err)[0], "optimizer.price_entity")
 	})
 }
 
 // S-014: plain http to a public host is allowed but warned.
 func TestLoadOptimizeConfig_PlainHTTPPublicHostWarning(t *testing.T) {
 	optCfgValidBase(t)
-	viper.Set("ha_url", "http://ha.example.com:8123")
+	viper.Set("optimizer.ha_url", "http://ha.example.com:8123")
 
 	_, warns, err := optCfgLoad(optCfgNoEnv)
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestLoadOptimizeConfig_PlainHTTPPublicHostWarning(t *testing.T) {
 	assert.NotContains(t, warns[0], "test-ha-token")
 
 	optCfgValidBase(t)
-	viper.Set("ha_url", "https://ha.example.com")
+	viper.Set("optimizer.ha_url", "https://ha.example.com")
 	_, warns, err = optCfgLoad(optCfgNoEnv)
 	require.NoError(t, err)
 	assert.Empty(t, warns)
@@ -484,8 +484,8 @@ func TestLoadOptimizeConfig_PlainHTTPPublicHostWarning(t *testing.T) {
 // loadOptimizeConfig reads SUPERVISOR_TOKEN from the real environment.
 func TestLoadOptimizeConfig_UsesProcessEnv(t *testing.T) {
 	optCfgValidBase(t)
-	viper.Set("ha_url", "")
-	viper.Set("ha_token", "")
+	viper.Set("optimizer.ha_url", "")
+	viper.Set("optimizer.ha_token", "")
 	t.Setenv("SUPERVISOR_TOKEN", "test-sup-token")
 
 	_, _, err := loadOptimizeConfig()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v3"
@@ -84,10 +85,21 @@ func loadAddonConfig(t *testing.T) addonConfig {
 	return cfg
 }
 
-// addonSchemaRegex extracts and compiles the regex of a match(...) schema entry.
-func addonSchemaRegex(t *testing.T, cfg addonConfig, key string) *regexp.Regexp {
+// addonOptimizer returns the optimizer: map of the add-on schema and options.
+func addonOptimizer(t *testing.T, cfg addonConfig) (schema, options map[string]any) {
 	t.Helper()
-	raw, ok := cfg.Schema[key].(string)
+	schema, ok := cfg.Schema[optimizerGroup].(map[string]any)
+	require.True(t, ok, "schema.optimizer must be a map")
+	options, ok = cfg.Options[optimizerGroup].(map[string]any)
+	require.True(t, ok, "options.optimizer must be a map")
+	return schema, options
+}
+
+// addonSchemaRegex extracts and compiles the regex of a match(...) schema
+// entry of the given schema map.
+func addonSchemaRegex(t *testing.T, schema map[string]any, key string) *regexp.Regexp {
+	t.Helper()
+	raw, ok := schema[key].(string)
 	require.True(t, ok, "schema entry %s missing or not a string", key)
 	require.True(t, strings.HasPrefix(raw, "match(") && strings.HasSuffix(raw, ")"), "expected match(...) wrapper for %s", key)
 	re, err := regexp.Compile(raw[len("match(") : len(raw)-1])
@@ -105,12 +117,13 @@ func surchargeRepeat(v string, n int) []string {
 	return out
 }
 
-// T-0170 (AC-20, UX §2.2): the opt_purchase_surcharge schema regex accepts
+// T-0170 (AC-20, UX §2.2): the optimizer.purchase_surcharge schema regex accepts
 // exactly 24 numbers in [-5, 10] with '.' decimals, and everything it accepts
 // parseSurcharge accepts too.
 func TestSurchargeSchemaRegex_T0170(t *testing.T) {
 	cfg := loadAddonConfig(t)
-	re := addonSchemaRegex(t, cfg, "opt_purchase_surcharge")
+	optSchema, optOptions := addonOptimizer(t, cfg)
+	re := addonSchemaRegex(t, optSchema, "purchase_surcharge")
 
 	mixed := []string{"0.52", "-0.1", "0", "10", "-5", "1.25", "9.999", "-4.5", "5", "0.0", "2.04", "-0",
 		"3", "4.75", "-3.25", "6.5", "7", "8.125", "-1", "-2.00", "0.78", "10.0", "-5.0", "1"}
@@ -124,7 +137,7 @@ func TestSurchargeSchemaRegex_T0170(t *testing.T) {
 		"leading and trailing spaces": "  " + surchargeCSV(",", surchargeRepeat("1.5", 24)...) + " ",
 		"range bounds":                surchargeCSV(",", append(surchargeRepeat("-5", 12), surchargeRepeat("10", 12)...)...),
 	}
-	if def, ok := cfg.Options["opt_purchase_surcharge"].(string); ok {
+	if def, ok := optOptions["purchase_surcharge"].(string); ok {
 		pass["options default"] = def
 	}
 	for name, s := range pass {
@@ -179,17 +192,19 @@ func TestSurchargeSchemaRegex_T0170(t *testing.T) {
 	})
 }
 
-// T-0171 (TC-013d): the add-on exposes ha_token as an optional password,
-// ha_url as an optional string that is not pre-filled in options, offers
-// scheduler_mode optimize, defaults opt_dry_run to true and requests
-// homeassistant_api so the Supervisor token is available.
+// T-0171 (TC-013d): the add-on groups the optimizer options under
+// optimizer:, exposes optimizer.ha_token as an optional password and
+// optimizer.ha_url as an optional string that is not pre-filled in options,
+// offers scheduler_mode optimize, defaults optimizer.dry_run to true and
+// requests homeassistant_api so the Supervisor token is available.
 func TestAddonOptimizeSchema_T0171(t *testing.T) {
 	cfg := loadAddonConfig(t)
+	optSchema, optOptions := addonOptimizer(t, cfg)
 
-	assert.Equal(t, "password?", cfg.Schema["ha_token"], "ha_token must be an optional password")
-	assert.Equal(t, "str?", cfg.Schema["ha_url"], "ha_url must be an optional string")
-	assert.NotContains(t, cfg.Options, "ha_url", "ha_url must not be pre-filled in options")
-	assert.NotContains(t, cfg.Options, "ha_token", "ha_token must not be pre-filled in options")
+	assert.Equal(t, "password?", optSchema["ha_token"], "ha_token must be an optional password")
+	assert.Equal(t, "str?", optSchema["ha_url"], "ha_url must be an optional string")
+	assert.NotContains(t, optOptions, "ha_url", "ha_url must not be pre-filled in options")
+	assert.NotContains(t, optOptions, "ha_token", "ha_token must not be pre-filled in options")
 
 	mode, ok := cfg.Schema["scheduler_mode"].(string)
 	require.True(t, ok, "scheduler_mode schema missing")
@@ -197,8 +212,8 @@ func TestAddonOptimizeSchema_T0171(t *testing.T) {
 	assert.ElementsMatch(t, []string{"crontab", "windows", "optimize"}, strings.Split(mode[len("list("):len(mode)-1], "|"))
 	assert.Equal(t, "crontab", cfg.Options["scheduler_mode"], "existing installs keep the crontab default")
 
-	assert.Equal(t, true, cfg.Options["opt_dry_run"], "opt_dry_run must default to true in the add-on")
-	assert.Equal(t, "bool", cfg.Schema["opt_dry_run"])
+	assert.Equal(t, true, optOptions["dry_run"], "optimizer.dry_run must default to true in the add-on")
+	assert.Equal(t, "bool", optSchema["dry_run"])
 	assert.True(t, cfg.HomeassistantAPI, "homeassistant_api must be true for the Supervisor token")
 }
 
@@ -221,27 +236,41 @@ func addonOptionString(v any) string {
 	}
 }
 
-// T-0172 (surface parity): every ha_*/opt_* key registered by
+// addonOptimizerName returns the key inside the optimizer: map for a flag
+// registered by registerOptimizeFlags (from its viper key annotation).
+func addonOptimizerName(t *testing.T, f *pflag.Flag) string {
+	t.Helper()
+	ann := f.Annotations[flagAnnotationViperKey]
+	require.Len(t, ann, 1, "flag %s has no viper key annotation", f.Name)
+	require.True(t, strings.HasPrefix(ann[0], optimizerGroup+"."), "flag %s is not bound to the optimizer group", f.Name)
+	return strings.TrimPrefix(ann[0], optimizerGroup+".")
+}
+
+// T-0172 (surface parity): every ha_*/opt_* flag registered by
 // registerOptimizeFlags (enumerated from a cobra command, not a hand-written
-// list) is in the add-on schema, in options (except the optional
-// ha_url/ha_token), and the options default equals the flag default.
+// list) has its nested key in the add-on optimizer: schema and options
+// (except the optional ha_url/ha_token), and the options default equals the
+// flag default.
 func TestAddonOptimizeParity_T0172(t *testing.T) {
 	cfg := loadAddonConfig(t)
+	optSchema, optOptions := addonOptimizer(t, cfg)
 	flags := optCfgRegisteredKeys(t)
 
 	optionalOnly := map[string]bool{keyHAURL: true, keyHAToken: true}
 
 	for _, f := range flags {
 		t.Run(f.Name, func(t *testing.T) {
-			assert.Contains(t, cfg.Schema, f.Name, "missing from add-on schema")
-			if optionalOnly[f.Name] {
-				assert.NotContains(t, cfg.Options, f.Name, "optional key must not be in options")
+			name := addonOptimizerName(t, f)
+			key := optimizerGroup + "." + name
+			assert.Contains(t, optSchema, name, "missing from add-on optimizer schema")
+			if optionalOnly[key] {
+				assert.NotContains(t, optOptions, name, "optional key must not be in options")
 				return
 			}
-			require.Contains(t, cfg.Options, f.Name, "missing from add-on options")
-			opt := addonOptionString(cfg.Options[f.Name])
+			require.Contains(t, optOptions, name, "missing from add-on optimizer options")
+			opt := addonOptionString(optOptions[name])
 			switch {
-			case f.Name == keyOptPurchaseSurcharge:
+			case key == keyOptPurchaseSurcharge:
 				// The add-on default is 24 explicit zeros; the flag default ""
 				// means the same thing (parseSurcharge yields 24 x 0).
 				a, err := parseSurcharge(opt)
@@ -261,22 +290,64 @@ func TestAddonOptimizeParity_T0172(t *testing.T) {
 		})
 	}
 
-	// Reverse direction: no ha_*/opt_* key in the add-on that sbam does not
-	// register (a typo there would be silently ignored).
+	// Reverse direction: no key in the optimizer: map that sbam does not
+	// register (a typo there would be silently ignored), and no flat
+	// ha_*/opt_* keys left at the top level.
 	t.Run("no unknown add-on keys", func(t *testing.T) {
 		known := map[string]bool{}
 		for _, f := range flags {
-			known[f.Name] = true
+			known[addonOptimizerName(t, f)] = true
+		}
+		for k := range optSchema {
+			assert.True(t, known[k], "schema key optimizer.%s is not a registered option", k)
+		}
+		for k := range optOptions {
+			assert.True(t, known[k], "options key optimizer.%s is not a registered option", k)
 		}
 		for k := range cfg.Schema {
-			if optCfgIsOptimizeFlag(k) {
-				assert.True(t, known[k], "schema key %s is not a registered flag", k)
-			}
+			assert.False(t, optCfgIsOptimizeFlag(k), "flat schema key %s belongs under optimizer:", k)
 		}
 		for k := range cfg.Options {
-			if optCfgIsOptimizeFlag(k) {
-				assert.True(t, known[k], "options key %s is not a registered flag", k)
-			}
+			assert.False(t, optCfgIsOptimizeFlag(k), "flat options key %s belongs under optimizer:", k)
 		}
 	})
+}
+
+// Every option in the add-on optimizer: schema has a translated name and
+// description under configuration.optimizer.fields, and no translation is
+// left for an option that does not exist.
+func TestAddonOptimizerTranslations(t *testing.T) {
+	cfg := loadAddonConfig(t)
+	optSchema, _ := addonOptimizer(t, cfg)
+
+	data, err := os.ReadFile("../../home-assistant/addons/sbam/translations/en.yaml")
+	require.NoError(t, err)
+	var tr struct {
+		Configuration map[string]struct {
+			Name        string `yaml:"name"`
+			Description string `yaml:"description"`
+			Fields      map[string]struct {
+				Name        string `yaml:"name"`
+				Description string `yaml:"description"`
+			} `yaml:"fields"`
+		} `yaml:"configuration"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &tr))
+	group, ok := tr.Configuration[optimizerGroup]
+	require.True(t, ok, "translations must have configuration.optimizer")
+	assert.NotEmpty(t, group.Name)
+
+	for k := range optSchema {
+		f, ok := group.Fields[k]
+		if assert.True(t, ok, "optimizer.%s has no translation", k) {
+			assert.NotEmpty(t, f.Name, "optimizer.%s name", k)
+			assert.NotEmpty(t, f.Description, "optimizer.%s description", k)
+		}
+	}
+	for k := range group.Fields {
+		assert.Contains(t, optSchema, k, "translation for unknown option optimizer.%s", k)
+	}
+	for k := range tr.Configuration {
+		assert.False(t, optCfgIsOptimizeFlag(k), "flat translation key %s belongs under optimizer.fields", k)
+	}
 }

@@ -33,6 +33,7 @@ import (
 var SecretKeys = map[string]struct{}{
 	"apikey":                   {},
 	"ha_token":                 {},
+	"optimizer.ha_token":       {},
 	"mqtt_password":            {},
 	"mqtt_tls_client_cert_key": {},
 	// supervisor_token is never read via viper (S-013); listed defensively in
@@ -43,7 +44,8 @@ var SecretKeys = map[string]struct{}{
 // URLKeys is the registry of viper keys holding URLs whose userinfo part
 // (user:password@) must be redacted in any user-visible dump.
 var URLKeys = map[string]struct{}{
-	"ha_url": {},
+	"ha_url":           {},
+	"optimizer.ha_url": {},
 }
 
 const redacted = "***"
