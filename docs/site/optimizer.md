@@ -122,6 +122,11 @@ With `opt_ev_entity` set, sbam reads the EV power every 60 seconds. When the car
 
 Check the [prerequisites](prerequisites.md#cost-optimizer-prerequisites) first: you need the Nordpool integration, a household load power sensor, enough recorder history, and access to the Home Assistant API.
 
+Two existing options matter in optimize mode:
+
+- **`sunspec_type`** is honoured. The optimizer writes to the storage registers located for the configured type, the same as the other modes: `int_sf` uses the fixed "int + SF" addresses, `float` and `auto` locate the storage model through the SunSpec model chain before every write. If the storage model cannot be located or validated, nothing is written and the run falls back. Live testing so far was on `int_sf`; `float` and `auto` are covered by tests against a simulated inverter.
+- **`grid_import_limit`** is not supported yet. Planned charging does not apply the grid import allowance, so optimize mode refuses to start with `grid_import_limit` above 0 (exit code 1, after the usual defaults attempt in live mode). Set it to `0` or use `scheduler_mode: windows`.
+
 ### Home Assistant add-on
 
 1. Open **Settings → Add-ons → sbam → Configuration**.
@@ -250,13 +255,13 @@ To go live, set `opt_dry_run: false` and restart. The first run writes immediate
 
 ## Fail-safes
 
-All fail-safes write the inverter **defaults** (`self_consume`), with the storage-control mode reset first. In dry run the optimizer never forces anything, so the fail-safes stay silent. The one exception: if you sent a `force_charge` command, `pause` and shutdown restore the defaults even in dry run.
+All fail-safes write the inverter **defaults** (`self_consume`), with the storage-control mode reset first. In dry run the optimizer never forces anything, so the fail-safes stay silent. The one exception: if you sent a `force_charge` command, `pause` and shutdown restore the defaults even in dry run. (`hold` writes nothing in dry run.)
 
 | Trigger | What sbam does |
 |---------|----------------|
 | Every forced action (`charge`, `hold`, `standby`, `discharge`) | Also writes a revert timeout of 3900 s. The hourly run refreshes it. If sbam stops re-asserting, the inverter reverts within about 65 minutes (V6). |
 | Shutdown (SIGTERM / SIGINT, add-on stop) | Writes defaults within 5 s if the last applied action was not `self_consume`. |
-| Startup validation error in live mode | Attempts defaults (5 s deadline) before exiting with code 1, so a broken config edit does not leave a forced state behind. |
+| Startup validation error in live mode (including `grid_import_limit` > 0) | Attempts defaults (5 s deadline) before exiting with code 1, so a broken config edit does not leave a forced state behind. |
 | `pause` command | Writes defaults first, then pauses. See [MQTT commands](#mqtt-commands-in-optimize-mode). |
 | Missing or implausible input, invalid plan, solver error | Writes defaults, publishes an `optimizer_fallback_*` reason and retries at the next full hour. |
 | Modbus write or read-back failure | One defaults attempt, Error log, message on `<prefix>/error`, retry at the next full hour. |
@@ -283,7 +288,10 @@ Commands use the same topics and payloads as in the other modes (see [MQTT Guide
 | `resume` | Clears the pause and runs the optimizer immediately. Pause expiry does the same. |
 | `set_defaults` | Always accepted, even while paused. Writes defaults and ends a manual override. The next hourly run applies the plan again. |
 | `force_charge` | Rejected while paused. Otherwise it charges as in the other modes and also writes a revert timeout of `duration_s` + 300 s (end of the current hour + 300 s without `duration_s`). It starts a **manual override** until `duration_s` has passed, or until the end of the current hour. During the override, runs publish the plan with reason `optimizer_manual_override` and write nothing. `target_pct: 0` restores defaults and ends the override. |
+| `hold` | Rejected while paused. Otherwise it applies `hold` through the optimizer's own dispatch, with the 3900 s revert timeout, and starts a **manual override** until the end of the current hour. `pause`, `set_defaults` and shutdown release it. In dry run nothing is written. |
 | `set_reserve` | Rejected with `accepted: false, error: "not supported in scheduler_mode=optimize"`. The optimizer uses `opt_min_soc_pct`. |
+
+Any other command is rejected in optimize mode; none falls through to the handlers of the other modes.
 
 !!! warning "Protect your broker"
     In optimize mode, anyone who can publish to `<prefix>/cmd/#` can make the battery charge or stop it. Enable broker authentication and restrict `<prefix>/cmd/#` with an ACL to sbam's Home Assistant user. See [MQTT Guide → Broker security](mqtt.md#broker-security-in-optimize-mode).

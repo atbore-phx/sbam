@@ -185,6 +185,7 @@ With `scheduler_mode: optimize`, the topics and payloads are the same, but the s
 | `resume` | Clears the pause and runs the optimizer immediately. Pause expiry does the same. |
 | `set_defaults` | **Always accepted**, also while paused. Writes defaults and ends a manual override. The next hourly run (or `resume`) applies the plan again. |
 | `force_charge` | Rejected while paused. Otherwise it writes the force charge **plus an inverter revert timeout** of `duration_s` + 300 s (end of the current hour + 300 s without `duration_s`), and starts a manual override until `duration_s` has passed or the current hour ends. During the override, runs publish the plan with reason `optimizer_manual_override` and write nothing. `target_pct: 0` restores defaults and ends the override. |
+| `hold` | Rejected while paused. Otherwise it applies the optimizer `hold` action (discharge blocked, PV may still charge) **with the inverter revert timeout**, and starts a manual override until the end of the current hour; the next hourly run applies the plan again. `pause`, `set_defaults` and shutdown release it. In dry run nothing is written: the ack is accepted and `last_decision_reason` is `dry run: hold not written`. |
 | `set_reserve` | Rejected: `accepted: false, error: "not supported in scheduler_mode=optimize"`. The optimizer uses `opt_min_soc_pct`. |
 
 The manual force-charge sequence above is not needed in optimize mode: `force_charge` with `duration_s` keeps the optimizer from overwriting it, for example `{"target_pct":80,"duration_s":1800}`. For an emergency stop, send `pause` and then `set_defaults`.
@@ -267,7 +268,7 @@ The manual force-charge sequence above is not needed in optimize mode: `force_ch
 | `opt_dry_run` | boolean | `true` when nothing was written to the inverter. |
 | `opt_reasons` | string array | All applicable reason codes in precedence order; the first equals `last_decision_reason`. |
 
-In optimize mode, `last_decision` is the action, `fallback_defaults` or `paused`; `charge_window_active` and `batt_reserve_window_active` are `false`; `charge_pct` is set only for `charge`.
+In optimize mode, after a run `last_decision` is the action, `fallback_defaults` or `paused`. After a command it is the command name (`force_charge`, `hold`, `set_defaults`, `resume`) or `paused`, with the command's reason, until the next run publishes again; for `force_charge` and `hold` the reason is `optimizer_manual_override`. `charge_window_active` and `batt_reserve_window_active` are always `false`; `charge_pct` is set only for `charge` and `force_charge`.
 
 **State payload on fallback**:
 

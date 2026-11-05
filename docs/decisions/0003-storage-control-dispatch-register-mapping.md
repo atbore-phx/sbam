@@ -87,6 +87,16 @@ Whether Gen24 reads back the exact written values, especially negative rates, mu
 - **`WChaMax` is read, never written.**
 - **Dry-run** (now the default) opens no Modbus connection. It logs the exact `[]RegisterWrite` it would have written.
 
+### Register addresses follow `sunspec_type` (amendment, 2026-11-05)
+
+The addresses in the mapping table are the "int + SF" positions (storage model 124 at 40344). With the inverter set to "float" the storage model moves by 10 registers, so fixed addresses would write into the neighbouring model and the read-back would confirm the wrong address. `sunspec_type` is therefore the only source of truth for the dispatch addresses:
+
+- `fronius.StorageRegisters` (from `DiscoverStorageRegisters`, added with `sunspec_type`) also carries `WChaMax` (+2), `InOutWRte_RvrtTms` (+15), `WChaMax_SF` (+18) and `InOutWRte_SF` (+25) as offsets from the model's ID register.
+- `ApplyDispatch`, `SetDefaultsOrdered`, `ForceChargeWithRevert` and `ReadInverterLimits` take the SunSpec type and resolve the addresses on the open connection before reading the limits or writing. `int_sf` returns the fixed addresses without any read, so its write sequence is unchanged; `float` and `auto` walk the model chain, which also validates the model length and `InOutWRte_SF = −2`.
+- Nothing is written when the storage model cannot be located or validated; the run falls back like a limits read failure.
+- The write allowlist (S-005) is computed from the resolved addresses.
+- The dry-run preview cannot locate the model without a connection; for `float`/`auto` it shows the int+SF positions and says so.
+
 ## Consequences
 
 ### Positive
