@@ -64,6 +64,18 @@
     "payload": "{\"name\":\"Last Update\",\"unique_id\":\"sbam_golden_last_update\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.ts }}\",\"device_class\":\"timestamp\",\"entity_category\":\"diagnostic\",\"qos\":1}"
   },
   {
+    "topic": "homeassistant/sensor/sbam/reserve_target_wh/config",
+    "payload": "{\"name\":\"Reserve Target\",\"unique_id\":\"sbam_golden_reserve_target_wh\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.reserve_target_wh }}\",\"unit_of_measurement\":\"Wh\",\"state_class\":\"measurement\",\"qos\":1}"
+  },
+  {
+    "topic": "homeassistant/sensor/sbam/reserve_deficit_wh/config",
+    "payload": "{\"name\":\"Reserve Deficit\",\"unique_id\":\"sbam_golden_reserve_deficit_wh\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.reserve_deficit_wh }}\",\"unit_of_measurement\":\"Wh\",\"state_class\":\"measurement\",\"qos\":1}"
+  },
+  {
+    "topic": "homeassistant/sensor/sbam/grid_charge_allowance_w/config",
+    "payload": "{\"name\":\"Grid Charge Allowance\",\"unique_id\":\"sbam_golden_grid_charge_allowance_w\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.grid_charge_allowance_w }}\",\"unit_of_measurement\":\"W\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\",\"qos\":1}"
+  },
+  {
     "topic": "homeassistant/binary_sensor/sbam/paused/config",
     "payload": "{\"name\":\"Paused\",\"unique_id\":\"sbam_golden_paused\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.paused | string | lower }}\",\"entity_category\":\"diagnostic\",\"payload_on\":\"true\",\"payload_off\":\"false\",\"qos\":1}"
   },
@@ -74,6 +86,10 @@
   {
     "topic": "homeassistant/binary_sensor/sbam/batt_reserve_window_active/config",
     "payload": "{\"name\":\"Reserve Window\",\"unique_id\":\"sbam_golden_batt_reserve_window_active\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.batt_reserve_window_active | string | lower }}\",\"entity_category\":\"diagnostic\",\"payload_on\":\"true\",\"payload_off\":\"false\",\"qos\":1}"
+  },
+  {
+    "topic": "homeassistant/binary_sensor/sbam/reserve_at_risk/config",
+    "payload": "{\"name\":\"Reserve At Risk\",\"unique_id\":\"sbam_golden_reserve_at_risk\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"state_topic\":\"sbam/state\",\"value_template\":\"{{ value_json.reserve_at_risk | default(false) | string | lower }}\",\"device_class\":\"problem\",\"payload_on\":\"true\",\"payload_off\":\"false\",\"qos\":1}"
   },
   {
     "topic": "homeassistant/number/sbam/force_charge_target_pct/config",
@@ -102,5 +118,9 @@
   {
     "topic": "homeassistant/button/sbam/set_defaults/config",
     "payload": "{\"name\":\"Set Defaults\",\"unique_id\":\"sbam_golden_set_defaults\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"command_topic\":\"sbam/cmd/set_defaults\",\"payload_press\":\"{}\",\"retain\":false,\"qos\":1}"
+  },
+  {
+    "topic": "homeassistant/button/sbam/hold/config",
+    "payload": "{\"name\":\"Hold Battery\",\"unique_id\":\"sbam_golden_hold\",\"device\":{\"identifiers\":[\"sbam_golden\"],\"name\":\"sbam\",\"manufacturer\":\"atbore-phx\",\"model\":\"sbam\",\"sw_version\":\"1.0.0\"},\"availability_topic\":\"sbam/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\",\"command_topic\":\"sbam/cmd/hold\",\"payload_press\":\"{}\",\"retain\":false,\"qos\":1}"
   }
 ]
