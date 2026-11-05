@@ -151,7 +151,7 @@ windows:
     - if `scheduler_mode: windows` is used, the `crontab` field is ignored.
     - If `scheduler_mode: crontab` and `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used.
     - If `scheduler_mode: crontab` and `windows` is non-empty, the windows list is used for decisions, but ticks are still driven by the cron schedule.
-    - If `scheduler_mode: optimize` is used, `crontab`, `windows`, `start_hr`/`end_hr`/`max_charge` and the reserve window are ignored. A Warn is logged when `crontab` is set.
+    - If `scheduler_mode: optimize` is used, `crontab`, `windows`, `start_hr`/`end_hr`/`max_charge`, the reserve window, `batt_min_soc`, `pw_base_load`, `grid_charge_priority` and `grid_import_margin` are ignored and not validated (`grid_import_limit` must be `0`). A Warn is logged when `crontab` is set.
 
 !!! note "HA add-on crontab default"
     The HA add-on default is `00 00-05 * * *` (runs every minute from midnight to 5 AM). The CLI binary default is `0 0 0 0 0` (crontab disabled).

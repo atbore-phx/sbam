@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -8,10 +9,14 @@ import (
 
 	"sbam/pkg/fronius"
 	pw "sbam/pkg/power"
+	u "sbam/src/utils"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type scheduleValidationArgs struct {
@@ -543,4 +548,120 @@ func TestCheckScheduleschedule_OptimizeSkipsLegacyChecks(t *testing.T) {
 
 	err = checkScheduleschedule("", "", "https://solcast.example.invalid", "192.0.2.10", 12000, 0, 0, "", "", nil, schedulerModeOptimize, false)
 	assert.Error(t, err, "optimize mode still requires the Solcast API key")
+}
+
+// legacyOptionGlobals snapshots the reserve/grid globals checkWindowModeOptions reads.
+func legacyOptionGlobals(t *testing.T) {
+	t.Helper()
+	minSoC, baseLoad, prio, limit, margin := batt_min_soc, pw_base_load, grid_charge_priority, grid_import_limit, grid_import_margin
+	t.Cleanup(func() {
+		batt_min_soc, pw_base_load, grid_charge_priority, grid_import_limit, grid_import_margin = minSoC, baseLoad, prio, limit, margin
+	})
+}
+
+// Issue #214: the reserve and grid import options are validated in the
+// crontab/windows modes only; optimize mode ignores them.
+func TestCheckWindowModeOptions(t *testing.T) {
+	invalid := map[string]func(){
+		"batt_min_soc above 100": func() { batt_min_soc = 150 },
+		"negative pw_base_load":  func() { pw_base_load = -1 },
+		"unknown priority":       func() { grid_charge_priority = "bogus" },
+		"negative margin":        func() { grid_import_margin = -5 },
+	}
+	for name, set := range invalid {
+		t.Run(name, func(t *testing.T) {
+			legacyOptionGlobals(t)
+			batt_min_soc, pw_base_load, grid_charge_priority, grid_import_limit, grid_import_margin = 5, 0, GridChargePriorityBattery, 0, 200
+			set()
+			assert.Error(t, checkWindowModeOptions(false), "windows/crontab still refuse it")
+			assert.NoError(t, checkWindowModeOptions(true), "optimize mode ignores it")
+		})
+	}
+	t.Run("valid values pass in both modes", func(t *testing.T) {
+		legacyOptionGlobals(t)
+		batt_min_soc, pw_base_load, grid_charge_priority, grid_import_limit, grid_import_margin = 5, 0, GridChargePriorityBattery, 0, 200
+		assert.NoError(t, checkWindowModeOptions(false))
+		assert.NoError(t, checkWindowModeOptions(true))
+	})
+}
+
+// Issue #214, command level: in optimize mode invalid reserve/grid options no
+// longer stop startup with a logged error and exit 0; sbam schedule gets past
+// the checks and starts the optimizer (the runner context is pre-cancelled so
+// the test does not block on a signal).
+func TestScheduleCommand_OptimizeIgnoresLegacyReserveGridOptions(t *testing.T) {
+	snapshotScheduleGlobals(t)
+	legacyOptionGlobals(t)
+	setOptimizeStartupViper(t, strings.TrimSuffix(strings.Repeat("0.1,", 24), ","), true)
+	viper.Set("scheduler_mode", "optimize")
+	viper.Set("apikey", "test-api-key")
+	viper.Set("url", "https://solcast.example.invalid/forecasts")
+	viper.Set("cache_time", 7200)
+	viper.Set("forecast_horizon", "default")
+	viper.Set("consumption_horizon", "full_day")
+	viper.Set("batt_min_soc", 150.0)
+	viper.Set("pw_base_load", -1.0)
+	viper.Set("grid_charge_priority", "bogus")
+	viper.Set("grid_import_margin", -5.0)
+	withStartupWriter(t)
+	stubVerifySunSpecType(t) // no Modbus dial to the test address
+
+	oldCtx := scheduleRunContext
+	scheduleRunContext = func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { scheduleRunContext = oldCtx })
+	core, logs := observer.New(zap.InfoLevel)
+	oldLog := u.Log
+	u.Log = zap.New(core).Sugar()
+	t.Cleanup(func() { u.Log = oldLog })
+
+	err := scdCmd.RunE(scdCmd, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, logs.FilterMessage("optimize mode active").Len(), "startup got past the checks")
+	assert.Zero(t, logs.FilterLevelExact(zapcore.ErrorLevel).Len(), "no validation error logged")
+}
+
+// Issue #214: the crontab/windows behaviour is unchanged: an invalid option is
+// logged and sbam schedule returns without starting (exit 0, pre-existing).
+func TestScheduleCommand_WindowsStillRefusesInvalidReserveOption(t *testing.T) {
+	snapshotScheduleGlobals(t)
+	legacyOptionGlobals(t)
+	resetViper(t)
+	viper.Set("scheduler_mode", "crontab")
+	viper.Set("fronius_ip", "192.0.2.10")
+	viper.Set("apikey", "test-api-key")
+	viper.Set("url", "https://solcast.example.invalid/forecasts")
+	viper.Set("start_hr", "00:00")
+	viper.Set("end_hr", "06:00")
+	viper.Set("crontab", const_ct)
+	viper.Set("cache_time", 7200)
+	viper.Set("forecast_horizon", "default")
+	viper.Set("consumption_horizon", "full_day")
+	viper.Set("pw_consumption", 12000.0)
+	viper.Set("batt_min_soc", 150.0)
+	stubVerifySunSpecType(t) // no Modbus dial to the test address
+
+	started := false
+	oldCtx := scheduleRunContext
+	scheduleRunContext = func() (context.Context, context.CancelFunc) {
+		started = true
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { scheduleRunContext = oldCtx })
+	core, logs := observer.New(zap.InfoLevel)
+	oldLog := u.Log
+	u.Log = zap.New(core).Sugar()
+	t.Cleanup(func() { u.Log = oldLog })
+
+	err := scdCmd.RunE(scdCmd, nil)
+
+	require.NoError(t, err)
+	assert.False(t, started, "the runner is not started")
+	assert.Equal(t, 1, logs.FilterMessage("batt_min_soc must be between 0 and 100, got 150.00").Len())
 }
