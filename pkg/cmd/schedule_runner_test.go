@@ -17,6 +17,7 @@ import (
 )
 
 type fakeBatteryWriter struct {
+	lastCtx          context.Context
 	holdCalls        int
 	holdErr          error
 	forceChargeCalls int
@@ -35,26 +36,27 @@ type stubFroniusClient struct {
 	lastConsumption float64
 }
 
-func (s *stubFroniusClient) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+func (s *stubFroniusClient) Handler(_ context.Context, pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
 	s.calls++
 	s.lastConsumption = pw_consumption
 	return 0, fronius.DecisionIdle, "stub", fronius.PowerState{}, nil
 }
 
-func (f *fakeBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
+func (f *fakeBatteryWriter) ForceCharge(_ context.Context, froniusIP string, targetPct int16) error {
 	f.forceChargeCalls++
 	f.lastFroniusIP = froniusIP
 	f.lastTargetPct = targetPct
 	return f.forceChargeErr
 }
 
-func (f *fakeBatteryWriter) SetDefaults(froniusIP string) error {
+func (f *fakeBatteryWriter) SetDefaults(ctx context.Context, froniusIP string) error {
+	f.lastCtx = ctx
 	f.setDefaultsCalls++
 	f.lastFroniusIP = froniusIP
 	return f.setDefaultsErr
 }
 
-func (f *fakeBatteryWriter) Hold(froniusIP string) error {
+func (f *fakeBatteryWriter) Hold(_ context.Context, froniusIP string) error {
 	f.holdCalls++
 	f.lastFroniusIP = froniusIP
 	return f.holdErr
@@ -2170,4 +2172,28 @@ func TestRunner_Tick_ToNextWindowFallsBackWithoutWindows(t *testing.T) {
 	require.True(t, ok, "expected state publish")
 	state := decodeStatePayload(t, stateMsg.payload)
 	assert.Equal(t, pw.ConsumptionHorizonRemainingToday, state.ConsumptionHorizon)
+}
+
+// A shutdown cancels the context of user commands, but the window-end reset
+// must still reach the inverter.
+func TestHandleSetDefaultsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	t.Run("window-end reset ignores the cancel", func(t *testing.T) {
+		runner := newRunnerForTests(&recordingMQTTClient{connected: true})
+		w := &fakeBatteryWriter{}
+		runner.writer = w
+
+		require.NoError(t, runner.handleSetDefaults(ctx, mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}))
+		assert.NoError(t, w.lastCtx.Err())
+	})
+	t.Run("user command keeps it", func(t *testing.T) {
+		runner := newRunnerForTests(&recordingMQTTClient{connected: true})
+		w := &fakeBatteryWriter{}
+		runner.writer = w
+
+		require.NoError(t, runner.handleSetDefaults(ctx, mqtt.Intent{Kind: mqtt.IntentSetDefaults}))
+		assert.ErrorIs(t, w.lastCtx.Err(), context.Canceled)
+	})
 }

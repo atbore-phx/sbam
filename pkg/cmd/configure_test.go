@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"sbam/pkg/fronius"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestConfigure_ForceChargeWithoutPowerDoesNotPanic(t *testing.T) {
 	withConfigureGlobals(t, false, true)
 
 	assert.NotPanics(t, func() {
-		configure(fronius.SunSpecIntSF, "unused", 0)
+		configure(context.Background(), fronius.SunSpecIntSF, "unused", 0)
 	})
 }
 
@@ -71,7 +72,7 @@ func TestConfigure_PanicsWhenDefaultsWriteFails(t *testing.T) {
 	withConfigureGlobals(t, true, false)
 
 	assert.Panics(t, func() {
-		configure(fronius.SunSpecIntSF, "bad host", 0)
+		configure(context.Background(), fronius.SunSpecIntSF, "bad host", 0)
 	})
 }
 
@@ -79,6 +80,6 @@ func TestConfigure_PanicsWhenForceChargeWriteFails(t *testing.T) {
 	withConfigureGlobals(t, false, true)
 
 	assert.Panics(t, func() {
-		configure(fronius.SunSpecIntSF, "bad host", 20)
+		configure(context.Background(), fronius.SunSpecIntSF, "bad host", 20)
 	})
 }

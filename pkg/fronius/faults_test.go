@@ -1,6 +1,7 @@
 package fronius
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
 	"testing"
@@ -75,7 +76,7 @@ func TestDiscoveryReadFailures(t *testing.T) {
 			require.NoError(t, OpenModbusClient("tcp", modbus_ip, faultyPort))
 			defer ClosemodbusClient()
 
-			_, err := DiscoverStorageRegisters(SunSpecAuto)
+			_, err := DiscoverStorageRegisters(context.Background(), SunSpecAuto)
 
 			assert.ErrorContains(t, err, tc.want)
 		})
@@ -87,7 +88,7 @@ func TestDetectSunSpecTypeReadFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			faultyInverter(t, map[uint16]bool{fail: true}, false)
 
-			_, err := DetectSunSpecType(modbus_ip, faultyPort)
+			_, err := DetectSunSpecType(context.Background(), modbus_ip, faultyPort)
 
 			assert.ErrorContains(t, err, "failed")
 		})
@@ -97,7 +98,7 @@ func TestDetectSunSpecTypeReadFailures(t *testing.T) {
 func TestReadStorageControlModeDiscoveryFailure(t *testing.T) {
 	faultyInverter(t, map[uint16]bool{sunspecMarkerAddr: true}, false)
 
-	_, err := ReadStorageControlMode(SunSpecFloat, modbus_ip, faultyPort)
+	_, err := ReadStorageControlMode(context.Background(), SunSpecFloat, modbus_ip, faultyPort)
 
 	assert.ErrorContains(t, err, "read SunSpec marker failed")
 }
@@ -106,28 +107,28 @@ func TestStorageWriteFailures(t *testing.T) {
 	t.Run("register read before write", func(t *testing.T) {
 		faultyInverter(t, map[uint16]bool{floatOutWRte: true}, false)
 
-		err := ApplyForceCharge(SunSpecFloat, modbus_ip, 50, faultyPort)
+		err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 50, faultyPort)
 
 		assert.ErrorContains(t, err, "read register")
 	})
 	t.Run("write", func(t *testing.T) {
 		faultyInverter(t, nil, true)
 
-		err := ApplyForceCharge(SunSpecFloat, modbus_ip, 50, faultyPort)
+		err := ApplyForceCharge(context.Background(), SunSpecFloat, modbus_ip, 50, faultyPort)
 
 		assert.ErrorContains(t, err, "write register")
 	})
 	t.Run("defaults through a zero charge", func(t *testing.T) {
 		faultyInverter(t, nil, true)
 
-		err := ApplyForceCharge(SunSpecAuto, modbus_ip, 0, faultyPort)
+		err := ApplyForceCharge(context.Background(), SunSpecAuto, modbus_ip, 0, faultyPort)
 
 		assert.ErrorContains(t, err, "write register")
 	})
 	t.Run("hold", func(t *testing.T) {
 		faultyInverter(t, nil, true)
 
-		err := ApplyHold(SunSpecAuto, modbus_ip, faultyPort)
+		err := ApplyHold(context.Background(), SunSpecAuto, modbus_ip, faultyPort)
 
 		assert.ErrorContains(t, err, "write register")
 	})
@@ -142,7 +143,7 @@ func TestClassifierErrorBranch(t *testing.T) {
 		srv := faultyInverter(t, nil, false)
 		before := append([]uint16(nil), srv.HoldingRegisters...)
 
-		_, _, _, _, err := setFroniusChargeBatteryMode(SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
+		_, _, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
 
 		require.NoError(t, err)
 		assert.Equal(t, before, srv.HoldingRegisters)
@@ -151,7 +152,7 @@ func TestClassifierErrorBranch(t *testing.T) {
 		srv := faultyInverter(t, nil, false)
 		srv.HoldingRegisters[40359-1] = 2
 
-		_, _, _, _, err := setFroniusChargeBatteryMode(SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
+		_, _, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
 
 		require.NoError(t, err)
 		assert.Equal(t, uint16(0), srv.HoldingRegisters[40359-1])
@@ -161,7 +162,7 @@ func TestClassifierErrorBranch(t *testing.T) {
 		srv := faultyInverter(t, nil, true)
 		srv.HoldingRegisters[40359-1] = 2
 
-		_, _, _, _, err := setFroniusChargeBatteryMode(SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
+		_, _, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecFloat, true, nan, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
 
 		assert.ErrorContains(t, err, "write register")
 	})
@@ -170,7 +171,7 @@ func TestClassifierErrorBranch(t *testing.T) {
 func TestChargeModeHoldWriteFailure(t *testing.T) {
 	faultyInverter(t, nil, true)
 
-	_, decision, _, _, err := setFroniusChargeBatteryMode(SunSpecFloat, true, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
+	_, decision, _, _, err := setFroniusChargeBatteryMode(context.Background(), SunSpecFloat, true, 20000, 5000, 11000, 9000, 3500, 0, "00:00", "23:59", modbus_ip, true, 0, 0, true, faultyPort)
 
 	assert.Equal(t, DecisionIdle, decision)
 	assert.ErrorContains(t, err, "write register")

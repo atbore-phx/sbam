@@ -1,6 +1,7 @@
 package fronius
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,7 @@ func TestHandler(t *testing.T) {
 	endHr := "17:00"
 
 	setup()
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
+	_, _, _, _, err := fronius.Handler(context.Background(), pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 	teardown()
 
 	assert.NoError(err, "Handler returned an error")
@@ -164,7 +165,7 @@ func TestHandlerError(t *testing.T) {
 	startHr := "09:00"
 	endHr := "17:00"
 
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
+	_, _, _, _, err := fronius.Handler(context.Background(), pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 
 	assert.Error(err, "Handler returned an error")
 }
@@ -514,7 +515,7 @@ func TestApplyDefaultsIntSFReadBackMismatchTolerated(t *testing.T) {
 	f.corrupt[OutWRte] = true
 	f.mu.Unlock()
 
-	assert.NoError(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort))
+	assert.NoError(t, ApplyDefaults(context.Background(), SunSpecIntSF, modbus_ip, dispatchPort))
 	assert.Equal(t, []uint16{StorCtl_Mod, OutWRte, InWRte, MinRsvPct, ChaGriSet}, addrOrder(f.recorded()))
 }
 
@@ -525,7 +526,7 @@ func TestApplyDefaultsIntSFWriteFailureIsError(t *testing.T) {
 	f.failWrite[InWRte] = true
 	f.mu.Unlock()
 
-	assert.ErrorIs(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort), ErrModbusWrite)
+	assert.ErrorIs(t, ApplyDefaults(context.Background(), SunSpecIntSF, modbus_ip, dispatchPort), ErrModbusWrite)
 }
 
 // T-0107 edge: 100 % is accepted and maps to OutWRte = -10000.

@@ -64,9 +64,9 @@ type RunnerConfig struct {
 }
 
 type batteryWriter interface {
-	ForceCharge(froniusIP string, targetPct int16) error
-	SetDefaults(froniusIP string) error
-	Hold(froniusIP string) error
+	ForceCharge(ctx context.Context, froniusIP string, targetPct int16) error
+	SetDefaults(ctx context.Context, froniusIP string) error
+	Hold(ctx context.Context, froniusIP string) error
 }
 
 // froniusBatteryWriter writes through the fronius package using the selected
@@ -84,16 +84,16 @@ func (w froniusBatteryWriter) ports() []string {
 	return []string{w.port}
 }
 
-func (w froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
-	return fronius.ApplyForceCharge(w.sunspecType, froniusIP, targetPct, w.ports()...)
+func (w froniusBatteryWriter) ForceCharge(ctx context.Context, froniusIP string, targetPct int16) error {
+	return fronius.ApplyForceCharge(ctx, w.sunspecType, froniusIP, targetPct, w.ports()...)
 }
 
-func (w froniusBatteryWriter) SetDefaults(froniusIP string) error {
-	return fronius.ApplyDefaults(w.sunspecType, froniusIP, w.ports()...)
+func (w froniusBatteryWriter) SetDefaults(ctx context.Context, froniusIP string) error {
+	return fronius.ApplyDefaults(ctx, w.sunspecType, froniusIP, w.ports()...)
 }
 
-func (w froniusBatteryWriter) Hold(froniusIP string) error {
-	return fronius.ApplyHold(w.sunspecType, froniusIP, w.ports()...)
+func (w froniusBatteryWriter) Hold(ctx context.Context, froniusIP string) error {
+	return fronius.ApplyHold(ctx, w.sunspecType, froniusIP, w.ports()...)
 }
 
 var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
@@ -549,6 +549,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	froniusHandler := newFronius(r.cfg.SunSpecType)
 	chargePct, decision, reason, powerState, froniusErr := froniusHandler.Handler(
+		ctx,
 		solarPowerProduction,
 		capacityToCharge,
 		capacityMax,
@@ -706,7 +707,7 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		return err
 	}
 
-	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
+	if err := r.writer.ForceCharge(ctx, r.cfg.FroniusIP, targetPct); err != nil {
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
@@ -803,7 +804,12 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 		return err
 	}
 
-	if err := r.writer.SetDefaults(r.cfg.FroniusIP); err != nil {
+	// The window-end reset also survives a shutdown that has just started.
+	writeCtx := ctx
+	if intent.System {
+		writeCtx = context.WithoutCancel(ctx)
+	}
+	if err := r.writer.SetDefaults(writeCtx, r.cfg.FroniusIP); err != nil {
 		r.publishError(ctx, "set_defaults", err)
 		return err
 	}
@@ -826,7 +832,7 @@ func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
 		return err
 	}
 
-	if err := r.writer.Hold(r.cfg.FroniusIP); err != nil {
+	if err := r.writer.Hold(ctx, r.cfg.FroniusIP); err != nil {
 		r.publishError(ctx, "hold", err)
 		return err
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -23,7 +24,7 @@ func stubVerifySunSpecType(t *testing.T) *[]verifyCall {
 	t.Helper()
 	calls := []verifyCall{}
 	old := verifySunSpecType
-	verifySunSpecType = func(st fronius.SunSpecType, ip string, _ ...string) {
+	verifySunSpecType = func(_ context.Context, st fronius.SunSpecType, ip string, _ ...string) {
 		calls = append(calls, verifyCall{st, ip})
 	}
 	t.Cleanup(func() { verifySunSpecType = old })
@@ -33,12 +34,12 @@ func stubVerifySunSpecType(t *testing.T) *[]verifyCall {
 func TestSetupSunSpecType(t *testing.T) {
 	calls := stubVerifySunSpecType(t)
 
-	st, err := setupSunSpecType("float", "127.0.0.1", true)
+	st, err := setupSunSpecType(context.Background(), "float", "127.0.0.1", true)
 	assert.NoError(t, err)
 	assert.Equal(t, fronius.SunSpecFloat, st)
 	assert.Equal(t, []verifyCall{{fronius.SunSpecFloat, "127.0.0.1"}}, *calls, "verify runs with the configured type")
 
-	st, err = setupSunSpecType("", "127.0.0.1", false)
+	st, err = setupSunSpecType(context.Background(), "", "127.0.0.1", false)
 	assert.NoError(t, err)
 	assert.Equal(t, fronius.SunSpecIntSF, st, "empty selects the default")
 	assert.Len(t, *calls, 1, "verify skipped when not requested")
@@ -47,7 +48,7 @@ func TestSetupSunSpecType(t *testing.T) {
 func TestSetupSunSpecTypeInvalid(t *testing.T) {
 	calls := stubVerifySunSpecType(t)
 
-	_, err := setupSunSpecType("bogus", "127.0.0.1", true)
+	_, err := setupSunSpecType(context.Background(), "bogus", "127.0.0.1", true)
 
 	assert.ErrorContains(t, err, "invalid sunspec_type")
 	assert.Empty(t, *calls, "no inverter access on invalid config")
@@ -219,14 +220,14 @@ func TestBatteryWriterUsesSelectedType(t *testing.T) {
 			srv := startFloatInverter(t)
 			w := froniusBatteryWriter{sunspecType: st, port: writerTestPort}
 
-			require.NoError(t, w.ForceCharge(writerTestAddr, 50))
+			require.NoError(t, w.ForceCharge(context.Background(), writerTestAddr, 50))
 			assert.Equal(t, int16(2), holding(srv, 40359), "StorCtl_Mod at the discovered address")
 			assert.Equal(t, int16(-5000), holding(srv, 40366), "OutWRte at the discovered address")
 			for _, a := range legacyStorageAddrs {
 				assert.Equal(t, int16(0), holding(srv, a), "legacy address %d untouched", a)
 			}
 
-			require.NoError(t, w.SetDefaults(writerTestAddr))
+			require.NoError(t, w.SetDefaults(context.Background(), writerTestAddr))
 			assert.Equal(t, int16(0), holding(srv, 40359), "StorCtl_Mod restored")
 			assert.Equal(t, int16(10000), holding(srv, 40366), "OutWRte restored")
 			for _, a := range legacyStorageAddrs {
@@ -240,7 +241,7 @@ func TestBatteryWriterIntSFUsesLegacyAddresses(t *testing.T) {
 	srv := startFloatInverter(t)
 	w := froniusBatteryWriter{sunspecType: fronius.SunSpecIntSF, port: writerTestPort}
 
-	require.NoError(t, w.ForceCharge(writerTestAddr, 50))
+	require.NoError(t, w.ForceCharge(context.Background(), writerTestAddr, 50))
 
 	assert.Equal(t, int16(2), holding(srv, fronius.StorCtl_Mod), "int_sf writes the legacy StorCtl_Mod")
 	assert.Equal(t, int16(-5000), holding(srv, fronius.OutWRte), "int_sf writes the legacy OutWRte")
@@ -257,4 +258,22 @@ func TestRunnerFactoriesCarrySunSpecType(t *testing.T) {
 	f, ok := newFronius(fronius.SunSpecAuto).(*fronius.Fronius)
 	require.True(t, ok)
 	assert.Equal(t, fronius.SunSpecAuto, f.SunSpecType)
+}
+
+func TestSetupSunSpecTypeBoundsTheVerify(t *testing.T) {
+	old := verifySunSpecType
+	t.Cleanup(func() { verifySunSpecType = old })
+	var hasDeadline bool
+	verifySunSpecType = func(ctx context.Context, _ fronius.SunSpecType, _ string, _ ...string) {
+		_, hasDeadline = ctx.Deadline()
+	}
+
+	_, err := setupSunSpecType(context.Background(), "auto", "127.0.0.1", true)
+
+	require.NoError(t, err)
+	assert.True(t, hasDeadline)
+}
+
+func TestCommandContextDefaultsWhenUnset(t *testing.T) {
+	assert.NotNil(t, commandContext(&cobra.Command{}))
 }

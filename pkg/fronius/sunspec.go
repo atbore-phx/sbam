@@ -1,6 +1,7 @@
 package fronius
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -143,11 +144,11 @@ func LegacyStorageRegisters() StorageRegisters {
 // open connection. SunSpecIntSF (and the zero value) returns the legacy
 // addresses without any read, so the int+SF write sequence is unchanged; the
 // other types walk the model chain via DiscoverStorageRegisters.
-func resolveStorageRegisters(t SunSpecType) (StorageRegisters, error) {
+func resolveStorageRegisters(ctx context.Context, t SunSpecType) (StorageRegisters, error) {
 	if t.orDefault() == SunSpecIntSF {
 		return LegacyStorageRegisters(), nil
 	}
-	return DiscoverStorageRegisters(t)
+	return DiscoverStorageRegisters(ctx, t)
 }
 
 // defaults returns the register values that restore normal battery operation.
@@ -161,13 +162,18 @@ func (r StorageRegisters) defaults() map[uint16]int16 {
 	}
 }
 
-func readHolding(address uint16, quantity uint16) ([]uint16, error) {
+// readHolding reads holding registers unless ctx is done, so a walk of the
+// model chain stops between reads.
+func readHolding(ctx context.Context, address uint16, quantity uint16) ([]uint16, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return modbusClient.ReadRegisters(address-1, quantity, modbus.HOLDING_REGISTER)
 }
 
 // hasSunSpecMarker reports whether the "SunS" marker is present at 40001.
-func hasSunSpecMarker() (bool, error) {
-	marker, err := readHolding(sunspecMarkerAddr, 2)
+func hasSunSpecMarker(ctx context.Context) (bool, error) {
+	marker, err := readHolding(ctx, sunspecMarkerAddr, 2)
 	if err != nil {
 		return false, fmt.Errorf("read SunSpec marker failed: %w", err)
 	}
@@ -177,10 +183,10 @@ func hasSunSpecMarker() (bool, error) {
 // findModel walks the SunSpec model chain and returns the ID, start address
 // and length of the first model accepted by match. found is false when the
 // end of the chain is reached without a match.
-func findModel(match func(id uint16) bool) (id uint16, addr uint16, length uint16, found bool, err error) {
+func findModel(ctx context.Context, match func(id uint16) bool) (id uint16, addr uint16, length uint16, found bool, err error) {
 	a := uint32(sunspecFirstModelAddr)
 	for i := 0; i < sunspecMaxModels && a+1 <= 0xFFFF; i++ {
-		header, rerr := readHolding(uint16(a), 2)
+		header, rerr := readHolding(ctx, uint16(a), 2)
 		if rerr != nil {
 			return 0, 0, 0, false, fmt.Errorf("read SunSpec model header at %d failed: %w", a, rerr)
 		}
@@ -202,8 +208,8 @@ func findModel(match func(id uint16) bool) (id uint16, addr uint16, length uint1
 // legacy "int + SF" addresses and any other type returns
 // ErrSunSpecMarkerNotFound. When the marker is present but model 124 is not,
 // ErrStorageModelNotFound is returned. Callers must not write on error.
-func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
-	ok, err := hasSunSpecMarker()
+func DiscoverStorageRegisters(ctx context.Context, t SunSpecType) (StorageRegisters, error) {
+	ok, err := hasSunSpecMarker(ctx)
 	if err != nil {
 		return StorageRegisters{}, err
 	}
@@ -215,14 +221,14 @@ func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
 		return StorageRegisters{}, ErrSunSpecMarkerNotFound
 	}
 
-	_, addr, length, found, err := findModel(func(id uint16) bool { return id == sunspecStorageModelID })
+	_, addr, length, found, err := findModel(ctx, func(id uint16) bool { return id == sunspecStorageModelID })
 	if err != nil {
 		return StorageRegisters{}, err
 	}
 	if !found {
 		return StorageRegisters{}, ErrStorageModelNotFound
 	}
-	if err := checkStorageModel(addr, length); err != nil {
+	if err := checkStorageModel(ctx, addr, length); err != nil {
 		return StorageRegisters{}, err
 	}
 	u.Log.Debugf("SunSpec storage model 124 at %d", addr)
@@ -231,11 +237,11 @@ func DiscoverStorageRegisters(t SunSpecType) (StorageRegisters, error) {
 
 // checkStorageModel verifies that model 124 at addr has the full SunSpec
 // length and the InOutWRte_SF that sbam's OutWRte/InWRte values assume.
-func checkStorageModel(addr, length uint16) error {
+func checkStorageModel(ctx context.Context, addr, length uint16) error {
 	if length < storageModelLen {
 		return fmt.Errorf("%w: model 124 at %d has length %d, want %d", ErrUnexpectedStorageModel, addr, length, storageModelLen)
 	}
-	v, err := readHolding(addr+offInOutWRteSF, 1)
+	v, err := readHolding(ctx, addr+offInOutWRteSF, 1)
 	if err != nil {
 		return fmt.Errorf("read InOutWRte_SF at %d failed: %w", addr+offInOutWRteSF, err)
 	}
@@ -259,12 +265,12 @@ func sunspecTypeForInverterModel(id uint16) (SunSpecType, bool) {
 
 // DetectSunSpecType reads the SunSpec model chain (read-only) and reports
 // whether the inverter is set to "int + SF" or "float".
-func DetectSunSpecType(modbusIP string, port ...string) (SunSpecType, error) {
+func DetectSunSpecType(ctx context.Context, modbusIP string, port ...string) (SunSpecType, error) {
 	p := "502"
 	if len(port) > 0 {
 		p = port[0]
 	}
-	if err := OpenModbusClient("tcp", modbusIP, p); err != nil {
+	if err := openModbusClient(ctx, "tcp", modbusIP, p); err != nil {
 		return "", err
 	}
 	defer func() {
@@ -273,14 +279,14 @@ func DetectSunSpecType(modbusIP string, port ...string) (SunSpecType, error) {
 		}
 	}()
 
-	ok, err := hasSunSpecMarker()
+	ok, err := hasSunSpecMarker(ctx)
 	if err != nil {
 		return "", err
 	}
 	if !ok {
 		return "", ErrSunSpecMarkerNotFound
 	}
-	id, _, _, found, err := findModel(func(id uint16) bool {
+	id, _, _, found, err := findModel(ctx, func(id uint16) bool {
 		_, isInverter := sunspecTypeForInverterModel(id)
 		return isInverter
 	})
@@ -297,8 +303,8 @@ func DetectSunSpecType(modbusIP string, port ...string) (SunSpecType, error) {
 // VerifySunSpecType compares the configured type with the one the inverter
 // reports and logs a warning on mismatch. It only reads registers and never
 // changes behaviour; a failed check is logged and ignored.
-func VerifySunSpecType(configured SunSpecType, modbusIP string, port ...string) {
-	detected, err := DetectSunSpecType(modbusIP, port...)
+func VerifySunSpecType(ctx context.Context, configured SunSpecType, modbusIP string, port ...string) {
+	detected, err := DetectSunSpecType(ctx, modbusIP, port...)
 	if err != nil {
 		u.Log.Warnf("could not verify the inverter SunSpec model type (sunspec_type=%s): %v", configured, err)
 		return

@@ -1,6 +1,10 @@
 package fronius
 
-import u "sbam/src/utils"
+import (
+	"context"
+
+	u "sbam/src/utils"
+)
 
 // ApplyHold blocks battery discharge while keeping charging from PV allowed:
 // StorCtl_Mod = 2 (limit discharge) with OutWRte = 0 %, the other storage
@@ -8,7 +12,10 @@ import u "sbam/src/utils"
 //
 // With SunSpecIntSF (or the zero value) the legacy int+SF addresses are
 // written; otherwise the storage model is located as for ApplyForceCharge.
-func ApplyHold(t SunSpecType, modbusIP string, port ...string) error {
+func ApplyHold(ctx context.Context, t SunSpecType, modbusIP string, port ...string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p := "502"
 	if len(port) > 0 {
 		p = port[0]
@@ -22,7 +29,7 @@ func ApplyHold(t SunSpecType, modbusIP string, port ...string) error {
 		regList[OutWRte] = 0     // to 0 %
 		err = Connectmodbus(modbusIP, regList, p)
 	} else {
-		err = connectStorage(t, modbusIP, func(r StorageRegisters) map[uint16]int16 {
+		err = connectStorage(ctx, t, modbusIP, func(r StorageRegisters) map[uint16]int16 {
 			regList := r.defaults()
 			regList[r.StorCtlMod] = 2 // Limit Decharging
 			regList[r.OutWRte] = 0    // to 0 %

@@ -234,11 +234,11 @@ func (r *Runner) handleLimitCheck(ctx context.Context) {
 
 	switch {
 	case pct > 0:
-		err = r.writer.ForceCharge(r.cfg.FroniusIP, pct)
+		err = r.writer.ForceCharge(ctx, r.cfg.FroniusIP, pct)
 	case s.hold:
-		err = r.writer.Hold(r.cfg.FroniusIP)
+		err = r.writer.Hold(ctx, r.cfg.FroniusIP)
 	default:
-		err = r.writer.ForceCharge(r.cfg.FroniusIP, 0)
+		err = r.writer.ForceCharge(ctx, r.cfg.FroniusIP, 0)
 	}
 	if err != nil {
 		r.publishError(ctx, "grid_import_limit", err)

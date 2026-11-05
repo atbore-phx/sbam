@@ -77,7 +77,7 @@ func TestBatteryWriterHoldUsesSelectedType(t *testing.T) {
 	srv := startFloatInverter(t)
 	w := froniusBatteryWriter{sunspecType: fronius.SunSpecAuto, port: writerTestPort}
 
-	require.NoError(t, w.Hold(writerTestAddr))
+	require.NoError(t, w.Hold(context.Background(), writerTestAddr))
 
 	assert.Equal(t, int16(2), holding(srv, 40359), "StorCtl_Mod")
 	assert.Equal(t, int16(0), holding(srv, 40366), "OutWRte 0 %")

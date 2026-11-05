@@ -1,6 +1,7 @@
 package fronius
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -343,13 +344,13 @@ func closeModbus() {
 // writeOrdered opens a connection, locates the storage model for sunspec type
 // t, performs an ordered write with read-back of the registers build returns
 // for it and closes the connection. Nothing is written when the storage model
-// cannot be located or validated.
+// cannot be located or validated. The dispatch path has no context yet (#213).
 func writeOrdered(t SunSpecType, ip string, build func(StorageRegisters) []RegisterWrite, port ...string) error {
 	if err := openModbus(ip, port...); err != nil {
 		return err
 	}
 	defer closeModbus()
-	r, err := resolveStorageRegisters(t)
+	r, err := resolveStorageRegisters(context.Background(), t)
 	if err != nil {
 		u.Log.Errorf("locating the storage model failed, nothing written: %v", err)
 		return err
@@ -386,7 +387,7 @@ func ApplyDispatch(t SunSpecType, ip string, cmd DispatchCommand, port ...string
 	if err := openModbus(ip, port...); err != nil {
 		return Applied{}, err
 	}
-	r, err := resolveStorageRegisters(t)
+	r, err := resolveStorageRegisters(context.Background(), t)
 	if err != nil {
 		closeModbus()
 		u.Log.Errorf("locating the storage model failed, nothing written: %v", err)
