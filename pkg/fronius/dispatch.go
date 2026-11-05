@@ -12,7 +12,8 @@ import (
 )
 
 // Additional SunSpec model 124 registers (1-based) used by the optimizer
-// dispatch path. See ADR-0003.
+// dispatch path at their "int + SF" positions. With sunspec_type float or auto
+// the addresses come from StorageRegisters instead. See ADR-0003.
 const (
 	InOutWRte_RvrtTms = 40359 // revert timeout for InWRte/OutWRte, seconds (uint16)
 	WChaMax_SF        = 40362 // scale factor for WChaMax
@@ -106,37 +107,39 @@ type Applied struct {
 }
 
 // allowedWriteRegisters is the storage-control write allowlist (spec Technical
-// Constraints). WChaMax is read, never written.
-var allowedWriteRegisters = map[uint16]bool{
-	StorCtl_Mod:       true,
-	OutWRte:           true,
-	InWRte:            true,
-	MinRsvPct:         true,
-	ChaGriSet:         true,
-	InOutWRte_RvrtTms: true,
+// Constraints) for the storage model at r. WChaMax is read, never written.
+func allowedWriteRegisters(r StorageRegisters) map[uint16]bool {
+	return map[uint16]bool{
+		r.StorCtlMod:       true,
+		r.OutWRte:          true,
+		r.InWRte:           true,
+		r.MinRsvPct:        true,
+		r.ChaGriSet:        true,
+		r.InOutWRteRvrtTms: true,
+	}
 }
 
 // defaultsWrites returns the mdsc defaults with StorCtl_Mod=0 first (S-005).
-func defaultsWrites() []RegisterWrite {
+func defaultsWrites(r StorageRegisters) []RegisterWrite {
 	return []RegisterWrite{
-		{StorCtl_Mod, 0},
-		{OutWRte, ratePct100},
-		{InWRte, ratePct100},
-		{MinRsvPct, 0},
-		{ChaGriSet, 1},
+		{r.StorCtlMod, 0},
+		{r.OutWRte, ratePct100},
+		{r.InWRte, ratePct100},
+		{r.MinRsvPct, 0},
+		{r.ChaGriSet, 1},
 	}
 }
 
 // forcedWrites returns a forced-action register set in the ADR-0003 order:
 // rates, ChaGriSet/MinRsvPct, revert timeout, StorCtl_Mod last.
-func forcedWrites(outWRte, inWRte int16, revertS int, storCtlMod int16) []RegisterWrite {
+func forcedWrites(r StorageRegisters, outWRte, inWRte int16, revertS int, storCtlMod int16) []RegisterWrite {
 	return []RegisterWrite{
-		{OutWRte, outWRte},
-		{InWRte, inWRte},
-		{ChaGriSet, 1},
-		{MinRsvPct, 0},
-		{InOutWRte_RvrtTms, int16(uint16(revertS))},
-		{StorCtl_Mod, storCtlMod},
+		{r.OutWRte, outWRte},
+		{r.InWRte, inWRte},
+		{r.ChaGriSet, 1},
+		{r.MinRsvPct, 0},
+		{r.InOutWRteRvrtTms, int16(uint16(revertS))},
+		{r.StorCtlMod, storCtlMod},
 	}
 }
 
@@ -181,7 +184,7 @@ func rateToPct(rateW, maxRateW, wChaMaxW float64) int16 {
 }
 
 // buildDispatch is BuildDispatchRegisters plus the effective mode.
-func buildDispatch(cmd DispatchCommand, lim InverterLimits) (DispatchMode, []RegisterWrite, error) {
+func buildDispatch(r StorageRegisters, cmd DispatchCommand, lim InverterLimits) (DispatchMode, []RegisterWrite, error) {
 	if !isFinite(cmd.RateW) || cmd.RateW < 0 {
 		return "", nil, fmt.Errorf("%w: rate %v W", ErrInvalidDispatchCommand, cmd.RateW)
 	}
@@ -197,7 +200,7 @@ func buildDispatch(cmd DispatchCommand, lim InverterLimits) (DispatchMode, []Reg
 		return "", nil, err
 	}
 	if cmd.Mode == DispatchSelfConsume {
-		return DispatchSelfConsume, defaultsWrites(), nil
+		return DispatchSelfConsume, defaultsWrites(r), nil
 	}
 	revert, err := resolveRevert(cmd.RevertS)
 	if err != nil {
@@ -220,37 +223,44 @@ func buildDispatch(cmd DispatchCommand, lim InverterLimits) (DispatchMode, []Reg
 
 	switch mode {
 	case DispatchCharge:
-		return mode, forcedWrites(-p, ratePct100, revert, 2), nil
+		return mode, forcedWrites(r, -p, ratePct100, revert, 2), nil
 	case DispatchHold:
-		return mode, forcedWrites(0, ratePct100, revert, 2), nil
+		return mode, forcedWrites(r, 0, ratePct100, revert, 2), nil
 	case DispatchStandby:
-		return mode, forcedWrites(0, 0, revert, 3), nil
+		return mode, forcedWrites(r, 0, 0, revert, 3), nil
 	default: // DispatchDischarge
-		return mode, forcedWrites(ratePct100, -p, revert, 1), nil
+		return mode, forcedWrites(r, ratePct100, -p, revert, 1), nil
 	}
 }
 
 // BuildDispatchRegisters is the single source of truth for action → registers
-// (ADR-0003). It is pure: no I/O, no global state.
+// (ADR-0003) at the "int + SF" addresses. It is pure: no I/O, no global state.
 func BuildDispatchRegisters(cmd DispatchCommand, lim InverterLimits) ([]RegisterWrite, error) {
-	_, writes, err := buildDispatch(cmd, lim)
+	return BuildDispatchRegistersAt(LegacyStorageRegisters(), cmd, lim)
+}
+
+// BuildDispatchRegistersAt is BuildDispatchRegisters for the storage model
+// addresses r (from DiscoverStorageRegisters for sunspec_type float/auto).
+func BuildDispatchRegistersAt(r StorageRegisters, cmd DispatchCommand, lim InverterLimits) ([]RegisterWrite, error) {
+	_, writes, err := buildDispatch(r, cmd, lim)
 	return writes, err
 }
 
-// readInverterLimits reads WChaMax, WChaMax_SF and InOutWRte_SF on the open client.
-func readInverterLimits() (InverterLimits, error) {
+// readInverterLimits reads WChaMax, WChaMax_SF and InOutWRte_SF of the storage
+// model at r on the open client.
+func readInverterLimits(r StorageRegisters) (InverterLimits, error) {
 	if modbusClient == nil {
 		return InverterLimits{}, errors.New("modbus client not open")
 	}
-	raw, err := modbusClient.ReadRegister(WChaMax-1, modbus.HOLDING_REGISTER)
+	raw, err := modbusClient.ReadRegister(r.WChaMax-1, modbus.HOLDING_REGISTER)
 	if err != nil {
 		return InverterLimits{}, fmt.Errorf("read WChaMax: %w", err)
 	}
-	wSF, err := modbusClient.ReadRegister(WChaMax_SF-1, modbus.HOLDING_REGISTER)
+	wSF, err := modbusClient.ReadRegister(r.WChaMaxSF-1, modbus.HOLDING_REGISTER)
 	if err != nil {
 		return InverterLimits{}, fmt.Errorf("read WChaMax_SF: %w", err)
 	}
-	rateSF, err := modbusClient.ReadRegister(InOutWRte_SF-1, modbus.HOLDING_REGISTER)
+	rateSF, err := modbusClient.ReadRegister(r.InOutWRteSF-1, modbus.HOLDING_REGISTER)
 	if err != nil {
 		return InverterLimits{}, fmt.Errorf("read InOutWRte_SF: %w", err)
 	}
@@ -262,24 +272,38 @@ func readInverterLimits() (InverterLimits, error) {
 	return lim, nil
 }
 
-// ReadInverterLimits opens a Modbus connection, reads 40346, 40362 and 40369,
-// and closes the connection. The values are returned unvalidated.
-func ReadInverterLimits(ip string, port ...string) (InverterLimits, error) {
+// ReadInverterLimits opens a Modbus connection, locates the storage model for
+// sunspec type t, reads WChaMax, WChaMax_SF and InOutWRte_SF (40346, 40362 and
+// 40369 with int+SF) and closes the connection. The values are returned
+// unvalidated.
+func ReadInverterLimits(t SunSpecType, ip string, port ...string) (InverterLimits, error) {
 	if err := openModbus(ip, port...); err != nil {
 		return InverterLimits{}, err
 	}
 	defer closeModbus()
-	return readInverterLimits()
+	r, err := resolveStorageRegisters(t)
+	if err != nil {
+		return InverterLimits{}, err
+	}
+	return readInverterLimits(r)
 }
 
 // WriteFroniusModbusRegistersOrdered writes the registers in slice order on
 // the open client, then reads every written address back and compares (S-005).
+// The allowlist is the "int + SF" storage-control register set.
 func WriteFroniusModbusRegistersOrdered(writes []RegisterWrite) error {
+	return writeRegistersOrdered(LegacyStorageRegisters(), writes)
+}
+
+// writeRegistersOrdered is WriteFroniusModbusRegistersOrdered with the write
+// allowlist of the storage model at r.
+func writeRegistersOrdered(r StorageRegisters, writes []RegisterWrite) error {
 	if modbusClient == nil {
 		return fmt.Errorf("%w: modbus client not open", ErrModbusWrite)
 	}
+	allowed := allowedWriteRegisters(r)
 	for _, w := range writes {
-		if !allowedWriteRegisters[w.Addr] {
+		if !allowed[w.Addr] {
 			return fmt.Errorf("%w: %w: %d", ErrModbusWrite, ErrRegisterNotAllowed, w.Addr)
 		}
 	}
@@ -320,26 +344,33 @@ func closeModbus() {
 	}
 }
 
-// writeOrdered opens a connection, performs an ordered write with read-back
-// and closes the connection.
-func writeOrdered(ip string, writes []RegisterWrite, port ...string) error {
+// writeOrdered opens a connection, locates the storage model for sunspec type
+// t, performs an ordered write with read-back of the registers build returns
+// for it and closes the connection. Nothing is written when the storage model
+// cannot be located or validated.
+func writeOrdered(t SunSpecType, ip string, build func(StorageRegisters) []RegisterWrite, port ...string) error {
 	if err := openModbus(ip, port...); err != nil {
 		return err
 	}
 	defer closeModbus()
-	return WriteFroniusModbusRegistersOrdered(writes)
+	r, err := resolveStorageRegisters(t)
+	if err != nil {
+		u.Log.Errorf("locating the storage model failed, nothing written: %v", err)
+		return err
+	}
+	return writeRegistersOrdered(r, build(r))
 }
 
-// SetDefaultsOrdered writes the storage defaults with StorCtl_Mod=0 first and
-// verifies them by read-back.
-func SetDefaultsOrdered(ip string, port ...string) error {
-	return writeOrdered(ip, defaultsWrites(), port...)
+// SetDefaultsOrdered writes the storage defaults for sunspec type t with
+// StorCtl_Mod=0 first and verifies them by read-back.
+func SetDefaultsOrdered(t SunSpecType, ip string, port ...string) error {
+	return writeOrdered(t, ip, defaultsWrites, port...)
 }
 
 // restoreDefaultsAfterFailure attempts SetDefaultsOrdered once (S-005).
-func restoreDefaultsAfterFailure(ip string, cause error, port ...string) bool {
+func restoreDefaultsAfterFailure(t SunSpecType, ip string, cause error, port ...string) bool {
 	u.Log.Errorf("storage write failed (%v), restoring defaults", cause)
-	if derr := SetDefaultsOrdered(ip, port...); derr != nil {
+	if derr := SetDefaultsOrdered(t, ip, port...); derr != nil {
 		u.Log.Errorf("restoring storage defaults failed: %v", derr)
 		return false
 	}
@@ -352,16 +383,25 @@ func restoreDefaultsAfterFailure(ip string, cause error, port ...string) bool {
 // ErrInvalidDispatchCommand nothing is written and the caller restores
 // defaults. On ErrModbusWrite the defaults restore has already been attempted
 // once (Applied.DefaultsRestored reports the outcome).
-func ApplyDispatch(ip string, cmd DispatchCommand, port ...string) (Applied, error) {
+//
+// The storage model is located for sunspec type t first; when that fails
+// nothing is written and the error is returned like a limits read failure.
+func ApplyDispatch(t SunSpecType, ip string, cmd DispatchCommand, port ...string) (Applied, error) {
 	if err := openModbus(ip, port...); err != nil {
 		return Applied{}, err
 	}
-	lim, err := readInverterLimits()
+	r, err := resolveStorageRegisters(t)
+	if err != nil {
+		closeModbus()
+		u.Log.Errorf("locating the storage model failed, nothing written: %v", err)
+		return Applied{}, err
+	}
+	lim, err := readInverterLimits(r)
 	if err != nil {
 		closeModbus()
 		return Applied{}, err
 	}
-	mode, writes, err := buildDispatch(cmd, lim)
+	mode, writes, err := buildDispatch(r, cmd, lim)
 	if err != nil {
 		closeModbus()
 		u.Log.Errorf("dispatch rejected: %v", err)
@@ -369,10 +409,10 @@ func ApplyDispatch(ip string, cmd DispatchCommand, port ...string) (Applied, err
 	}
 	applied := Applied{Mode: mode, Writes: writes, Limits: lim}
 	u.Log.Infof("Applying storage dispatch %s (rate %.0f W, WChaMax %.0f W)", mode, cmd.RateW, lim.WChaMaxW)
-	werr := WriteFroniusModbusRegistersOrdered(writes)
+	werr := writeRegistersOrdered(r, writes)
 	closeModbus()
 	if werr != nil {
-		applied.DefaultsRestored = restoreDefaultsAfterFailure(ip, werr, port...)
+		applied.DefaultsRestored = restoreDefaultsAfterFailure(t, ip, werr, port...)
 		return applied, werr
 	}
 	return applied, nil
@@ -402,23 +442,25 @@ func ForceChargeRevertSeconds(durationS int, now time.Time) int {
 // as ForceCharge (StorCtl_Mod=2, OutWRte=-100·pct) plus the revert timeout
 // 40359, written in order with read-back. powerPrc 0 restores defaults. On a
 // write failure defaults are attempted once.
-func ForceChargeWithRevert(ip string, powerPrc int16, revertS int, port ...string) error {
+func ForceChargeWithRevert(t SunSpecType, ip string, powerPrc int16, revertS int, port ...string) error {
 	if powerPrc < 0 || powerPrc > 100 {
 		return fmt.Errorf("%w: force charge percent %d outside [0, 100]", ErrInvalidDispatchCommand, powerPrc)
 	}
 	if powerPrc == 0 {
 		u.Log.Info("percent of charging is <1%, skipping Force Charge and set defaults.")
-		return SetDefaultsOrdered(ip, port...)
+		return SetDefaultsOrdered(t, ip, port...)
 	}
 	if revertS <= 0 || revertS > MaxRevertSeconds {
 		return fmt.Errorf("%w: revert timeout %d s outside [1, %d]", ErrInvalidDispatchCommand, revertS, MaxRevertSeconds)
 	}
 	out := int16(int32(-100) * int32(powerPrc))
-	writes := forcedWrites(out, ratePct100, revertS, 2)
+	build := func(r StorageRegisters) []RegisterWrite {
+		return forcedWrites(r, out, ratePct100, revertS, 2)
+	}
 	u.Log.Infof("Setting Fronius Storage Force Charge at %d%% with revert timeout %d s", powerPrc, revertS)
-	if err := writeOrdered(ip, writes, port...); err != nil {
+	if err := writeOrdered(t, ip, build, port...); err != nil {
 		if errors.Is(err, ErrModbusWrite) {
-			restoreDefaultsAfterFailure(ip, err, port...)
+			restoreDefaultsAfterFailure(t, ip, err, port...)
 		}
 		return err
 	}

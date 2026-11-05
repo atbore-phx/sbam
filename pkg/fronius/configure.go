@@ -99,7 +99,7 @@ func Setdefaults(modbus_ip string, port ...string) error {
 		p = port[0]
 	}
 	u.Log.Info("Setting Fronius Storage Defaults start...")
-	modbusErr = SetDefaultsOrdered(modbus_ip, p)
+	modbusErr = SetDefaultsOrdered(SunSpecIntSF, modbus_ip, p)
 	if errors.Is(modbusErr, ErrReadBackMismatch) {
 		u.Log.Warnf("Fronius defaults written, but read-back differs: %s", modbusErr)
 		modbusErr = nil

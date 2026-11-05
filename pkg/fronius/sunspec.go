@@ -71,13 +71,16 @@ const (
 
 // Offsets of the model 124 fields from the model's ID register.
 const (
-	offStorCtlMod   = 5
-	offMinRsvPct    = 7
-	offOutWRte      = 12
-	offInWRte       = 13
-	offChaGriSet    = 17
-	offInOutWRteSF  = 25
-	storageModelLen = 24 // registers after the ID and length registers
+	offWChaMax          = 2
+	offStorCtlMod       = 5
+	offMinRsvPct        = 7
+	offOutWRte          = 12
+	offInWRte           = 13
+	offInOutWRteRvrtTms = 15
+	offChaGriSet        = 17
+	offWChaMaxSF        = 18
+	offInOutWRteSF      = 25
+	storageModelLen     = 24 // registers after the ID and length registers
 
 	// sbam writes OutWRte and InWRte as percentages with two decimals
 	// (10000 = 100 %), which assumes InOutWRte_SF = -2. MinRsvPct is only
@@ -102,23 +105,49 @@ var (
 )
 
 // StorageRegisters holds the 1-based addresses of the model 124 registers
-// sbam reads and writes.
+// sbam reads and writes. WChaMax, WChaMaxSF and InOutWRteSF are only read;
+// InOutWRteRvrtTms is written by the optimizer dispatch path (ADR-0003).
 type StorageRegisters struct {
-	StorCtlMod uint16
-	MinRsvPct  uint16
-	OutWRte    uint16
-	InWRte     uint16
-	ChaGriSet  uint16
+	StorCtlMod       uint16
+	MinRsvPct        uint16
+	OutWRte          uint16
+	InWRte           uint16
+	ChaGriSet        uint16
+	WChaMax          uint16
+	InOutWRteRvrtTms uint16
+	WChaMaxSF        uint16
+	InOutWRteSF      uint16
 }
 
 func storageRegistersAt(modelAddr uint16) StorageRegisters {
 	return StorageRegisters{
-		StorCtlMod: modelAddr + offStorCtlMod,
-		MinRsvPct:  modelAddr + offMinRsvPct,
-		OutWRte:    modelAddr + offOutWRte,
-		InWRte:     modelAddr + offInWRte,
-		ChaGriSet:  modelAddr + offChaGriSet,
+		StorCtlMod:       modelAddr + offStorCtlMod,
+		MinRsvPct:        modelAddr + offMinRsvPct,
+		OutWRte:          modelAddr + offOutWRte,
+		InWRte:           modelAddr + offInWRte,
+		ChaGriSet:        modelAddr + offChaGriSet,
+		WChaMax:          modelAddr + offWChaMax,
+		InOutWRteRvrtTms: modelAddr + offInOutWRteRvrtTms,
+		WChaMaxSF:        modelAddr + offWChaMaxSF,
+		InOutWRteSF:      modelAddr + offInOutWRteSF,
 	}
+}
+
+// LegacyStorageRegisters returns the fixed "int + SF" addresses (model 124 at
+// 40344) that SunSpecIntSF uses without walking the model chain.
+func LegacyStorageRegisters() StorageRegisters {
+	return storageRegistersAt(legacyStorageModelAddr)
+}
+
+// resolveStorageRegisters returns the storage addresses for type t on the
+// open connection. SunSpecIntSF (and the zero value) returns the legacy
+// addresses without any read, so the int+SF write sequence is unchanged; the
+// other types walk the model chain via DiscoverStorageRegisters.
+func resolveStorageRegisters(t SunSpecType) (StorageRegisters, error) {
+	if t.orDefault() == SunSpecIntSF {
+		return LegacyStorageRegisters(), nil
+	}
+	return DiscoverStorageRegisters(t)
 }
 
 // defaults returns the register values that restore normal battery operation.

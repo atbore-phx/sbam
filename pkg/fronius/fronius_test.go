@@ -537,6 +537,6 @@ func TestSetdefaultsReadBackMismatch_T0109(t *testing.T) {
 	f.corrupt[StorCtl_Mod] = true
 	f.mu.Unlock()
 	assert.NoError(t, Setdefaults(modbus_ip, dispatchPort))
-	err := SetDefaultsOrdered(modbus_ip, dispatchPort)
+	err := SetDefaultsOrdered(SunSpecIntSF, modbus_ip, dispatchPort)
 	assert.ErrorIs(t, err, ErrReadBackMismatch)
 }

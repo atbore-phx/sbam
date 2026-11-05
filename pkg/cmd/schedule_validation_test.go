@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"sbam/pkg/fronius"
+
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -360,7 +362,10 @@ func withStartupWriter(t *testing.T) *schOptWriter {
 	t.Helper()
 	w := &schOptWriter{ev: &schOptEvents{}}
 	old := newDispatchWriter
-	newDispatchWriter = func() dispatchWriter { return w }
+	newDispatchWriter = func(t fronius.SunSpecType) dispatchWriter {
+		w.sunspecType = t
+		return w
+	}
 	t.Cleanup(func() { newDispatchWriter = old })
 	return w
 }
@@ -393,10 +398,13 @@ func TestPrepareOptimizeMode_T0153_StartupFailSafe(t *testing.T) {
 			}
 			w := withStartupWriter(t)
 
-			cfg, deps, err := prepareOptimizeMode(tc.baseErr)
+			cfg, deps, err := prepareOptimizeMode(tc.baseErr, fronius.SunSpecAuto)
 
 			_, defaults, _ := w.counts()
 			assert.Equal(t, tc.wantDefaults, defaults)
+			if defaults > 0 {
+				assert.Equal(t, fronius.SunSpecAuto, w.sunspecType, "the fail-safe writes for the configured sunspec_type")
+			}
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				assert.NotNil(t, deps.HA)
@@ -417,7 +425,7 @@ func TestOptStartupFailSafe_Timeout(t *testing.T) {
 	w.defaultsDelay = 200 * time.Millisecond
 
 	start := time.Now()
-	optStartupFailSafe(OptimizeConfig{FroniusIP: schOptIP})
+	optStartupFailSafe(OptimizeConfig{FroniusIP: schOptIP}, fronius.SunSpecIntSF)
 	assert.Less(t, time.Since(start), 150*time.Millisecond, "the attempt is bounded")
 	time.Sleep(250 * time.Millisecond) // let the background write finish
 }

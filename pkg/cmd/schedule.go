@@ -233,7 +233,7 @@ var scdCmd = &cobra.Command{
 		if optimizeMode {
 			// Optimize mode fails with exit code 1 after the ADR-0004 §3
 			// defaults attempt; the other modes keep their exit behaviour.
-			optCfg, optDeps, err = prepareOptimizeMode(err)
+			optCfg, optDeps, err = prepareOptimizeMode(err, sunspecType)
 			if err != nil {
 				cmd.SilenceUsage = true
 				cmd.SilenceErrors = true // already logged
@@ -779,7 +779,7 @@ var errDefaultsTimeout = errors.New("timed out")
 // baseErr is the result of the generic schedule validation. On any failure it
 // attempts an ordered defaults write when live (ADR-0004 §3, TC-001c) and
 // returns the error, which makes `sbam schedule` exit with code 1.
-func prepareOptimizeMode(baseErr error) (OptimizeConfig, optimizeDeps, error) {
+func prepareOptimizeMode(baseErr error, sunspecType fronius.SunSpecType) (OptimizeConfig, optimizeDeps, error) {
 	cfg, warnings, cfgErr := loadOptimizeConfig()
 	for _, w := range warnings {
 		u.Log.Warn(w)
@@ -791,7 +791,7 @@ func prepareOptimizeMode(baseErr error) (OptimizeConfig, optimizeDeps, error) {
 	}
 	if err != nil {
 		u.Log.Error(err)
-		optStartupFailSafe(cfg)
+		optStartupFailSafe(cfg, sunspecType)
 		return cfg, optimizeDeps{}, err
 	}
 	return cfg, deps, nil
@@ -801,13 +801,13 @@ func prepareOptimizeMode(baseErr error) (OptimizeConfig, optimizeDeps, error) {
 // failure in live optimize mode, so a broken config edit never leaves a
 // forced state from an earlier live run (ADR-0004 §3). It never writes in
 // dry-run or without a usable fronius_ip.
-func optStartupFailSafe(cfg OptimizeConfig) {
+func optStartupFailSafe(cfg OptimizeConfig, sunspecType fronius.SunSpecType) {
 	ip := strings.TrimSpace(cfg.FroniusIP)
 	if cfg.DryRun || ip == "" || strings.ContainsAny(ip, " /\\") {
 		u.Log.Info("optimize mode: startup validation failed; no defaults write (dry run or no fronius_ip)")
 		return
 	}
-	if err := optSetDefaultsWithin(newDispatchWriter(), ip, optStartupDefaultsTimeout); err != nil {
+	if err := optSetDefaultsWithin(newDispatchWriter(sunspecType), ip, optStartupDefaultsTimeout); err != nil {
 		u.Log.Errorw("defaults restore failed; inverter state unknown", "reason", "startup_validation_failed", "error", err)
 		return
 	}

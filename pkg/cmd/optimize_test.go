@@ -61,7 +61,7 @@ func newOptCLIEnv(t *testing.T) *optCLIEnv {
 	newBatteryReader = func() batteryReader { return e.run.bat }
 	newBatteryWriter = func(fronius.SunSpecType) batteryWriter { e.spy.batteryWriter++; return nil }
 	newFronius = func(fronius.SunSpecType) froniusClient { e.spy.fronius++; return nil }
-	newDispatchWriter = func() dispatchWriter { e.spy.dispatchWriter++; return nil }
+	newDispatchWriter = func(fronius.SunSpecType) dispatchWriter { e.spy.dispatchWriter++; return nil }
 	optCLINow = func() time.Time { return e.run.now }
 	optCLILocation = func() *time.Location { return e.run.loc }
 	return e

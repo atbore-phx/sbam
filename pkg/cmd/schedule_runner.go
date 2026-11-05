@@ -1116,24 +1116,28 @@ type dispatchWriter interface {
 	ForceChargeWithRevert(froniusIP string, targetPct int16, revertS int) error
 }
 
-type froniusDispatchWriter struct{}
-
-func (froniusDispatchWriter) Apply(froniusIP string, cmd fronius.DispatchCommand) (fronius.Applied, error) {
-	return fronius.ApplyDispatch(froniusIP, cmd)
+// froniusDispatchWriter writes to the storage model located for sunspecType,
+// so sunspec_type is the only source of truth for the register addresses.
+type froniusDispatchWriter struct {
+	sunspecType fronius.SunSpecType
 }
 
-func (froniusDispatchWriter) SetDefaults(froniusIP string) error {
-	return fronius.SetDefaultsOrdered(froniusIP)
+func (w froniusDispatchWriter) Apply(froniusIP string, cmd fronius.DispatchCommand) (fronius.Applied, error) {
+	return fronius.ApplyDispatch(w.sunspecType, froniusIP, cmd)
 }
 
-func (froniusDispatchWriter) ForceChargeWithRevert(froniusIP string, targetPct int16, revertS int) error {
-	return fronius.ForceChargeWithRevert(froniusIP, targetPct, revertS)
+func (w froniusDispatchWriter) SetDefaults(froniusIP string) error {
+	return fronius.SetDefaultsOrdered(w.sunspecType, froniusIP)
+}
+
+func (w froniusDispatchWriter) ForceChargeWithRevert(froniusIP string, targetPct int16, revertS int) error {
+	return fronius.ForceChargeWithRevert(w.sunspecType, froniusIP, targetPct, revertS)
 }
 
 // newDispatchWriter is a package-level factory, mirroring newBatteryWriter,
 // so tests can inject a recording writer.
-var newDispatchWriter = func() dispatchWriter {
-	return froniusDispatchWriter{}
+var newDispatchWriter = func(sunspecType fronius.SunSpecType) dispatchWriter {
+	return froniusDispatchWriter{sunspecType: sunspecType}
 }
 
 // optRun is the optimizer entry point used by the runner; a package variable
@@ -1663,6 +1667,11 @@ func (r *Runner) optLogWouldWrite(d optDecision) {
 	cmd := r.optDispatchCommand(d)
 	regs, err := fronius.BuildDispatchRegisters(cmd, lim)
 	fields := []any{"action", d.action, "rate_w", d.rateW, "setpoint_w", math.Round(cmd.RateW), "registers", optRegisterList(regs), "assumed_wchamax_w", lim.WChaMaxW}
+	if t := r.cfg.SunSpecType; t != "" && t != fronius.SunSpecIntSF {
+		// Without a Modbus connection the float/auto storage model cannot be
+		// located; the preview shows the int+SF positions of the same registers.
+		fields = append(fields, "sunspec_type", t, "register_addresses", "int_sf positions; located via the SunSpec model chain when live")
+	}
 	if err != nil {
 		fields = append(fields, "error", err)
 	}
@@ -1694,7 +1703,7 @@ func optErrString(err error) string {
 // optWriter returns the dispatch writer, creating it on first use.
 func (r *Runner) optWriter() dispatchWriter {
 	if r.opt.writer == nil {
-		r.opt.writer = newDispatchWriter()
+		r.opt.writer = newDispatchWriter(r.cfg.SunSpecType)
 	}
 	return r.opt.writer
 }

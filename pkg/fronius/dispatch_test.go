@@ -149,7 +149,7 @@ func TestApplyDispatch_RegisterTable_T0100(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f.reset()
 			f.set(InOutWRte_RvrtTms, 0)
-			applied, err := ApplyDispatch(modbus_ip, tc.cmd, dispatchPort)
+			applied, err := ApplyDispatch(SunSpecIntSF, modbus_ip, tc.cmd, dispatchPort)
 			require.NoError(t, err)
 			assert.Equal(t, tc.mode, applied.Mode)
 			assert.Equal(t, validLimits, applied.Limits)
@@ -172,7 +172,7 @@ func TestApplyDispatch_RegisterTable_T0100(t *testing.T) {
 // T-0101 / TC-001a: discharge at 3000 W writes 40359 in [3600, 7200) and StorCtl_Mod=1.
 func TestApplyDispatch_DischargeRevertTimeout_T0101(t *testing.T) {
 	f := newFakeInverter(t, 5000, 0, -2)
-	_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
+	_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
 	require.NoError(t, err)
 	r := f.get(InOutWRte_RvrtTms)
 	assert.GreaterOrEqual(t, int(r), 3600)
@@ -210,18 +210,18 @@ func TestApplyDispatch_WriteOrder_T0102(t *testing.T) {
 
 	for _, m := range []DispatchMode{DispatchCharge, DispatchHold, DispatchStandby, DispatchDischarge} {
 		f.reset()
-		_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: m, RateW: 1000}, dispatchPort)
+		_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: m, RateW: 1000}, dispatchPort)
 		require.NoError(t, err)
 		assert.Equal(t, forcedOrder, addrOrder(f.recorded()), "mode %s", m)
 	}
 
 	f.reset()
-	_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchSelfConsume}, dispatchPort)
+	_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchSelfConsume}, dispatchPort)
 	require.NoError(t, err)
 	assert.Equal(t, defaultsOrder, addrOrder(f.recorded()))
 
 	f.reset()
-	require.NoError(t, SetDefaultsOrdered(modbus_ip, dispatchPort))
+	require.NoError(t, SetDefaultsOrdered(SunSpecIntSF, modbus_ip, dispatchPort))
 	assert.Equal(t, defaultsOrder, addrOrder(f.recorded()))
 }
 
@@ -263,13 +263,13 @@ func TestBuildDispatchRegisters_ClampAndSign_T0103(t *testing.T) {
 
 // T-0103 edge: a charge/discharge rate rounding to 0 % becomes hold/standby.
 func TestBuildDispatch_ZeroRateDowngrade_T0103(t *testing.T) {
-	mode, w, err := buildDispatch(DispatchCommand{Mode: DispatchCharge, RateW: 0.2}, validLimits)
+	mode, w, err := buildDispatch(LegacyStorageRegisters(), DispatchCommand{Mode: DispatchCharge, RateW: 0.2}, validLimits)
 	require.NoError(t, err)
 	assert.Equal(t, DispatchHold, mode)
 	assert.Equal(t, int16(0), regsOf(w)[OutWRte])
 	assert.Equal(t, int16(2), regsOf(w)[StorCtl_Mod])
 
-	mode, w, err = buildDispatch(DispatchCommand{Mode: DispatchDischarge, RateW: 0}, validLimits)
+	mode, w, err = buildDispatch(LegacyStorageRegisters(), DispatchCommand{Mode: DispatchDischarge, RateW: 0}, validLimits)
 	require.NoError(t, err)
 	assert.Equal(t, DispatchStandby, mode)
 	assert.Equal(t, int16(3), regsOf(w)[StorCtl_Mod])
@@ -322,7 +322,7 @@ func TestApplyDispatch_BadInverterLimitsWritesNothing_T0104(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeInverter(t, tc.raw, tc.wSF, tc.rateSF)
-			_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
+			_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
 			assert.ErrorIs(t, err, ErrInverterLimits)
 			assert.Empty(t, f.recorded())
 		})
@@ -332,14 +332,14 @@ func TestApplyDispatch_BadInverterLimitsWritesNothing_T0104(t *testing.T) {
 // ReadInverterLimits applies WChaMax_SF and returns the rate SF as read.
 func TestReadInverterLimits(t *testing.T) {
 	newFakeInverter(t, 1050, 1, -2)
-	lim, err := ReadInverterLimits(modbus_ip, dispatchPort)
+	lim, err := ReadInverterLimits(SunSpecIntSF, modbus_ip, dispatchPort)
 	require.NoError(t, err)
 	assert.InDelta(t, 10500.0, lim.WChaMaxW, 1e-9)
 	assert.Equal(t, int16(-2), lim.RateSF)
 }
 
 func TestReadInverterLimitsConnectionError(t *testing.T) {
-	_, err := ReadInverterLimits(modbus_ip, dispatchPort)
+	_, err := ReadInverterLimits(SunSpecIntSF, modbus_ip, dispatchPort)
 	assert.Error(t, err)
 }
 
@@ -352,7 +352,7 @@ func TestApplyDispatch_WriteFailure_T0105(t *testing.T) {
 	f.failWrite[InWRte] = true
 	f.mu.Unlock()
 
-	applied, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
+	applied, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchDischarge, RateW: 3000}, dispatchPort)
 	assert.ErrorIs(t, err, ErrModbusWrite)
 	assert.NotEqual(t, int16(1), f.get(StorCtl_Mod))
 	// The defaults restore was attempted: StorCtl_Mod=0 was written after the failure.
@@ -374,7 +374,7 @@ func TestApplyDispatch_WriteFailureDefaultsRestored_T0105(t *testing.T) {
 	f.failWrite[InOutWRte_RvrtTms] = true
 	f.mu.Unlock()
 
-	applied, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchCharge, RateW: 3000}, dispatchPort)
+	applied, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchCharge, RateW: 3000}, dispatchPort)
 	assert.ErrorIs(t, err, ErrModbusWrite)
 	assert.True(t, applied.DefaultsRestored)
 	assert.Equal(t, int16(0), f.get(StorCtl_Mod))
@@ -388,7 +388,7 @@ func TestApplyDispatch_ReadBackMismatch_T0106(t *testing.T) {
 	f.corrupt[OutWRte] = true
 	f.mu.Unlock()
 
-	_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchCharge, RateW: 2500}, dispatchPort)
+	_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchCharge, RateW: 2500}, dispatchPort)
 	assert.ErrorIs(t, err, ErrModbusWrite)
 	assert.ErrorIs(t, err, ErrReadBackMismatch)
 }
@@ -399,12 +399,12 @@ func TestSetDefaultsOrdered_ReadBackMismatch_T0106(t *testing.T) {
 	f.mu.Lock()
 	f.corrupt[ChaGriSet] = true
 	f.mu.Unlock()
-	err := SetDefaultsOrdered(modbus_ip, dispatchPort)
+	err := SetDefaultsOrdered(SunSpecIntSF, modbus_ip, dispatchPort)
 	assert.ErrorIs(t, err, ErrReadBackMismatch)
 }
 
 func TestApplyDispatch_ConnectionError(t *testing.T) {
-	_, err := ApplyDispatch(modbus_ip, DispatchCommand{Mode: DispatchHold}, dispatchPort)
+	_, err := ApplyDispatch(SunSpecIntSF, modbus_ip, DispatchCommand{Mode: DispatchHold}, dispatchPort)
 	assert.Error(t, err)
 }
 
@@ -433,7 +433,7 @@ func TestForceChargeRevertSeconds_T0108(t *testing.T) {
 // T-0108: ForceChargeWithRevert writes the ForceCharge registers plus 40359.
 func TestForceChargeWithRevert_T0108(t *testing.T) {
 	f := newFakeInverter(t, 5000, 0, -2)
-	require.NoError(t, ForceChargeWithRevert(modbus_ip, 50, 2100, dispatchPort))
+	require.NoError(t, ForceChargeWithRevert(SunSpecIntSF, modbus_ip, 50, 2100, dispatchPort))
 	assert.Equal(t, int16(2), f.get(StorCtl_Mod))
 	assert.Equal(t, int16(-5000), f.get(OutWRte))
 	assert.Equal(t, int16(10000), f.get(InWRte))
@@ -445,7 +445,7 @@ func TestForceChargeWithRevert_T0108(t *testing.T) {
 
 	// 0 % restores defaults.
 	f.reset()
-	require.NoError(t, ForceChargeWithRevert(modbus_ip, 0, 2100, dispatchPort))
+	require.NoError(t, ForceChargeWithRevert(SunSpecIntSF, modbus_ip, 0, 2100, dispatchPort))
 	assert.Equal(t, int16(0), f.get(StorCtl_Mod))
 	assert.False(t, f.written(InOutWRte_RvrtTms))
 }
@@ -456,7 +456,7 @@ func TestForceChargeWithRevert_Rejects_T0108(t *testing.T) {
 		pct    int16
 		revert int
 	}{{101, 2100}, {400, 2100}, {-1, 2100}, {50, 0}, {50, MaxRevertSeconds + 1}} {
-		err := ForceChargeWithRevert(modbus_ip, tc.pct, tc.revert, dispatchPort)
+		err := ForceChargeWithRevert(SunSpecIntSF, modbus_ip, tc.pct, tc.revert, dispatchPort)
 		assert.ErrorIs(t, err, ErrInvalidDispatchCommand, "pct %d revert %d", tc.pct, tc.revert)
 	}
 	assert.Empty(t, f.recorded())
@@ -467,7 +467,7 @@ func TestForceChargeWithRevert_WriteFailureRestoresDefaults(t *testing.T) {
 	f.mu.Lock()
 	f.failWrite[InOutWRte_RvrtTms] = true
 	f.mu.Unlock()
-	err := ForceChargeWithRevert(modbus_ip, 50, 2100, dispatchPort)
+	err := ForceChargeWithRevert(SunSpecIntSF, modbus_ip, 50, 2100, dispatchPort)
 	assert.ErrorIs(t, err, ErrModbusWrite)
 	assert.Equal(t, int16(0), f.get(StorCtl_Mod))
 	assert.Equal(t, int16(10000), f.get(OutWRte))

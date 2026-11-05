@@ -82,6 +82,8 @@ type schOptWriter struct {
 	applyRestored bool
 	defaultsErr   error
 	defaultsDelay time.Duration
+	// sunspecType is the type the factory created this writer for.
+	sunspecType fronius.SunSpecType
 }
 
 func (w *schOptWriter) Apply(ip string, cmd fronius.DispatchCommand) (fronius.Applied, error) {
@@ -272,20 +274,22 @@ type schOptSlot struct {
 }
 
 type schOptHarness struct {
-	t        *testing.T
-	loc      *time.Location
-	clock    *schOptClock
-	timers   *schOptTimers
-	events   *schOptEvents
-	client   *schOptClient
-	writer   *schOptWriter
-	battery  *schOptBattery
-	runner   *Runner
-	logs     *observer.ObservedLogs
-	factory  atomic.Int32
-	runNows  []time.Time
-	result   func(now time.Time) optimizeResult
-	duringFn func() // runs inside optRun (simulates a slow run)
+	t       *testing.T
+	loc     *time.Location
+	clock   *schOptClock
+	timers  *schOptTimers
+	events  *schOptEvents
+	client  *schOptClient
+	writer  *schOptWriter
+	battery *schOptBattery
+	runner  *Runner
+	logs    *observer.ObservedLogs
+	factory atomic.Int32
+	// writerType is the sunspec type the dispatch writer factory last got.
+	writerType atomic.Value
+	runNows    []time.Time
+	result     func(now time.Time) optimizeResult
+	duringFn   func() // runs inside optRun (simulates a slow run)
 }
 
 func newSchOptHarness(t *testing.T, dryRun bool) *schOptHarness {
@@ -313,8 +317,9 @@ func newSchOptHarness(t *testing.T, dryRun bool) *schOptHarness {
 		h.timers.mu.Unlock()
 		return tm.timer
 	}
-	newDispatchWriter = func() dispatchWriter {
+	newDispatchWriter = func(t fronius.SunSpecType) dispatchWriter {
 		h.factory.Add(1)
+		h.writerType.Store(t)
 		return h.writer
 	}
 	optRun = func(_ context.Context, _ optimizeDeps, _ OptimizeConfig, now time.Time, _ *profileCache) optimizeResult {
@@ -339,6 +344,7 @@ func newSchOptHarness(t *testing.T, dryRun bool) *schOptHarness {
 		FroniusIP:     schOptIP,
 		MaxCharge:     10000,
 		SchedulerMode: schedulerModeOptimize,
+		SunSpecType:   fronius.SunSpecFloat,
 		MQTT:          mqtt.Config{Enabled: true, TopicPrefix: "sbam", Optimizer: true},
 		Now:           h.clock.now,
 		Optimize: OptimizeConfig{
@@ -509,6 +515,18 @@ func TestOptimizeRunner_T0140_TickOnHourBoundaryArmsFullHour(t *testing.T) {
 }
 
 // --- T-0141: live dispatch with the clamped rate (AC-14, S-006a) -----------
+
+// sunspec_type is the only source of truth for the dispatch addresses: the
+// live writer is created for the configured type.
+func TestOptimizeRunner_LiveWriterUsesConfiguredSunSpecType(t *testing.T) {
+	h := newSchOptHarness(t, false)
+	h.setPlan(schOptSlot{action: optimize.ActionSelfConsume})
+
+	h.tick()
+
+	require.Equal(t, int32(1), h.factory.Load())
+	assert.Equal(t, fronius.SunSpecFloat, h.writerType.Load())
+}
 
 func TestOptimizeRunner_T0141_LiveDischargeDispatch(t *testing.T) {
 	h := newSchOptHarness(t, false)
