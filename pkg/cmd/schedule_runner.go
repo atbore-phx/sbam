@@ -137,9 +137,9 @@ type Runner struct {
 	// memory only, so a restart hands that state back to the guard.
 	manualOutsideWindow bool
 	resetRetryTimer     *time.Timer
-	limit         *limitSession
-	limitStop     chan struct{}
-	reserve       *reserveTelemetry // last reserve evaluation in the reserve window
+	limit               *limitSession
+	limitStop           chan struct{}
+	reserve             *reserveTelemetry // last reserve evaluation in the reserve window
 	// opt holds the optimize-mode state; nil in the other scheduler modes.
 	opt *optRunnerState
 }
