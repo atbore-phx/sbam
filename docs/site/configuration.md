@@ -52,7 +52,7 @@ Each window accepts these fields:
 | `consumption_horizon` | No | Per-window consumption horizon override. See [Consumption horizon modes](#consumption-horizon-modes). |
 | `tick_minutes` | No | Evaluation interval in minutes within this window. |
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
-| `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
+| `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. `0` resets exactly at the window end. Whatever the value, the tick that leaves the window resets too, and ticks outside every window restore normal mode if the inverter is still held or force-charging, unless that came from a command given outside a window. |
 | `weekdays` | No | Day-of-week filter for the window. See [Weekday Filtering](weekdays.md). |
 | `hold_battery` | No | When `true`, block battery discharge while the window is active and sbam is not force-charging. Loads run from the grid at the window's price and the stored energy is kept for the expensive hours. PV can still charge the battery. sbam releases the hold when the window ends: with `set_defaults`, at its usual time; without it, at the window end. Default `false`. |
 | `reserve_horizon` | No | `until_solar` sizes the battery reserve for this window from the forecast. See [Reserve until solar](#reserve-until-solar). Empty keeps the static `pw_batt_reserve`. |
