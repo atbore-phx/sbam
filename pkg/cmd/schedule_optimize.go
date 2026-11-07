@@ -318,9 +318,14 @@ func (r *Runner) optRebuildProfile(ctx context.Context, now time.Time) {
 		return
 	}
 	yctx, cancel := context.WithCancelCause(ctx)
+	// The poller gets its own copy of the interval and is joined before
+	// returning, so it never outlives the rebuild.
+	interval := optRebuildPollInterval
 	done := make(chan struct{})
+	exited := make(chan struct{})
 	go func() {
-		t := time.NewTicker(optRebuildPollInterval)
+		defer close(exited)
+		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
 			select {
@@ -336,6 +341,7 @@ func (r *Runner) optRebuildProfile(ctx context.Context, now time.Time) {
 	}()
 	_, err := o.cache.rebuildIfStale(yctx, o.deps, o.cfg, now)
 	close(done)
+	<-exited
 	yielded := errors.Is(context.Cause(yctx), errRebuildYielded)
 	cancel(nil)
 	switch {

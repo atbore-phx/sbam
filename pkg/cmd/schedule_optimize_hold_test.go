@@ -313,7 +313,9 @@ func TestOptimizeRunner_RebuildYieldsToQueuedIntent(t *testing.T) {
 
 // timerIntentHA submits sbam's own timer intents on the first History call
 // and lets the rebuild poll the queue a few times before answering, like the
-// EV guard poll landing during a slow rebuild.
+// EV guard poll landing during a slow rebuild. Like the real client it fails
+// when the rebuild was cancelled meanwhile, so a rebuild that gives way to
+// the timer intents does not complete.
 type timerIntentHA struct {
 	inner  haClient
 	submit func()
@@ -329,6 +331,9 @@ func (f timerIntentHA) History(ctx context.Context, entity string, start, end ti
 		*f.once = true
 		f.submit()
 		time.Sleep(20 * optRebuildPollInterval)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 	}
 	return f.inner.History(ctx, entity, start, end)
 }
