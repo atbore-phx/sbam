@@ -265,7 +265,7 @@ func rebuildHarness(t *testing.T, ha func(env *optRunEnv) haClient) (*schOptHarn
 	return h, env
 }
 
-// Edge case: with an intent already queued the rebuild is deferred to the
+// Edge case: with a command already queued the rebuild is deferred to the
 // next run, and it is not counted as a failed build.
 func TestOptimizeRunner_RebuildDeferredWhileIntentsQueued(t *testing.T) {
 	calls := 0
@@ -273,11 +273,11 @@ func TestOptimizeRunner_RebuildDeferredWhileIntentsQueued(t *testing.T) {
 		return blockingHistoryHA{inner: env.ha, calls: &calls}
 	})
 	// The run itself reads only states; the rebuild is the only History user.
-	h.runner.intents <- mqtt.Intent{Kind: mqtt.IntentSetDefaults}
+	require.True(t, h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}))
 
 	h.tick()
 
-	assert.Zero(t, calls, "no history request while an intent is queued")
+	assert.Zero(t, calls, "no history request while a command is queued")
 	o := h.runner.opt
 	assert.NotEqual(t, optLocalDate(env.now, env.loc), o.cache.date)
 	assert.False(t, o.cache.lastFailed)
@@ -295,7 +295,7 @@ func TestOptimizeRunner_RebuildYieldsToQueuedIntent(t *testing.T) {
 	var h *schOptHarness
 	h, env := rebuildHarness(t, func(env *optRunEnv) haClient {
 		return blockingHistoryHA{inner: env.ha, calls: &calls, onBlock: func() {
-			h.runner.intents <- mqtt.Intent{Kind: mqtt.IntentHold}
+			h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentHold})
 		}}
 	})
 
@@ -308,4 +308,107 @@ func TestOptimizeRunner_RebuildYieldsToQueuedIntent(t *testing.T) {
 	assert.False(t, o.cache.lastFailed, "a yielded rebuild is not a failure")
 	assert.True(t, o.cache.needsRebuild(env.now, env.loc))
 	assert.True(t, h.logged("consumption profile rebuild yielded to a queued command; retrying at the next run"))
+	assert.False(t, h.logged("optimizer degraded input"), "a yield is not logged as a failed build")
+}
+
+// timerIntentHA submits sbam's own timer intents on the first History call
+// and lets the rebuild poll the queue a few times before answering, like the
+// EV guard poll landing during a slow rebuild. Like the real client it fails
+// when the rebuild was cancelled meanwhile, so a rebuild that gives way to
+// the timer intents does not complete.
+type timerIntentHA struct {
+	inner  haClient
+	submit func()
+	once   *bool
+}
+
+func (f timerIntentHA) State(ctx context.Context, entity string) (homeassistant.State, error) {
+	return f.inner.State(ctx, entity)
+}
+
+func (f timerIntentHA) History(ctx context.Context, entity string, start, end time.Time) ([]homeassistant.HistoryPoint, error) {
+	if !*f.once {
+		*f.once = true
+		f.submit()
+		time.Sleep(20 * optRebuildPollInterval)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return f.inner.History(ctx, entity, start, end)
+}
+
+// Regression (2.3.0 beta): with the EV guard enabled an EV poll is queued
+// every 60 s. The rebuild must not give way to it (or to the watchdog or a
+// limit check), otherwise it never completes and the plan falls back to the
+// static profile after 26 h.
+func TestOptimizeRunner_RebuildNotInterruptedByTimerIntents(t *testing.T) {
+	oldPoll := optRebuildPollInterval
+	optRebuildPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { optRebuildPollInterval = oldPoll })
+	once := false
+	var h *schOptHarness
+	h, env := rebuildHarness(t, func(env *optRunEnv) haClient {
+		return timerIntentHA{inner: env.ha, once: &once, submit: func() {
+			h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentEVPoll})
+			h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentWatchdog})
+			h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentLimitCheck})
+		}}
+	})
+
+	h.tick()
+
+	o := h.runner.opt
+	assert.True(t, once, "the rebuild ran")
+	assert.Equal(t, optLocalDate(env.now, env.loc), o.cache.date, "the profile was rebuilt")
+	assert.False(t, o.cache.lastFailed)
+	assert.False(t, h.logged("consumption profile rebuild yielded to a queued command; retrying at the next run"))
+	assert.Len(t, h.runner.intents, 3, "the timer intents wait and are handled afterwards")
+}
+
+// Edge case: an EV poll already queued when the run starts does not defer
+// the rebuild either.
+func TestOptimizeRunner_RebuildNotDeferredByQueuedEVPoll(t *testing.T) {
+	oldPoll := optRebuildPollInterval
+	optRebuildPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { optRebuildPollInterval = oldPoll })
+	once := false
+	h, env := rebuildHarness(t, func(env *optRunEnv) haClient {
+		return timerIntentHA{inner: env.ha, once: &once, submit: func() {}}
+	})
+	require.True(t, h.runner.Submit(mqtt.Intent{Kind: mqtt.IntentEVPoll}))
+
+	h.tick()
+
+	assert.True(t, once, "the rebuild ran")
+	assert.Equal(t, optLocalDate(env.now, env.loc), h.runner.opt.cache.date)
+}
+
+// queuedCommands counts commands from Submit until they are handled; timer
+// intents are not counted, a failed Submit leaves no count, and the count
+// never goes below zero.
+func TestRunner_QueuedCommandsCount(t *testing.T) {
+	r := NewRunner(RunnerConfig{SchedulerMode: "windows", Now: time.Now}, newFakeClient())
+
+	for _, k := range []mqtt.IntentKind{mqtt.IntentTick, mqtt.IntentEVPoll, mqtt.IntentWatchdog, mqtt.IntentLimitCheck} {
+		require.True(t, r.Submit(mqtt.Intent{Kind: k}))
+	}
+	assert.Zero(t, r.queuedCommands.Load(), "timer intents are not counted")
+
+	require.True(t, r.Submit(mqtt.Intent{Kind: mqtt.IntentPause}))
+	require.True(t, r.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown}))
+	assert.Equal(t, int32(2), r.queuedCommands.Load())
+
+	r.commandDequeued(mqtt.IntentPause)
+	r.commandDequeued(mqtt.IntentEVPoll)
+	assert.Equal(t, int32(1), r.queuedCommands.Load(), "only commands decrement")
+	r.commandDequeued(mqtt.IntentShutdown)
+	r.commandDequeued(mqtt.IntentHold) // injected without Submit
+	assert.Zero(t, r.queuedCommands.Load(), "never below zero")
+
+	for len(r.intents) < cap(r.intents) {
+		r.intents <- mqtt.Intent{Kind: mqtt.IntentTick}
+	}
+	assert.False(t, r.Submit(mqtt.Intent{Kind: mqtt.IntentForceCharge}))
+	assert.Zero(t, r.queuedCommands.Load(), "a failed Submit leaves no count")
 }

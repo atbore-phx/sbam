@@ -142,6 +142,35 @@ type Runner struct {
 	reserve             *reserveTelemetry // last reserve evaluation in the reserve window
 	// opt holds the optimize-mode state; nil in the other scheduler modes.
 	opt *optRunnerState
+	// queuedCommands counts queued intents that a long-running step (the
+	// optimize-mode profile rebuild) must give way to: everything except
+	// sbam's own timer intents (see isTimerIntent).
+	queuedCommands atomic.Int32
+}
+
+// isTimerIntent reports whether an intent is one of sbam's own periodic or
+// internal intents. A short wait for these is harmless, so a long-running
+// step does not give way to them.
+func isTimerIntent(kind mqtt.IntentKind) bool {
+	switch kind {
+	case mqtt.IntentTick, mqtt.IntentEVPoll, mqtt.IntentWatchdog, mqtt.IntentLimitCheck:
+		return true
+	}
+	return false
+}
+
+// commandDequeued decrements queuedCommands for a handled command intent,
+// never below zero (tests may inject intents without Submit).
+func (r *Runner) commandDequeued(kind mqtt.IntentKind) {
+	if isTimerIntent(kind) {
+		return
+	}
+	for {
+		n := r.queuedCommands.Load()
+		if n <= 0 || r.queuedCommands.CompareAndSwap(n, n-1) {
+			return
+		}
+	}
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -168,10 +197,18 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 // success or false if the internal intent queue is full, in which case an
 // error is logged and published to MQTT.
 func (r *Runner) Submit(intent mqtt.Intent) bool {
+	if !isTimerIntent(intent.Kind) {
+		// Counted before the send so a consumer never sees the intent
+		// before the count.
+		r.queuedCommands.Add(1)
+	}
 	select {
 	case r.intents <- intent:
 		return true
 	default:
+		if !isTimerIntent(intent.Kind) {
+			r.queuedCommands.Add(-1)
+		}
 		err := fmt.Errorf("%w: %s", errRunnerIntentQueueFull, intent.Kind)
 		u.Log.Warn(err)
 		r.publishError(context.Background(), "runner", err)
@@ -710,6 +747,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 // the appropriate handler. It also acknowledges MQTT commands where
 // required.
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
+	r.commandDequeued(intent.Kind)
 	// Commands that write the battery or stop the schedule end the
 	// grid_import_limit loop; ticks start or stop it themselves.
 	switch intent.Kind {
