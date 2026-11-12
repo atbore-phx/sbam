@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"sbam/pkg/optimize"
+
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,14 +87,30 @@ func loadAddonConfig(t *testing.T) addonConfig {
 	return cfg
 }
 
-// addonOptimizer returns the optimizer: map of the add-on schema and options.
+// addonOptimizer returns the optimizer: map of the add-on schema and options,
+// with nested maps (static:) flattened to dotted keys.
 func addonOptimizer(t *testing.T, cfg addonConfig) (schema, options map[string]any) {
 	t.Helper()
 	schema, ok := cfg.Schema[optimizerGroup].(map[string]any)
 	require.True(t, ok, "schema.optimizer must be a map")
 	options, ok = cfg.Options[optimizerGroup].(map[string]any)
 	require.True(t, ok, "options.optimizer must be a map")
-	return schema, options
+	return addonFlatten(schema), addonFlatten(options)
+}
+
+func addonFlatten(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		sub, ok := v.(map[string]any)
+		if !ok {
+			out[k] = v
+			continue
+		}
+		for sk, sv := range addonFlatten(sub) {
+			out[k+"."+sk] = sv
+		}
+	}
+	return out
 }
 
 // addonSchemaRegex extracts and compiles the regex of a match(...) schema
@@ -189,6 +207,88 @@ func TestSurchargeSchemaRegex_T0170(t *testing.T) {
 			}
 		}
 		assert.Positive(t, accepted)
+	})
+}
+
+// The optimizer.static price schema regex accepts an empty value or exactly
+// 24 numbers in [-5, 50], and everything it accepts parseHourly accepts too.
+func TestStaticPriceSchemaRegex(t *testing.T) {
+	cfg := loadAddonConfig(t)
+	optSchema, optOptions := addonOptimizer(t, cfg)
+	parse := func(s string) error {
+		_, _, err := parseHourly(keyOptStaticBuyPrice, s, optimize.MinPriceKWh, optimize.MaxPriceKWh)
+		return err
+	}
+
+	for _, name := range []string{"static.buy_price", "static.sell_price"} {
+		re := addonSchemaRegex(t, optSchema, name)
+		pass := map[string]string{
+			"unset":                "",
+			"three-band buy":       optCfgTestBuy,
+			"three-band sell":      optCfgTestSell,
+			"spaces around commas": surchargeCSV(" , ", surchargeRepeat("0.5", 24)...),
+			"range bounds":         surchargeCSV(",", append(surchargeRepeat("-5", 12), surchargeRepeat("50", 12)...)...),
+			"bounds with decimals": surchargeCSV(",", append(surchargeRepeat("-5.0", 12), surchargeRepeat("50.00", 12)...)...),
+			"options default":      addonOptionString(optOptions[name]),
+		}
+		for label, s := range pass {
+			t.Run(name+"/pass/"+label, func(t *testing.T) {
+				assert.True(t, re.MatchString(s), "expected %q to match", s)
+				assert.NoError(t, parse(s), "regex accepted %q but parseHourly rejected it", s)
+			})
+		}
+
+		fail := map[string]string{
+			"23 values":        surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"25 values":        surchargeCSV(",", surchargeRepeat("0", 25)...),
+			"only spaces":      "   ",
+			"trailing comma":   surchargeCSV(",", surchargeRepeat("0", 24)...) + ",",
+			"above max 50.1":   "50.1," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"above max 51":     "51," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"above max 100":    "100," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"below min -5.1":   "-5.1," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"below min -10":    "-10," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"non-numeric item": "abc," + surchargeCSV(",", surchargeRepeat("0", 23)...),
+			"decimal comma":    surchargeCSV(";", surchargeRepeat("0,5", 24)...),
+		}
+		for label, s := range fail {
+			t.Run(name+"/fail/"+label, func(t *testing.T) {
+				assert.False(t, re.MatchString(s), "expected %q to not match", s)
+			})
+		}
+
+		t.Run(name+"/consistency sweep", func(t *testing.T) {
+			accepted := 0
+			for i := -24; i <= 204; i++ {
+				f := float64(i) / 4
+				for _, v := range []string{strconv.FormatFloat(f, 'f', -1, 64), strconv.FormatFloat(f, 'f', 2, 64)} {
+					s := surchargeCSV(",", surchargeRepeat(v, 24)...)
+					if !re.MatchString(s) {
+						continue
+					}
+					accepted++
+					assert.NoError(t, parse(s), "regex accepted %q but parseHourly rejected it", v)
+				}
+			}
+			assert.Positive(t, accepted)
+		})
+	}
+
+	t.Run("currency", func(t *testing.T) {
+		re := addonSchemaRegex(t, optSchema, "static.currency")
+		for _, c := range []string{"", "AUD", "EUR", "øre", "12345678"} {
+			assert.True(t, re.MatchString(c), "expected %q to match", c)
+			_, err := optCfgCurrency(c)
+			assert.NoError(t, err, "regex accepted %q but optCfgCurrency rejected it", c)
+		}
+		for _, c := range []string{"A UD", " AUD", "123456789"} {
+			assert.False(t, re.MatchString(c), "expected %q to not match", c)
+		}
+	})
+
+	t.Run("price source", func(t *testing.T) {
+		assert.Equal(t, "list("+optPriceSourceNordpool+"|"+optPriceSourceStatic+")", optSchema["price_source"])
+		assert.Equal(t, defOptPriceSource, optOptions["price_source"], "existing installs keep nordpool")
 	})
 }
 
@@ -313,6 +413,32 @@ func TestAddonOptimizeParity_T0172(t *testing.T) {
 	})
 }
 
+// addonTranslation is one entry of the add-on translations; a nested map of
+// options (static:) carries its own fields.
+type addonTranslation struct {
+	Name        string                      `yaml:"name"`
+	Description string                      `yaml:"description"`
+	Fields      map[string]addonTranslation `yaml:"fields"`
+}
+
+// addonTranslationLeaves flattens nested fields to dotted keys and checks
+// that every group on the way has a name.
+func addonTranslationLeaves(t *testing.T, prefix string, fields map[string]addonTranslation) map[string]addonTranslation {
+	t.Helper()
+	out := map[string]addonTranslation{}
+	for k, f := range fields {
+		if len(f.Fields) == 0 {
+			out[prefix+k] = f
+			continue
+		}
+		assert.NotEmpty(t, f.Name, "optimizer.%s%s name", prefix, k)
+		for sk, sf := range addonTranslationLeaves(t, prefix+k+".", f.Fields) {
+			out[sk] = sf
+		}
+	}
+	return out
+}
+
 // Every option in the add-on optimizer: schema has a translated name and
 // description under configuration.optimizer.fields, and no translation is
 // left for an option that does not exist.
@@ -323,28 +449,22 @@ func TestAddonOptimizerTranslations(t *testing.T) {
 	data, err := os.ReadFile("../../home-assistant/addons/sbam/translations/en.yaml")
 	require.NoError(t, err)
 	var tr struct {
-		Configuration map[string]struct {
-			Name        string `yaml:"name"`
-			Description string `yaml:"description"`
-			Fields      map[string]struct {
-				Name        string `yaml:"name"`
-				Description string `yaml:"description"`
-			} `yaml:"fields"`
-		} `yaml:"configuration"`
+		Configuration map[string]addonTranslation `yaml:"configuration"`
 	}
 	require.NoError(t, yaml.Unmarshal(data, &tr))
 	group, ok := tr.Configuration[optimizerGroup]
 	require.True(t, ok, "translations must have configuration.optimizer")
 	assert.NotEmpty(t, group.Name)
+	fields := addonTranslationLeaves(t, "", group.Fields)
 
 	for k := range optSchema {
-		f, ok := group.Fields[k]
+		f, ok := fields[k]
 		if assert.True(t, ok, "optimizer.%s has no translation", k) {
 			assert.NotEmpty(t, f.Name, "optimizer.%s name", k)
 			assert.NotEmpty(t, f.Description, "optimizer.%s description", k)
 		}
 	}
-	for k := range group.Fields {
+	for k := range fields {
 		assert.Contains(t, optSchema, k, "translation for unknown option optimizer.%s", k)
 	}
 	for k := range tr.Configuration {

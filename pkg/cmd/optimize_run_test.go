@@ -46,11 +46,13 @@ type optRunFakeHA struct {
 	// 500 W (load) / 0 kW (EV) at the chunk start.
 	historyFn    func(entity string, start, end time.Time) []homeassistant.HistoryPoint
 	historyCalls []optRunHistoryCall
+	stateCalls   []string
 }
 
 func (f *optRunFakeHA) State(_ context.Context, entity string) (homeassistant.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.stateCalls = append(f.stateCalls, entity)
 	if err := f.stateErr[entity]; err != nil {
 		return homeassistant.State{}, err
 	}
@@ -288,6 +290,125 @@ func TestRunOptimization_ProducesValidatedPlan(t *testing.T) {
 	assert.Len(t, res.Plan.Hours, optimize.DefaultMaxHours)
 	assert.Equal(t, 2, res.Grid.Dropped)
 	assert.True(t, e.cache.hasProfile(), "cold start builds the profile before solving")
+}
+
+// optRunTariff is a three-band tariff: cheap 09-15, peak 15-21.
+func optRunTariff() optimize.Tariff {
+	t := optimize.Tariff{Currency: "AUD"}
+	for h := range t.Buy {
+		t.Buy[h], t.Sell[h] = 0.24, 0.02
+		switch {
+		case h >= 9 && h < 15:
+			t.Buy[h] = 0.09
+		case h >= 15 && h < 21:
+			t.Buy[h], t.Sell[h] = 0.54, 0.10
+		}
+	}
+	return t
+}
+
+// With price_source static the prices come from the configured tariff: the
+// price entity is never read and the spot-price settings are not applied.
+func TestRunOptimization_StaticTariff(t *testing.T) {
+	e := newOptRunEnv(t)
+	tariff := optRunTariff()
+	e.cfg.PriceSource = optPriceSourceStatic
+	e.cfg.Tariff = tariff
+	e.cfg.Surcharge[12] = 1.5
+	e.ha.stateErr[optRunPriceEntity] = errors.New("the price entity must not be read")
+
+	res := e.run(context.Background())
+	require.Nil(t, res.Fallback, "unexpected fallback: %+v", res.Fallback)
+	assert.NotContains(t, e.ha.stateCalls, optRunPriceEntity)
+	assert.Equal(t, "AUD", res.Currency)
+	assert.False(t, res.TZMismatch)
+
+	// 48 tariff hours from 10:00, capped at the 36 h horizon.
+	require.Len(t, res.Plan.Hours, optimize.DefaultMaxHours)
+	assert.Equal(t, optPriceLookaheadHours-optimize.DefaultMaxHours, res.Grid.Dropped)
+	assert.True(t, res.Grid.Hours[0].Start.Equal(time.Date(2026, 10, 5, 10, 0, 0, 0, e.loc)))
+	for k, h := range res.Grid.Hours {
+		assert.Equal(t, tariff.Buy[h.HourOfDay], h.Buy, "buy of slot %d", k)
+		assert.Equal(t, tariff.Sell[h.HourOfDay], h.Sell, "sell of slot %d", k)
+	}
+	assert.InDelta(t, 0.09, res.PriceMin, 1e-9)
+	assert.InDelta(t, 0.54, res.PriceMax, 1e-9)
+
+	// The same inputs with the nordpool source read the price entity.
+	e.cfg.PriceSource = optPriceSourceNordpool
+	res = e.run(context.Background())
+	require.NotNil(t, res.Fallback)
+	assert.Contains(t, e.ha.stateCalls, optRunPriceEntity)
+}
+
+// The solver acts on the tariff: with no PV it charges in the cheap band and
+// covers the peak band from the battery.
+func TestRunOptimization_StaticTariff_Plan(t *testing.T) {
+	e := newOptRunEnv(t)
+	e.cfg.PriceSource = optPriceSourceStatic
+	e.cfg.Tariff = optRunTariff()
+	e.cfg.MinGain = 0.05
+	e.bat.soc = 10
+	for i := range e.fc.forecasts[0] {
+		e.fc.forecasts[0][i].PVEstimate = 0
+	}
+
+	res := e.run(context.Background())
+	require.Nil(t, res.Fallback, "unexpected fallback: %+v", res.Fallback)
+	charges := 0
+	for _, h := range res.Plan.Hours {
+		switch {
+		case h.Action == optimize.ActionCharge:
+			charges++
+			assert.Equal(t, 0.09, h.Buy, "charge at %s is outside the cheap band", h.Start)
+		case h.HourOfDay >= 15 && h.HourOfDay < 21:
+			assert.Equal(t, optimize.ActionSelfConsume, h.Action, "peak hour %s", h.Start)
+			assert.LessOrEqual(t, h.GridWh, 0.0, "peak hour %s imports", h.Start)
+		}
+	}
+	assert.Positive(t, charges)
+}
+
+// A static tariff needs Home Assistant only for the consumption history: when
+// it is down the run still plans, on the cached or the static profile.
+func TestRunOptimization_StaticTariff_HADown(t *testing.T) {
+	cases := map[string]struct {
+		err    error
+		reason optimize.Reason
+	}{
+		"unreachable": {errors.New("dial tcp 192.0.2.1:8123: connect: connection refused"), optimize.ReasonFallbackHAUnreachable},
+		"auth failed": {fmt.Errorf("GET /api/states: status 401: %w", homeassistant.ErrAuth), optimize.ReasonFallbackHAAuthFailed},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newOptRunEnv(t)
+			e.cfg.PriceSource = optPriceSourceStatic
+			e.cfg.Tariff = optRunTariff()
+			warm := e.run(context.Background())
+			require.Nil(t, warm.Fallback)
+
+			for _, ent := range []string{optRunPriceEntity, optRunLoadEntity, optRunEVEntity} {
+				e.ha.stateErr[ent] = tc.err
+				e.ha.historyErr[ent] = tc.err
+			}
+			cached := e.run(context.Background())
+			require.Nil(t, cached.Fallback, "unexpected fallback: %+v", cached.Fallback)
+			assert.Equal(t, warm.Reasons, cached.Reasons)
+			assert.Equal(t, warm.Plan, cached.Plan)
+
+			e.cache = &profileCache{}
+			cold := e.run(context.Background())
+			require.Nil(t, cold.Fallback, "unexpected fallback: %+v", cold.Fallback)
+			assert.Contains(t, cold.Reasons, optimize.ReasonConsumptionStaticFallback)
+			assert.Len(t, cold.Plan.Hours, optimize.DefaultMaxHours)
+
+			// The nordpool source needs the price entity: the same outage is a fallback.
+			e.cfg.PriceSource = optPriceSourceNordpool
+			res := e.run(context.Background())
+			require.NotNil(t, res.Fallback)
+			assert.Equal(t, tc.reason, res.Fallback.Reason)
+		})
+	}
 }
 
 func TestRunOptimization_Deterministic(t *testing.T) {

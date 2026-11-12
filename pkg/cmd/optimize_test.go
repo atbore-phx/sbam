@@ -115,14 +115,7 @@ func TestOptimizeCmd_T0160_TableGolden(t *testing.T) {
 
 	out, err := execOptCLI(t, optCLIValidArgs()...)
 	require.NoError(t, err)
-
-	if os.Getenv("SBAM_UPDATE_GOLDEN") == "1" {
-		require.NoError(t, os.MkdirAll(filepath.Dir(optCLIGoldenPath), 0o755))
-		require.NoError(t, os.WriteFile(optCLIGoldenPath, []byte(out), 0o644))
-	}
-	golden, err := os.ReadFile(optCLIGoldenPath)
-	require.NoError(t, err, "golden missing; run with SBAM_UPDATE_GOLDEN=1")
-	assert.Equal(t, strings.ReplaceAll(string(golden), "\r\n", "\n"), out)
+	optCLIAssertGolden(t, optCLIGoldenPath, out)
 
 	assert.Contains(t, out, "DRY RUN (nothing written to the inverter)")
 	assert.Contains(t, out, "START             CONS Wh   PV Wh    BUY    SELL  ACTION         RATE W  SOC END %")
@@ -131,6 +124,49 @@ func TestOptimizeCmd_T0160_TableGolden(t *testing.T) {
 	assert.Equal(t, 0, e.spy.batteryWriter, "battery writer factory must never be invoked")
 	assert.Equal(t, 0, e.spy.fronius, "fronius client factory must never be invoked")
 	assert.Equal(t, 0, e.spy.dispatchWriter, "dispatch writer factory must never be invoked")
+}
+
+// optCLIAssertGolden compares out with the snapshot at path, rewriting it
+// first when SBAM_UPDATE_GOLDEN=1.
+func optCLIAssertGolden(t *testing.T, path, out string) {
+	t.Helper()
+	if os.Getenv("SBAM_UPDATE_GOLDEN") == "1" {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(out), 0o644))
+	}
+	golden, err := os.ReadFile(path)
+	require.NoError(t, err, "golden missing; run with SBAM_UPDATE_GOLDEN=1")
+	assert.Equal(t, strings.ReplaceAll(string(golden), "\r\n", "\n"), out)
+}
+
+// With --opt_price_source static the table is planned from the tariff flags
+// without a price entity; regenerate like the T-0160 snapshot.
+func TestOptimizeCmd_StaticTariffGolden(t *testing.T) {
+	e := newOptCLIEnv(t)
+	delete(e.run.ha.states, optRunPriceEntity)
+
+	args := []string{
+		"optimize",
+		"--ha_url", "https://ha.example.invalid",
+		"--ha_token", "test-token",
+		"--opt_price_source", "static",
+		"--opt_static_buy_price", optCfgTestBuy,
+		"--opt_static_sell_price", optCfgTestSell,
+		"--opt_static_currency", "AUD",
+		"--opt_consumption_entity", optRunLoadEntity,
+		"-c", "12000",
+		"-H", "192.0.2.10",
+		"-u", "https://solcast.example.invalid/forecasts",
+		"-k", "test-api-key",
+		"-l", "3600",
+	}
+	out, err := execOptCLI(t, args...)
+	require.NoError(t, err)
+	optCLIAssertGolden(t, filepath.Join("testdata", "optimize_table_static.golden"), out)
+
+	assert.Contains(t, out, "\nPrices      static tariff (AUD/kWh, incl. tax)\n")
+	assert.NotContains(t, out, "sell margin")
+	assert.NotContains(t, e.run.ha.stateCalls, "")
 }
 
 // T-0160 edge case: one row per plan hour, in the plan's order.

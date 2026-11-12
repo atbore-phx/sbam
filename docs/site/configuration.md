@@ -239,7 +239,11 @@ To create a long-lived token for Docker or the CLI: in Home Assistant open your 
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default | Valid range |
 |--------|-------------|----------|---------|---------------|---------|-------------|
-| `optimizer.price_entity` | Nordpool price sensor (prices incl. VAT), e.g. `sensor.nordpool_kwh_dk2_dkk_3_10_025`. **Required** in optimize mode. | `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | `optimizer.price_entity` | — | `sensor.<object_id>` (`^sensor\.[a-z0-9_]+$`) |
+| `optimizer.price_source` | Where the prices come from: `nordpool` reads the Nordpool price sensor, `static` uses the fixed tariff in `optimizer.static`. See [Fixed time-of-use tariffs](optimizer.md#fixed-time-of-use-tariffs). | `--opt_price_source` | `OPTIMIZER_PRICE_SOURCE` | `optimizer.price_source` | `nordpool` | `nordpool` / `static` |
+| `optimizer.price_entity` | Nordpool price sensor (prices incl. VAT), e.g. `sensor.nordpool_kwh_dk2_dkk_3_10_025`. **Required** when `optimizer.price_source` is `nordpool`. | `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | `optimizer.price_entity` | — | `sensor.<object_id>` (`^sensor\.[a-z0-9_]+$`) |
+| `optimizer.static.buy_price` | Fixed tariff: 24 hourly buy prices in currency/kWh **incl. tax**. First value = 00:00–01:00. **Required** when `optimizer.price_source` is `static`. | `--opt_static_buy_price` | `OPTIMIZER_STATIC_BUY_PRICE` | `optimizer.static.buy_price` | — | exactly 24 numbers, each `-5`–`50` |
+| `optimizer.static.sell_price` | Fixed tariff: 24 hourly sell (feed-in) prices in currency/kWh, same order. **Required** when `optimizer.price_source` is `static`. | `--opt_static_sell_price` | `OPTIMIZER_STATIC_SELL_PRICE` | `optimizer.static.sell_price` | — | exactly 24 numbers, each `-5`–`50` |
+| `optimizer.static.currency` | Optional currency of the fixed tariff, e.g. `AUD`. Unit of the expected cost. | `--opt_static_currency` | `OPTIMIZER_STATIC_CURRENCY` | `optimizer.static.currency` | — | at most 8 characters, no spaces |
 | `optimizer.consumption_entity` | Household load power sensor (W or kW), e.g. `sensor.solarnet_power_load_consumed`. **Required** in optimize mode. | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | `optimizer.consumption_entity` | — | `sensor.<object_id>` |
 | `optimizer.ev_entity` | Optional EV charger power sensor (W or kW). Its energy is subtracted from the household load, and it drives the EV guard. | `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | `optimizer.ev_entity` | — (EV skipped) | empty or `sensor.<object_id>` |
 | `optimizer.ev_guard_w` | EV power in W above which sbam holds the battery instead of letting it discharge into the car in `self_consume` hours. Needs `optimizer.ev_entity`. `0` disables it. See [EV guard](optimizer.md#ev-guard). | `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | `optimizer.ev_guard_w` | `1000` | `0`–`50000` |
@@ -274,6 +278,19 @@ To create a long-lived token for Docker or the CLI: in Home Assistant open your 
     ```
 
 **Prices.** For every hour: `buy = spot incl. VAT + surcharge[hour of day]` and `sell = spot incl. VAT / (1 + optimizer.vat_rate) − optimizer.sell_margin`. Example: spot 2.00, surcharge 2.04, VAT 0.25, margin 0.05 gives `buy = 4.04` and `sell = 1.55`.
+
+**Fixed tariff.** With `optimizer.price_source: static` the buy and sell price of an hour are the values of `optimizer.static.buy_price` and `optimizer.static.sell_price` for its hour of day. The two lists are written like the surcharges above (a comma-separated string, or a YAML list in `config.yaml`), but both are required and each value is between `-5` and `50`. They are grouped in one map:
+
+```yaml
+optimizer:
+  price_source: static
+  static:
+    buy_price: "0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.086151,0.086151,0.086151,0.086151,0.086151,0.086151,0.538446,0.538446,0.538446,0.538446,0.538446,0.538446,0.236916,0.236916,0.236916"
+    sell_price: "0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.10,0.10,0.10,0.10,0.10,0.10,0.02,0.02,0.02"
+    currency: AUD
+```
+
+`optimizer.price_entity`, `optimizer.vat_rate`, `optimizer.sell_margin` and `optimizer.purchase_surcharge` are not used with a fixed tariff; a set sell margin or surcharge logs a warning, and the VAT rate, sell margin and surcharge must still hold valid values. The hours of both lists are local time: see [Fixed time-of-use tariffs](optimizer.md#fixed-time-of-use-tariffs). The `static` keys were added after the flat layout, so they have no flat `opt_*` config key or `OPT_*` variable.
 
 **Efficiency and terminal value.** Charging ΔE into the battery costs ΔE / η, so grid-charging only pays when a later price beats the current price ÷ η. Energy left at the end of the horizon is valued at `η × mean(buy)` per kWh, so a short horizon does not empty the battery.
 

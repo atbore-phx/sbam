@@ -205,13 +205,13 @@ func runOptimization(ctx context.Context, deps optimizeDeps, cfg OptimizeConfig,
 	if deps.HA == nil {
 		return optFail(res, optimize.ReasonFallbackHAUnreachable, optInputHAClient, errors.New("home assistant client not configured"))
 	}
-	prices, meta, reason, err := optReadPrices(ctx, deps.HA, cfg, now, loc)
-	res.Currency = meta.Currency
-	res.TZMismatch = meta.TZMismatch
+	prices, reason, err := optLoadPrices(ctx, deps.HA, cfg, now, loc)
+	res.Currency = prices.Currency
+	res.TZMismatch = prices.TZMismatch
 	if err != nil {
 		return optFail(res, reason, optInputPrice, err)
 	}
-	if meta.TZMismatch {
+	if prices.TZMismatch {
 		u.Log.Warnw("TZ mismatch", "detail", "price timestamps use a different UTC offset than the local zone; check the container TZ", "local_offset", optOffset(now, loc))
 	}
 
@@ -232,7 +232,8 @@ func runOptimization(ctx context.Context, deps optimizeDeps, cfg OptimizeConfig,
 	// 5. Grid.
 	params := optParams(cfg)
 	grid, battery, gridReasons, err := optimize.BuildGrid(optimize.GridInput{
-		Prices:  prices,
+		Prices:  prices.Hours,
+		BuySell: prices.BuySell,
 		Profile: profile,
 		PV: func(slots []optimize.Hour) ([]float64, []optimize.Reason) {
 			starts := make([]time.Time, len(slots))
@@ -294,6 +295,28 @@ func optFail(res optimizeResult, reason optimize.Reason, input string, err error
 	res.Plan = optimize.Plan{}
 	res.Reasons = optSortReasons(append(res.Reasons, reason))
 	return res
+}
+
+// optPrices is the price input of one run; a nil BuySell derives buy and sell from the spot price.
+type optPrices struct {
+	Hours      []optimize.HourPrice
+	BuySell    func(optimize.Hour) (buy, sell float64)
+	Currency   string
+	TZMismatch bool
+}
+
+// optLoadPrices returns the prices of the configured source; only nordpool reads Home Assistant.
+func optLoadPrices(ctx context.Context, ha haClient, cfg OptimizeConfig, now time.Time, loc *time.Location) (optPrices, optimize.Reason, error) {
+	if cfg.PriceSource == optPriceSourceStatic {
+		t := cfg.Tariff
+		return optPrices{
+			Hours:    t.HourlyPrices(optSlot0(now, loc), loc, optPriceLookaheadHours),
+			BuySell:  t.BuySell,
+			Currency: t.Currency,
+		}, "", nil
+	}
+	hours, meta, reason, err := optReadPrices(ctx, ha, cfg, now, loc)
+	return optPrices{Hours: hours, Currency: meta.Currency, TZMismatch: meta.TZMismatch}, reason, err
 }
 
 // optReadPrices reads the price entity, checks its unit and currency, parses

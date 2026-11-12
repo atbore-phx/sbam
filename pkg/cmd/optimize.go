@@ -220,8 +220,7 @@ func renderOptCLITable(w io.Writer, res optimizeResult, cfg OptimizeConfig, now 
 		res.StartSocPct, optCLIThousands(res.Battery.CapacityWh), optCLINum(cfg.MinSocPct), optCLIThousands(res.Battery.E0Wh))
 	fmt.Fprintf(&b, "%-12sefficiency %.2f  max charge %s W  max discharge %s W\n", "Model",
 		cfg.Efficiency, optCLIThousands(cfg.MaxChargeW), optCLIThousands(cfg.MaxDischargeW))
-	fmt.Fprintf(&b, "%-12s%s (%s/kWh, incl. VAT)  VAT %.2f  sell margin %.2f\n", "Prices",
-		cfg.PriceEntity, optCLICurrency(res.Currency), cfg.VATRate, cfg.SellMargin)
+	fmt.Fprintf(&b, "%-12s%s\n", "Prices", optCLIPriceSource(cfg, res.Currency))
 	consumption := cfg.ConsumptionEntity
 	if cfg.EVEntity != "" {
 		consumption += " - EV " + cfg.EVEntity
@@ -334,6 +333,15 @@ func optCLIJoinReasons(rs []optimize.Reason) string {
 		parts[i] = string(r)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// optCLIPriceSource describes where the prices of the run come from.
+func optCLIPriceSource(cfg OptimizeConfig, currency string) string {
+	if cfg.PriceSource == optPriceSourceStatic {
+		return fmt.Sprintf("static tariff (%s/kWh, incl. tax)", optCLICurrency(currency))
+	}
+	return fmt.Sprintf("%s (%s/kWh, incl. VAT)  VAT %.2f  sell margin %.2f",
+		cfg.PriceEntity, optCLICurrency(currency), cfg.VATRate, cfg.SellMargin)
 }
 
 func optCLICurrency(c string) string {

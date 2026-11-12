@@ -17,7 +17,7 @@ configuration:
     name: Scheduler mode
     description: >-
       windows (recommended), crontab (legacy), or optimize. optimize plans charge, hold,
-      standby and discharge every hour from Nordpool prices; the crontab and
+      standby and discharge every hour from Nordpool prices or a fixed tariff; the crontab and
       windows fields are ignored in that mode.
   windows:
     name: Charge windows
@@ -147,11 +147,42 @@ configuration:
       Options of the cost optimizer, used only with scheduler_mode optimize.
       See the optimizer documentation for the dry-run-first workflow.
     fields:
+      price_source:
+        name: Price source
+        description: >-
+          nordpool reads hourly spot prices from the Nordpool price sensor.
+          static uses the fixed time-of-use tariff below, for contracts without
+          spot prices.
       price_entity:
         name: Nordpool price sensor
         description: >-
-          Required in optimize mode. Entity ID of the Nordpool sensor (prices incl.
-          VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025
+          Required when the price source is nordpool. Entity ID of the Nordpool
+          sensor (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025
+      static:
+        name: Fixed tariff (price source static)
+        description: >-
+          Buy and sell price per kWh for each hour of the day. With the price
+          source static, the VAT rate, sell margin and purchase surcharge are
+          not used.
+        fields:
+          buy_price:
+            name: Buy price per hour (incl. tax)
+            description: >-
+              Exactly 24 comma-separated values in currency/kWh incl. tax, first
+              value = 00:00-01:00, last value = 23:00-24:00. Use '.' as decimal
+              separator; each value between -5 and 50.
+              Example: 0.24,0.24,0.24,0.24,0.24,0.24,0.24,0.24,0.24,0.09,...,0.24
+          sell_price:
+            name: Sell price per hour
+            description: >-
+              What you are paid per kWh exported to the grid: exactly 24
+              comma-separated values in currency/kWh, same order and limits as
+              the buy price.
+          currency:
+            name: Currency (optional)
+            description: >-
+              Currency of the tariff, e.g. AUD or EUR. Shown with the expected
+              cost; at most 8 characters without spaces.
       consumption_entity:
         name: Household consumption sensor
         description: >-

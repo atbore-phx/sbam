@@ -418,6 +418,67 @@ func TestBindFlags_T0126_DryRunPrecedence(t *testing.T) {
 	})
 }
 
+// The static tariff keys, nested in the static: map, honour flag > env >
+// yaml, both in viper and in loadOptimizeConfig.
+func TestBindFlags_StaticTariffPrecedence(t *testing.T) {
+	prices := func(v string) string { return strings.TrimSuffix(strings.Repeat(v+",", 24), ",") }
+	cases := []struct {
+		name            string
+		yaml, env, flag bool
+		wantBuy         float64
+		wantCurrency    string
+	}{
+		{name: "yaml", yaml: true, wantBuy: 0.1, wantCurrency: "AUD"},
+		{name: "env beats yaml", yaml: true, env: true, wantBuy: 0.2, wantCurrency: "NZD"},
+		{name: "flag beats env", yaml: true, env: true, flag: true, wantBuy: 0.3, wantCurrency: "EUR"},
+		{name: "env only", env: true, wantBuy: 0.2, wantCurrency: "NZD"},
+		{name: "flag only", flag: true, wantBuy: 0.3, wantCurrency: "EUR"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			if tc.yaml {
+				writeConfig(t, "optimizer:\n  price_source: static\n  static:\n    buy_price: \""+prices("0.1")+"\"\n    sell_price: ["+prices("0.01")+"]\n    currency: AUD\n")
+			}
+			if tc.env {
+				t.Setenv("OPTIMIZER_PRICE_SOURCE", "static")
+				t.Setenv("OPTIMIZER_STATIC_BUY_PRICE", prices("0.2"))
+				t.Setenv("OPTIMIZER_STATIC_SELL_PRICE", prices("0.02"))
+				t.Setenv("OPTIMIZER_STATIC_CURRENCY", "NZD")
+			}
+			c := newOptimizeFlagCmd()
+			if tc.flag {
+				require.NoError(t, c.Flags().Set("opt_price_source", "static"))
+				require.NoError(t, c.Flags().Set("opt_static_buy_price", prices("0.3")))
+				require.NoError(t, c.Flags().Set("opt_static_sell_price", prices("0.03")))
+				require.NoError(t, c.Flags().Set("opt_static_currency", "EUR"))
+			}
+			require.NoError(t, bindFlags(c))
+
+			cfg, warnings := optLoadWith(t, func(string) string { return "" })
+			assert.Empty(t, warnings)
+			assert.Equal(t, optPriceSourceStatic, cfg.PriceSource)
+			assert.Equal(t, tc.wantBuy, cfg.Tariff.Buy[7])
+			assert.Equal(t, tc.wantBuy/10, cfg.Tariff.Sell[7])
+			assert.Equal(t, tc.wantCurrency, cfg.Tariff.Currency)
+		})
+	}
+
+	// The tariff keys were added after the flat layout: neither a flat config
+	// key nor an OPT_* variable sets them.
+	t.Run("no flat key or OPT_ alias", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_price_source: static\nopt_static_buy_price: \""+prices("0.1")+"\"\n")
+		t.Setenv("OPT_PRICE_SOURCE", "static")
+		t.Setenv("OPT_STATIC_SELL_PRICE", prices("0.02"))
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		cfg, warnings := optLoadWith(t, os.Getenv)
+		assert.Empty(t, warnings)
+		assert.Equal(t, optPriceSourceNordpool, cfg.PriceSource)
+		assert.Equal(t, [24]float64{}, cfg.Tariff.Buy)
+	})
+}
+
 // optLoadWith loads the optimize config with the required keys set and the
 // given getenv.
 func optLoadWith(t *testing.T, getenv func(string) string) (OptimizeConfig, []string) {

@@ -103,7 +103,7 @@ With `scheduler_mode: optimize`, discovery adds 5 entities and 36 per-hour plan 
 |--------|-----------|--------|--------------|----------|
 | **Optimizer Action** | `sensor.sbam_opt_action` | state `opt_action` | enum: `charge`, `hold`, `standby`, `discharge`, `self_consume` | main |
 | **Optimizer Rate** | `sensor.sbam_opt_rate_w` | state `opt_rate_w` | W, `power` | main |
-| **Expected Cost** | `sensor.sbam_opt_expected_cost` | state `opt_expected_cost` | currency of the price sensor (e.g. `DKK`), `monetary`; no unit until the currency is known | main |
+| **Expected Cost** | `sensor.sbam_opt_expected_cost` | state `opt_expected_cost` | currency of the price sensor or of `optimizer.static.currency` (e.g. `DKK`), `monetary`; no unit until the currency is known | main |
 | **Optimizer Horizon** | `sensor.sbam_opt_horizon_h` | state `opt_horizon_h` | h, `duration` | diagnostic |
 | **Optimizer Dry Run** | `binary_sensor.sbam_opt_dry_run` | state `opt_dry_run` | `on` = nothing written to the inverter | diagnostic |
 | **Plan +00h** … **Plan +35h** | `sensor.sbam_opt_plan_h00` … `sensor.sbam_opt_plan_h35` | `<prefix>/plan`, `hours[NN].action` | enum, same options as Optimizer Action | diagnostic |
@@ -263,7 +263,7 @@ The manual force-charge sequence above is not needed in optimize mode: `force_ch
 |-------|------|---------|
 | `opt_action` | string | `charge`, `hold`, `standby`, `discharge` or `self_consume` for the current hour. `self_consume` on fallback. |
 | `opt_rate_w` | number | Rate in W, ≥ 0; the direction comes from the action. `0` for `hold`, `standby` and `self_consume`. |
-| `opt_expected_cost` | number or `null` | Expected cost over the horizon minus the terminal value, in the price sensor's currency. `null` on fallback. |
+| `opt_expected_cost` | number or `null` | Expected cost over the horizon minus the terminal value, in the currency of the price sensor or of `optimizer.static.currency`. `null` on fallback. |
 | `opt_horizon_h` | integer | Number of hours in the plan; `0` on fallback. |
 | `opt_dry_run` | boolean | `true` when nothing was written to the inverter. |
 | `opt_reasons` | string array | All applicable reason codes in precedence order; the first equals `last_decision_reason`. |
@@ -316,7 +316,7 @@ In optimize mode, after a run `last_decision` is the action, `fallback_defaults`
 |-------|---------|
 | `ts` | Time of the run (UTC). |
 | `dry_run` | `true` when the run wrote nothing. |
-| `currency` | Currency of the price sensor; empty if unknown. |
+| `currency` | Currency of the price sensor or of `optimizer.static.currency`; empty if unknown. |
 | `horizon_h` / `horizon_end` | Number of hours (up to 36) and the end of the last hour. `horizon_end` is `null` on fallback. |
 | `start_soc_pct` | SoC at the start of the run; `null` if it could not be read. |
 | `expected_cost` / `terminal_value` | Expected cost over the horizon (after subtracting the terminal value) and the value of the energy left at the end. `null` on fallback. |
