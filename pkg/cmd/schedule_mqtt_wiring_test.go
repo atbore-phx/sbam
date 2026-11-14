@@ -137,3 +137,27 @@ func TestSubscribeScheduleCommands_RequiresRunner(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "runner must not be nil")
 }
+
+func TestRegisterCommandSubscription_AlreadyConnectedSubscribesNow(t *testing.T) {
+	client := &recordingMQTTClient{connected: true}
+	calls := 0
+
+	registerCommandSubscription(client, func() { calls++ })
+
+	assert.Equal(t, 1, calls, "paho does not replay OnConnect for a client that is already connected")
+	require.NotNil(t, client.onConnectCB, "reconnects still go through OnConnect")
+	client.onConnectCB()
+	assert.Equal(t, 2, calls)
+}
+
+func TestRegisterCommandSubscription_NotConnectedWaitsForConnect(t *testing.T) {
+	client := &recordingMQTTClient{}
+	calls := 0
+
+	registerCommandSubscription(client, func() { calls++ })
+
+	assert.Equal(t, 0, calls)
+	require.NotNil(t, client.onConnectCB)
+	client.onConnectCB()
+	assert.Equal(t, 1, calls)
+}
