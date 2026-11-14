@@ -34,6 +34,11 @@ type RunnerConfig struct {
 	PWConsumption      float64
 	MaxCharge          float64
 	PWBattReserve      float64
+	BattMinSoC         float64 // % of capacity the inverter never discharges below
+	GridImportLimit    float64 // W; 0 = disabled
+	GridImportMargin   float64 // W kept free under GridImportLimit
+	GridChargePriority string  // "battery" (default) or "loads"
+	PWBaseLoad         float64 // W; 0 = PWConsumption/24
 	StartHR            string
 	EndHR              string
 	BattReserveStartHR string
@@ -49,32 +54,65 @@ type RunnerConfig struct {
 	SchedulerMode      string
 	Windows            []pw.Window
 	WeekdayFeature     bool
+	SunSpecType        fronius.SunSpecType
 	MQTT               mqtt.Config
 	Now                func() time.Time
+	// Optimize and OptimizeDeps are used only when SchedulerMode is
+	// "optimize" (SPEC-0001); schedule.go validates and builds them.
+	Optimize     OptimizeConfig
+	OptimizeDeps optimizeDeps
 }
 
 type batteryWriter interface {
 	ForceCharge(froniusIP string, targetPct int16) error
 	SetDefaults(froniusIP string) error
+	Hold(froniusIP string) error
+	ControlMode(froniusIP string) (int16, error)
 }
 
-type froniusBatteryWriter struct{}
-
-func (froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
-	return fronius.ForceCharge(froniusIP, targetPct)
+// froniusBatteryWriter writes through the fronius package using the selected
+// sunspec_type. port overrides the default Modbus port (502) and is only set
+// by tests.
+type froniusBatteryWriter struct {
+	sunspecType fronius.SunSpecType
+	port        string
 }
 
-func (froniusBatteryWriter) SetDefaults(froniusIP string) error {
-	return fronius.Setdefaults(froniusIP)
+func (w froniusBatteryWriter) ports() []string {
+	if w.port == "" {
+		return nil
+	}
+	return []string{w.port}
 }
 
-var newBatteryWriter = func() batteryWriter {
-	return froniusBatteryWriter{}
+func (w froniusBatteryWriter) ForceCharge(froniusIP string, targetPct int16) error {
+	return fronius.ApplyForceCharge(w.sunspecType, froniusIP, targetPct, w.ports()...)
+}
+
+func (w froniusBatteryWriter) SetDefaults(froniusIP string) error {
+	return fronius.ApplyDefaults(w.sunspecType, froniusIP, w.ports()...)
+}
+
+func (w froniusBatteryWriter) Hold(froniusIP string) error {
+	return fronius.ApplyHold(w.sunspecType, froniusIP, w.ports()...)
+}
+
+func (w froniusBatteryWriter) ControlMode(froniusIP string) (int16, error) {
+	return fronius.ReadStorageControlMode(w.sunspecType, froniusIP, w.ports()...)
+}
+
+var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
+	return froniusBatteryWriter{sunspecType: sunspecType}
 }
 
 // newTimerFunc is a package-level factory for one-shot timers. Tests may
 // override it to inject deterministic timer behavior.
 var newTimerFunc = time.AfterFunc
+
+// windowResetRetryDelay is how long after a failed window-end reset, or a
+// failed read of the inverter mode outside every window, the next tick runs.
+// Tests replace it.
+var windowResetRetryDelay = 5 * time.Minute
 
 // latest state caching was removed; the runner publishes state directly.
 
@@ -91,6 +129,48 @@ type Runner struct {
 	boundaryTimer *time.Timer
 	defaultsFired atomic.Bool
 	activeWindow  string // name of active window for change detection
+	// activeWindowResets is true while the active window owes the inverter a
+	// return to normal when it ends (set_defaults or hold_battery).
+	activeWindowResets bool
+	// manualOutsideWindow is true after a force_charge or hold command given
+	// outside every window: the periodic guard leaves it in place. It lives in
+	// memory only, so a restart hands that state back to the guard.
+	manualOutsideWindow bool
+	resetRetryTimer     *time.Timer
+	limit               *limitSession
+	limitStop           chan struct{}
+	reserve             *reserveTelemetry // last reserve evaluation in the reserve window
+	// opt holds the optimize-mode state; nil in the other scheduler modes.
+	opt *optRunnerState
+	// queuedCommands counts queued intents that a long-running step (the
+	// optimize-mode profile rebuild) must give way to: everything except
+	// sbam's own timer intents (see isTimerIntent).
+	queuedCommands atomic.Int32
+}
+
+// isTimerIntent reports whether an intent is one of sbam's own periodic or
+// internal intents. A short wait for these is harmless, so a long-running
+// step does not give way to them.
+func isTimerIntent(kind mqtt.IntentKind) bool {
+	switch kind {
+	case mqtt.IntentTick, mqtt.IntentEVPoll, mqtt.IntentWatchdog, mqtt.IntentLimitCheck:
+		return true
+	}
+	return false
+}
+
+// commandDequeued decrements queuedCommands for a handled command intent,
+// never below zero (tests may inject intents without Submit).
+func (r *Runner) commandDequeued(kind mqtt.IntentKind) {
+	if isTimerIntent(kind) {
+		return
+	}
+	for {
+		n := r.queuedCommands.Load()
+		if n <= 0 || r.queuedCommands.CompareAndSwap(n, n-1) {
+			return
+		}
+	}
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -101,22 +181,34 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 		cfg.Now = time.Now
 	}
 
-	return &Runner{
+	r := &Runner{
 		cfg:     cfg,
 		client:  client,
-		writer:  newBatteryWriter(),
+		writer:  newBatteryWriter(cfg.SunSpecType),
 		intents: make(chan mqtt.Intent, runnerIntentQueueSize),
 	}
+	if cfg.SchedulerMode == schedulerModeOptimize {
+		r.opt = newOptRunnerState(cfg)
+	}
+	return r
 }
 
 // Submit enqueues an intent for the runner to process. It returns true on
 // success or false if the internal intent queue is full, in which case an
 // error is logged and published to MQTT.
 func (r *Runner) Submit(intent mqtt.Intent) bool {
+	if !isTimerIntent(intent.Kind) {
+		// Counted before the send so a consumer never sees the intent
+		// before the count.
+		r.queuedCommands.Add(1)
+	}
 	select {
 	case r.intents <- intent:
 		return true
 	default:
+		if !isTimerIntent(intent.Kind) {
+			r.queuedCommands.Add(-1)
+		}
 		err := fmt.Errorf("%w: %s", errRunnerIntentQueueFull, intent.Kind)
 		u.Log.Warn(err)
 		r.publishError(context.Background(), "runner", err)
@@ -135,6 +227,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			r.optimizeShutdown()
 			return ctx.Err()
 		case <-r.tickerCh:
 			if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
@@ -143,6 +236,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		case intent := <-r.intents:
 			r.handleIntent(ctx, intent)
 			if intent.Kind == mqtt.IntentShutdown {
+				r.optimizeShutdown()
 				return nil
 			}
 		}
@@ -167,8 +261,10 @@ func (r *Runner) startWindowsTicker(now time.Time) {
 	active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 	if active != nil {
 		r.activeWindow = active.Name
+		r.activeWindowResets = windowResets(active)
 	} else {
 		r.activeWindow = ""
+		r.activeWindowResets = false
 	}
 
 	interval := 60 * time.Minute
@@ -179,9 +275,20 @@ func (r *Runner) startWindowsTicker(now time.Time) {
 	t := time.NewTicker(interval)
 	r.tickerCh = t.C
 
-	// Schedule per-window set_defaults if enabled.
-	if active != nil && active.Defaults != nil && *active.Defaults {
-		r.scheduleDefaults(active, now)
+	// Schedule the window-end reset: set_defaults when enabled, otherwise
+	// at the window end for a hold_battery window, so the hold never
+	// outlives the window.
+	if active != nil {
+		switch {
+		case active.Defaults != nil && *active.Defaults:
+			beforeEnd := 5 // default minutes
+			if active.BeforeEndDefaults != nil {
+				beforeEnd = *active.BeforeEndDefaults
+			}
+			r.scheduleDefaults(active, now, beforeEnd)
+		case active.HoldBattery != nil && *active.HoldBattery:
+			r.scheduleDefaults(active, now, 0)
+		}
 	}
 
 	// Schedule a one-shot timer at the next window's start boundary.
@@ -203,18 +310,78 @@ func (r *Runner) stopWindowsTicker() {
 	}
 	r.defaultsFired.Store(false)
 	r.activeWindow = ""
+	r.activeWindowResets = false
+}
+
+// windowResets reports whether a window must leave the inverter in normal
+// mode when it ends.
+func windowResets(w *pw.Window) bool {
+	return (w.Defaults != nil && *w.Defaults) || (w.HoldBattery != nil && *w.HoldBattery)
+}
+
+// anyWindowResets reports whether at least one configured window returns the
+// inverter to normal, which is what entitles sbam to enforce it between windows.
+func (r *Runner) anyWindowResets() bool {
+	for i := range r.cfg.Windows {
+		if windowResets(&r.cfg.Windows[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// resetOnWindowExit returns the inverter to normal as part of the tick that
+// leaves a window. The window-end timer usually got there first; this tick
+// cancels the timer when both land together (before_end_defaults_minutes: 0),
+// and its intent can be dropped on a full queue. Writing defaults twice is
+// harmless, so it runs regardless of what the timer did.
+func (r *Runner) resetOnWindowExit(ctx context.Context) {
+	r.stopLimitLoop()
+	if err := r.handleSetDefaults(ctx, mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}); err != nil {
+		u.HandleError(err, "window-end reset failed")
+		r.scheduleResetRetry()
+	}
+}
+
+// enforceNormalOutsideWindow is the periodic safety net: outside every window
+// the inverter must not be held or force-charged. It reads the real inverter
+// mode, so it also covers a reset lost to a restart or a failed write. Commands
+// given outside a window are left alone.
+func (r *Runner) enforceNormalOutsideWindow(ctx context.Context) {
+	if r.manualOutsideWindow || !r.anyWindowResets() {
+		return
+	}
+	mode, err := r.writer.ControlMode(r.cfg.FroniusIP)
+	if err != nil {
+		u.Log.Warnw("cannot read inverter mode outside the charge windows", "error", err)
+		r.scheduleResetRetry()
+		return
+	}
+	if mode == 0 {
+		return
+	}
+	u.Log.Warnw("inverter not in normal mode outside the charge windows, restoring it", "storctl_mod", mode)
+	r.resetOnWindowExit(ctx)
+}
+
+// scheduleResetRetry asks for another tick soon, without waiting for the
+// hourly tick between windows. Only the latest retry is kept.
+func (r *Runner) scheduleResetRetry() {
+	if r.resetRetryTimer != nil {
+		r.resetRetryTimer.Stop()
+	}
+	r.resetRetryTimer = newTimerFunc(windowResetRetryDelay, func() {
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+			u.Log.Warn("window reset retry dropped because runner queue is full")
+		}
+	})
 }
 
 // scheduleDefaults parses the active window's end time and schedules a
 // one-shot time.AfterFunc that fires set_defaults at
-// (window.end - before_end_defaults). The timer is tracked in r.defaultsTimer
+// (window.end - beforeEnd minutes). The timer is tracked in r.defaultsTimer
 // so it can be cancelled on window change.
-func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
-	beforeEnd := 5 // default minutes
-	if active.BeforeEndDefaults != nil {
-		beforeEnd = *active.BeforeEndDefaults
-	}
-
+func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time, beforeEnd int) {
 	endTime, err := parseScheduleClock(active.End, "end")
 	if err != nil {
 		u.Log.Warnw("cannot parse window end for set_defaults timer", "window", active.Name, "end", active.End, "error", err)
@@ -226,7 +393,7 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 
 	// If endAt is before or equal to now, advance by 24h (cross-midnight window).
 	if !endAt.After(now) {
-		endAt = endAt.Add(24 * time.Hour)
+		endAt = endAt.AddDate(0, 0, 1)
 	}
 
 	resetAt := endAt.Add(-time.Duration(beforeEnd) * time.Minute)
@@ -242,10 +409,16 @@ func (r *Runner) scheduleDefaults(active *pw.Window, now time.Time) {
 	r.defaultsTimer = time.AfterFunc(delay, func() {
 		u.Log.Infow("set_defaults timer fired", "window", active.Name)
 		r.defaultsFired.Store(true)
-		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
-			u.Log.Warn("set_defaults dropped because runner queue is full")
-		}
+		r.submitSystemDefaults()
 	})
+}
+
+// submitSystemDefaults queues the window-end reset. It is a System intent, so
+// it runs even while paused.
+func (r *Runner) submitSystemDefaults() {
+	if !r.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}) {
+		u.Log.Warn("set_defaults dropped because runner queue is full")
+	}
 }
 
 // nextWindowStart resolves the next upcoming charge window and the instant
@@ -283,7 +456,7 @@ func (r *Runner) nextWindowStart(now time.Time) (next pw.Window, nextAt time.Tim
 		// Only future starts count; a start at or before now is that
 		// window's next occurrence tomorrow.
 		if !startAt.After(now) {
-			startAt = startAt.Add(24 * time.Hour)
+			startAt = startAt.AddDate(0, 0, 1)
 		}
 		if r.cfg.WeekdayFeature && windows[i].Weekdays != "" {
 			if wdSet, err := pw.ParseWeekdays(windows[i].Weekdays); err == nil && len(wdSet) > 0 {
@@ -363,14 +536,20 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 
 	// Resolve active window and derive effective charge parameters.
 	// When no windows are configured, falls back to legacy StartHR/EndHR.
-	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName := r.resolveActiveWindow(now)
+	inChargeWindow, effectiveMaxCharge, effectiveForecastHorizon, effectiveConsumptionHorizon, activeWindowName, activeWindow := r.resolveActiveWindow(now)
 
 	// In windows mode, restart the ticker when the active window changes.
 	if r.cfg.SchedulerMode == "windows" {
 		prevWindow := r.activeWindow
 		if activeWindowName != prevWindow {
 			u.Log.Infow("active window changed", "from", prevWindow, "to", activeWindowName)
+			leftResettingWindow := r.activeWindowResets
 			r.startWindowsTicker(now)
+			if leftResettingWindow {
+				r.resetOnWindowExit(ctx)
+			}
+		} else if !inChargeWindow {
+			r.enforceNormalOutsideWindow(ctx)
 		}
 	}
 
@@ -395,6 +574,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if paused, pauseUntil := r.pauseStateAt(now); paused {
+		r.stopLimitLoop()
 		payload := makeBasePayload("paused", "Forecast Charging execution skipped because sbam is paused", inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
 		payload.BatterySOCPct = &socPct
 		payload.BatteryCapacityWh = &capacityMax
@@ -405,6 +585,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	if !inChargeWindow {
+		r.stopLimitLoop()
 		u.Log.Infof("The current time is outside all configured charge windows")
 		capMax := capacityMax
 
@@ -420,8 +601,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var inCooldown bool
 	var cooldownErr error
 	if r.cfg.SchedulerMode == "windows" && len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
-		if active != nil {
+		if active := activeWindow; active != nil {
 			cooldownDuration := chargeCooldownMinutes
 			if active.Defaults != nil && *active.Defaults && active.BeforeEndDefaults != nil {
 				cooldownDuration = *active.BeforeEndDefaults
@@ -463,6 +643,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var solarPowerProduction float64
 	var forecastRetrieved bool
 	var forecastErr error
+	var siteForecasts []pw.Forecasts
 
 	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
 		powerHandler := newPower()
@@ -477,18 +658,31 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			solarPowerProduction = 0.0
 			forecastRetrieved = false
 		}
+		if forecastRetrieved {
+			siteForecasts = powerHandler.LastForecasts()
+		}
+	}
+
+	holdBattery, effectiveReserve := r.windowReserve(now, activeWindow, capacityMax, siteForecasts)
+
+	// Grid charge power: the active window's max_charge, limited by what
+	// grid_import_limit leaves free right now.
+	chargeCapW, allowanceW, limitErr := r.gridChargeAllowance(ctx, effectiveMaxCharge)
+	if limitErr != nil {
+		u.Log.Warnw("grid_import_limit", "error", limitErr)
+		r.publishError(ctx, "grid_import_limit", limitErr)
 	}
 
 	u.Log.Infof("your Daily consumption is:%d Wh", int(effectiveConsumption))
 
-	froniusHandler := newFronius()
+	froniusHandler := newFronius(r.cfg.SunSpecType)
 	chargePct, decision, reason, powerState, froniusErr := froniusHandler.Handler(
 		solarPowerProduction,
 		capacityToCharge,
 		capacityMax,
 		effectiveConsumption,
-		r.cfg.MaxCharge,
-		r.cfg.PWBattReserve,
+		chargeCapW,
+		effectiveReserve,
 		r.cfg.StartHR,
 		r.cfg.EndHR,
 		r.cfg.FroniusIP,
@@ -496,8 +690,10 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		r.cfg.PWLWT,
 		r.cfg.PWUPT,
 		forecastRetrieved,
+		holdBattery,
 	)
 	if froniusErr != nil {
+		r.stopLimitLoop()
 		u.HandleError(froniusErr, "fronius handler failed, skipping schedule run")
 
 		payload := makeBasePayload(fronius.DecisionSkip.String(), fmt.Sprintf("fronius handler failed: %v", froniusErr), inChargeWindow, reserveWindowActive, r.cfg.SchedulerMode)
@@ -526,6 +722,23 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	}
 	payload.ChargePct = &chargePct
 	payload.Paused = false
+
+	payload.GridChargeAllowanceW = allowanceW
+	r.followUpCharge(now, tickCharge{
+		decision:      decision,
+		powerState:    powerState,
+		chargePct:     chargePct,
+		ceilingW:      effectiveMaxCharge,
+		capW:          chargeCapW,
+		allowanceW:    allowanceW,
+		capacityWh:    capacityMax,
+		storedWh:      capacityMax - capacityToCharge,
+		hold:          holdBattery,
+		reserveWh:     effectiveReserve,
+		reserveWindow: reserveWindowActive,
+		window:        activeWindow,
+	})
+
 	r.publishState(payload)
 	return nil
 }
@@ -534,6 +747,18 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 // the appropriate handler. It also acknowledges MQTT commands where
 // required.
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
+	r.commandDequeued(intent.Kind)
+	// Commands that write the battery or stop the schedule end the
+	// grid_import_limit loop; ticks start or stop it themselves.
+	switch intent.Kind {
+	case mqtt.IntentShutdown, mqtt.IntentPause, mqtt.IntentForceCharge, mqtt.IntentSetDefaults, mqtt.IntentHold:
+		r.stopLimitLoop()
+	}
+
+	if r.opt != nil && r.handleOptimizeIntent(ctx, intent) {
+		return
+	}
+
 	switch intent.Kind {
 	case mqtt.IntentShutdown:
 		return
@@ -575,6 +800,13 @@ func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
 		err := r.handleSetDefaults(ctx, intent)
 		r.publishIntentAck(ctx, intent, err)
 		return
+	case mqtt.IntentHold:
+		err := r.handleHold(ctx, intent)
+		r.publishIntentAck(ctx, intent, err)
+		return
+	case mqtt.IntentLimitCheck:
+		r.handleLimitCheck(ctx)
+		return
 	case mqtt.IntentSetReserve:
 		r.publishError(ctx, "runner", errSetReserveUnsupported)
 		r.publishIntentAck(ctx, intent, errSetReserveUnsupported)
@@ -597,10 +829,40 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
+
+	targetPct, err := r.forceChargeTargetPct(ctx, intent)
+	if err != nil {
+		return err
+	}
+
+	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
+		r.publishError(ctx, "force_charge", err)
+		return err
+	}
+	r.noteManualCommand()
+
+	payload := r.newCommandPayload(string(mqtt.IntentForceCharge), "force charge command executed", r.now())
+	payload.Paused = false
+	payload.ChargePct = &targetPct
+	r.publishState(payload)
+	return nil
+}
+
+// noteManualCommand records a command given outside every window, so the
+// periodic guard does not undo it. Inside a window the window end still wins.
+func (r *Runner) noteManualCommand() {
+	if inWindow, _, _, _, _, _ := r.resolveActiveWindow(r.now()); !inWindow {
+		r.manualOutsideWindow = true
+	}
+}
+
+// forceChargeTargetPct validates a force_charge intent and resolves the
+// percentage to write. Validation errors are published to the error topic.
+func (r *Runner) forceChargeTargetPct(ctx context.Context, intent mqtt.Intent) (int16, error) {
 	if intent.TargetPct < 0 || intent.TargetPct > 100 {
 		err := fmt.Errorf("%w: target_pct must be between 0 and 100", mqtt.ErrInvalidPayload)
 		r.publishError(ctx, "force_charge", err)
-		return err
+		return 0, err
 	}
 
 	var (
@@ -613,39 +875,32 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		if intent.TargetPct != 100 {
 			err = fmt.Errorf("%w: ignore_max_charge requires target_pct 100", mqtt.ErrInvalidPayload)
 			r.publishError(ctx, "force_charge", err)
-			return err
+			return 0, err
 		}
 		targetPct = 100
 	case intent.TargetPct == 0:
 		targetPct = 0
 	default:
-		targetPct, err = r.resolveForceChargeTargetPct(intent.TargetPct)
+		targetPct, err = r.resolveForceChargeTargetPct(ctx, intent.TargetPct)
 		if err != nil {
 			r.publishError(ctx, "force_charge", err)
-			return err
+			return 0, err
 		}
 	}
 
-	if err := r.writer.ForceCharge(r.cfg.FroniusIP, targetPct); err != nil {
-		r.publishError(ctx, "force_charge", err)
-		return err
-	}
-
-	payload := r.newCommandPayload(string(mqtt.IntentForceCharge), "force charge command executed", r.now())
-	payload.Paused = false
-	payload.ChargePct = &targetPct
-	r.publishState(payload)
-	return nil
+	return targetPct, nil
 }
 
 // resolveForceChargeTargetPct caps any requested force charge percentage
-// by configured max_charge and current battery max capacity.
+// by configured max_charge and current battery max capacity, and by the
+// power free under grid_import_limit when it is set.
 //
 // Effective target is:
-// min(requestedPct, max_charge*100/pw_batt_max)
+// min(requestedPct, min(max_charge, free)*100/pw_batt_max)
 //
-// When max_charge is 0 the effective target becomes 0 (no charge).
-func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) {
+// When the cap is 0 the effective target becomes 0 (no charge). When the
+// meter cannot be read under grid_import_limit the command is rejected.
+func (r *Runner) resolveForceChargeTargetPct(ctx context.Context, requestedPct int16) (int16, error) {
 	if r.cfg.MaxCharge < 0 {
 		return 0, fmt.Errorf("invalid max_charge %.2f: must be greater than or equal to 0", r.cfg.MaxCharge)
 	}
@@ -659,8 +914,17 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 		return 0, fmt.Errorf("invalid battery capacity %.2f: must be greater than 0", capacityMax)
 	}
 
+	capW := r.cfg.MaxCharge
+	if r.cfg.GridImportLimit > 0 {
+		pf, err := readPowerFlow(ctx, r.cfg.FroniusIP)
+		if err != nil {
+			return 0, fmt.Errorf("grid_import_limit: cannot read the power flow for force_charge: %w", err)
+		}
+		capW = min(capW, max(0, r.cfg.GridImportLimit-r.cfg.GridImportMargin-pf.BaselineImportW()))
+	}
+
 	requestedLoad := capacityMax * float64(requestedPct) / 100.0
-	targetPct := fronius.SetChargePower(capacityMax, requestedLoad, r.cfg.MaxCharge)
+	targetPct := fronius.SetChargePower(capacityMax, requestedLoad, capW)
 
 	return targetPct, nil
 }
@@ -668,8 +932,10 @@ func (r *Runner) resolveForceChargeTargetPct(requestedPct int16) (int16, error) 
 // handleSetDefaults triggers the battery writer to restore inverter
 // defaults. It respects pause state and publishes the resulting state.
 func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) error {
-	paused, _ := r.pauseStateAt(r.now())
-	if paused {
+	paused, pauseUntil := r.pauseStateAt(r.now())
+	// The window-end reset (System) always runs: a pause must never leave a
+	// force charge or a hold in place outside the window.
+	if paused && !intent.System {
 		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
 		r.publishError(ctx, "set_defaults", err)
 		return err
@@ -679,8 +945,33 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "set_defaults", err)
 		return err
 	}
+	r.manualOutsideWindow = false
 
 	payload := r.newCommandPayload(string(mqtt.IntentSetDefaults), "set defaults command executed", r.now())
+	payload.Paused = paused // the window-end reset leaves a pause in place
+	payload.NextRun = pauseUntil
+	r.publishState(payload)
+	return nil
+}
+
+// handleHold blocks battery discharge (no force charge) until the next
+// tick or command writes something else. It respects pause state, so send
+// it before pausing.
+func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
+	paused, _ := r.pauseStateAt(r.now())
+	if paused {
+		err := fmt.Errorf("%w: %s", errRunnerPaused, intent.Kind)
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+
+	if err := r.writer.Hold(r.cfg.FroniusIP); err != nil {
+		r.publishError(ctx, "hold", err)
+		return err
+	}
+	r.noteManualCommand()
+
+	payload := r.newCommandPayload(string(mqtt.IntentHold), "hold command executed: battery discharge blocked", r.now())
 	payload.Paused = false
 	r.publishState(payload)
 	return nil
@@ -690,7 +981,11 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 // computing current window flags and returning a payload ready for
 // callers to fill in additional telemetry fields.
 func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) mqtt.StatePayload {
-	inChargeWindow, _, _, _, _ := r.resolveActiveWindow(now)
+	if r.opt != nil {
+		// Charge and reserve windows have no meaning in optimize mode (UX §2.5).
+		return makeBasePayload(lastDecision, reason, false, false, r.cfg.SchedulerMode)
+	}
+	inChargeWindow, _, _, _, _, _ := r.resolveActiveWindow(now)
 
 	reserveWindowActive, reserveErr := checkTimeRangeAt(now, r.cfg.BattReserveStartHR, r.cfg.BattReserveEndHR)
 	if reserveErr != nil {
@@ -703,7 +998,21 @@ func (r *Runner) newCommandPayload(lastDecision, reason string, now time.Time) m
 
 // publishState publishes the provided state payload via MQTT using the
 // configured MQTT client and topic prefix.
+// While the reserve window is active it carries the last reserve evaluation,
+// so paths that do not evaluate it (pause, cooldown, errors, commands) do not
+// clear the reserve sensors.
 func (r *Runner) publishState(payload mqtt.StatePayload) {
+	if r.opt != nil {
+		r.opt.mergeLast(&payload)
+	}
+	if payload.ReserveWindowActive == nil || !*payload.ReserveWindowActive {
+		r.reserve = nil
+	} else if rt := r.reserve; rt != nil && payload.ReserveAtRisk == nil {
+		target, deficit, atRisk := rt.targetWh, rt.deficitWh, rt.atRisk
+		payload.ReserveTargetWh = &target
+		payload.ReserveDeficitWh = &deficit
+		payload.ReserveAtRisk = &atRisk
+	}
 	publishStateSnapshot(r.client, r.cfg.MQTT, payload)
 }
 
@@ -769,19 +1078,20 @@ func (r *Runner) clearPause() {
 }
 
 // resolveActiveWindow determines whether the current time falls within any
-// configured charge window and returns the effective charge parameters.
+// configured charge window and returns the effective charge parameters and
+// the active window (nil on the legacy path or outside every window).
 // When windows are configured it delegates to power.ResolveActiveWindow;
 // otherwise it falls back to the legacy checkTimeRangeAt call using
 // RunnerConfig.StartHR / EndHR.
-func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string) {
+func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge float64, forecastHorizon, consumptionHorizon, windowName string, active *pw.Window) {
 	maxCharge = r.cfg.MaxCharge
 	forecastHorizon = r.cfg.ForecastHorizon
 	consumptionHorizon = r.cfg.ConsumptionHorizon
 
 	if len(r.cfg.Windows) > 0 {
-		active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
+		active = pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 		if active == nil {
-			return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+			return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 		}
 		maxCharge = active.MaxCharge
 		if active.ForecastHorizon != "" {
@@ -791,19 +1101,19 @@ func (r *Runner) resolveActiveWindow(now time.Time) (inWindow bool, maxCharge fl
 			consumptionHorizon = active.ConsumptionHorizon
 		}
 		name := pw.WindowNameOrDefault(*active, 0)
-		return true, maxCharge, forecastHorizon, consumptionHorizon, name
+		return true, maxCharge, forecastHorizon, consumptionHorizon, name, active
 	}
 
 	// Legacy path: use single StartHR/EndHR window.
 	inWindow, err := checkTimeRangeAt(now, r.cfg.StartHR, r.cfg.EndHR)
 	if err != nil {
 		u.HandleError(err, "checkTimeRangeAt failed in resolveActiveWindow")
-		return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+		return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 	}
 	if inWindow {
-		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy"
+		return true, maxCharge, forecastHorizon, consumptionHorizon, "legacy", nil
 	}
-	return false, maxCharge, forecastHorizon, consumptionHorizon, ""
+	return false, maxCharge, forecastHorizon, consumptionHorizon, "", nil
 }
 
 // pauseStateAt reports whether the runner is currently paused at the
@@ -847,7 +1157,7 @@ func isInCooldown(now time.Time, startHR, endHR string, cooldownMinutes int) (bo
 	if isCrossMidnightWindow(startTime, endTime) {
 		startAt := time.Date(now.Year(), now.Month(), now.Day(), startTime.Hour(), startTime.Minute(), 0, 0, now.Location())
 		if now.After(startAt) || now.Equal(startAt) {
-			endAt = endAt.Add(24 * time.Hour)
+			endAt = endAt.AddDate(0, 0, 1)
 		}
 	}
 
@@ -882,7 +1192,8 @@ func checkTimeRangeAt(now time.Time, startHR, endHR string) (bool, error) {
 	return inRange, nil
 }
 
-// nextMatchingWeekday advances t by 24h increments until its weekday is in
+// nextMatchingWeekday advances t one calendar day at a time (same wall-clock
+// time, so DST changes do not shift it) until its weekday is in
 // the provided set. The set must be non-empty; the function loops at most 7
 // times before returning (since a non-empty set guarantees a match within 7
 // days).
@@ -891,7 +1202,7 @@ func nextMatchingWeekday(t time.Time, weekdays map[time.Weekday]bool) time.Time 
 		if weekdays[t.Weekday()] {
 			return t
 		}
-		t = t.Add(24 * time.Hour)
+		t = t.AddDate(0, 0, 1)
 	}
 	return t
 }

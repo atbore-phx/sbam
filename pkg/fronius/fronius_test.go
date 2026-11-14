@@ -145,7 +145,7 @@ func TestHandler(t *testing.T) {
 	endHr := "17:00"
 
 	setup()
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
+	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 	teardown()
 
 	assert.NoError(err, "Handler returned an error")
@@ -164,7 +164,7 @@ func TestHandlerError(t *testing.T) {
 	startHr := "09:00"
 	endHr := "17:00"
 
-	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, modbus_port)
+	_, _, _, _, err := fronius.Handler(pwForecast, pwBatt2charge, pwBattMax, pwConsumption, maxCharge, pw_batt_reserve, startHr, endHr, modbus_ip, true, 0, 0, true, false, modbus_port)
 
 	assert.Error(err, "Handler returned an error")
 }
@@ -492,4 +492,74 @@ func TestSetFroniusChargeBatteryModeForceChargeError(t *testing.T) {
 	// Should get an error from ForceCharge failing to connect.
 	assert.Error(err)
 	_ = result
+}
+
+// T-0107 / TC-003e: ForceCharge caps power_prc > 100 at 100 % (no int16
+// wrap), the same as the float/auto path.
+func TestForceChargeCapsAbove100_T0107(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	for _, pct := range []int16{101, 400, 32767} {
+		f.set(OutWRte, 0)
+		err := ForceCharge(modbus_ip, pct, dispatchPort)
+		assert.NoError(t, err, "power_prc %d", pct)
+		assert.Equal(t, int16(-10000), f.get(OutWRte), "power_prc %d capped at -100 %%", pct)
+	}
+}
+
+// Legacy entry point of crontab/windows set_defaults and window-end defaults:
+// a read-back mismatch after a successful write is tolerated (logged only).
+func TestApplyDefaultsIntSFReadBackMismatchTolerated(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.corrupt[OutWRte] = true
+	f.mu.Unlock()
+
+	assert.NoError(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort))
+	assert.Equal(t, []uint16{StorCtl_Mod, OutWRte, InWRte, MinRsvPct, ChaGriSet}, addrOrder(f.recorded()))
+}
+
+// Intentional change: a write failure is still an error for the legacy path.
+func TestApplyDefaultsIntSFWriteFailureIsError(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.failWrite[InWRte] = true
+	f.mu.Unlock()
+
+	assert.ErrorIs(t, ApplyDefaults(SunSpecIntSF, modbus_ip, dispatchPort), ErrModbusWrite)
+}
+
+// T-0107 edge: 100 % is accepted and maps to OutWRte = -10000.
+func TestForceCharge100Percent_T0107(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	assert.NoError(t, ForceCharge(modbus_ip, 100, dispatchPort))
+	assert.Equal(t, int16(-10000), f.get(OutWRte))
+	assert.Equal(t, int16(2), f.get(StorCtl_Mod))
+	assert.False(t, f.written(InOutWRte_RvrtTms), "legacy ForceCharge does not write 40359")
+}
+
+// T-0109: Setdefaults writes the unchanged mdsc values, StorCtl_Mod first.
+func TestSetdefaultsOrderedValues_T0109(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.set(StorCtl_Mod, 2)
+	f.set(OutWRte, uint16(0xEC78)) // -5000
+
+	assert.NoError(t, Setdefaults(modbus_ip, dispatchPort))
+
+	rec := f.recorded()
+	assert.Equal(t, []uint16{StorCtl_Mod, OutWRte, InWRte, MinRsvPct, ChaGriSet}, addrOrder(rec))
+	assert.Equal(t, mdsc, regsOf(rec), "default values must be unchanged")
+	assert.False(t, f.written(InOutWRte_RvrtTms))
+}
+
+// T-0109 edge case (review I-02): a read-back mismatch is only a warning for
+// the legacy Setdefaults (configure -d, crontab/windows), but stays an error
+// for SetDefaultsOrdered, which optimize mode uses.
+func TestSetdefaultsReadBackMismatch_T0109(t *testing.T) {
+	f := newFakeInverter(t, 5000, 0, -2)
+	f.mu.Lock()
+	f.corrupt[StorCtl_Mod] = true
+	f.mu.Unlock()
+	assert.NoError(t, Setdefaults(modbus_ip, dispatchPort))
+	err := SetDefaultsOrdered(SunSpecIntSF, modbus_ip, dispatchPort)
+	assert.ErrorIs(t, err, ErrReadBackMismatch)
 }

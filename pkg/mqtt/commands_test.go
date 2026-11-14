@@ -31,6 +31,8 @@ func TestParseIntentCanonicalCommands(t *testing.T) {
 		{name: "trigger_now empty", topic: "sbam/cmd/trigger_now", payload: nil, expectedKind: IntentTriggerNow},
 		{name: "trigger_now empty object", topic: "sbam/cmd/trigger_now", payload: []byte("{}"), expectedKind: IntentTriggerNow},
 		{name: "set_defaults empty", topic: "sbam/cmd/set_defaults", payload: nil, expectedKind: IntentSetDefaults},
+		{name: "hold empty", topic: "sbam/cmd/hold", payload: nil, expectedKind: IntentHold},
+		{name: "hold object", topic: "sbam/cmd/hold", payload: []byte("{}"), expectedKind: IntentHold},
 		{name: "resume empty object", topic: "sbam/cmd/resume", payload: []byte("{}"), expectedKind: IntentResume},
 		{name: "force_charge full payload", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":50,"duration_s":3600}`), expectedKind: IntentForceCharge, expectedTarget: 50, expectedDuration: 3600},
 		{name: "force_charge explicit override", topic: "sbam/cmd/force_charge", payload: []byte(`{"target_pct":100,"ignore_max_charge":true}`), expectedKind: IntentForceCharge, expectedTarget: 100, expectedIgnore: true},
@@ -407,4 +409,35 @@ func TestPublishAckMarshalError(t *testing.T) {
 	err := PublishAck(context.Background(), client, "sbam/cmd/force_charge", Intent{Kind: IntentForceCharge}, nil)
 	require.Error(t, err)
 	assert.EqualError(t, err, "marshal failed")
+}
+
+// T-0117: IntentWatchdog is internal; ParseIntent never yields it for any
+// topic or payload, including a topic that names it directly.
+func TestParseIntentNeverYieldsWatchdog(t *testing.T) {
+	topics := []string{
+		"sbam/cmd/watchdog",
+		"sbam/cmd/WATCHDOG",
+		"sbam/cmd/watchdog/",
+		"site/sbam/cmd/watchdog",
+		"sbam/cmd/trigger_now",
+		"sbam/cmd/pause",
+		"sbam/cmd/resume",
+		"sbam/cmd/set_defaults",
+		"sbam/cmd/force_charge",
+		"sbam/cmd/set_reserve",
+		"sbam/cmd/",
+		"",
+	}
+	payloads := [][]byte{nil, []byte("{}"), []byte(`{"kind":"watchdog"}`), []byte(`{"target_pct":50}`), []byte(`{"until":"60s"}`), []byte("not json")}
+
+	for _, topic := range topics {
+		for _, payload := range payloads {
+			intent, err := ParseIntent(topic, payload)
+			assert.NotEqual(t, IntentWatchdog, intent.Kind, "topic %q payload %q", topic, payload)
+			if strings.Contains(strings.ToLower(topic), "watchdog") {
+				assert.ErrorIs(t, err, ErrUnknownCommand, "topic %q payload %q", topic, payload)
+			}
+		}
+	}
+	assert.Equal(t, IntentKind("watchdog"), IntentWatchdog)
 }

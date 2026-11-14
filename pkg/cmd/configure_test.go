@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"sbam/pkg/fronius"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,7 +63,7 @@ func TestConfigure_ForceChargeWithoutPowerDoesNotPanic(t *testing.T) {
 	withConfigureGlobals(t, false, true)
 
 	assert.NotPanics(t, func() {
-		configure("unused", 0)
+		configure(fronius.SunSpecIntSF, "unused", 0)
 	})
 }
 
@@ -70,7 +71,7 @@ func TestConfigure_PanicsWhenDefaultsWriteFails(t *testing.T) {
 	withConfigureGlobals(t, true, false)
 
 	assert.Panics(t, func() {
-		configure("bad host", 0)
+		configure(fronius.SunSpecIntSF, "bad host", 0)
 	})
 }
 
@@ -78,6 +79,6 @@ func TestConfigure_PanicsWhenForceChargeWriteFails(t *testing.T) {
 	withConfigureGlobals(t, false, true)
 
 	assert.Panics(t, func() {
-		configure("bad host", 20)
+		configure(fronius.SunSpecIntSF, "bad host", 20)
 	})
 }

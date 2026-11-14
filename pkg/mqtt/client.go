@@ -58,6 +58,10 @@ func errorTopic(prefix string) string {
 	return normalizePrefix(prefix) + "/error"
 }
 
+func planTopic(prefix string) string {
+	return normalizePrefix(prefix) + "/plan"
+}
+
 func availabilityTopic(prefix string) string {
 	return normalizePrefix(prefix) + "/availability"
 }

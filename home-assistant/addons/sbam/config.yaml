@@ -1,8 +1,9 @@
 name: sbam
-version: "2.2.0"
+version: "2.3.0"
 slug: sbam
 init: false
 description: Smart Battery Advanced Manager
+homeassistant_api: true
 services:
   - mqtt:want
 arch:
@@ -15,20 +16,25 @@ options:
   url: https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json
   apikey: ""
   fronius_ip: ""
-  start_hr: "00:00"
-  end_hr: "06:00"
-  crontab: "00 00-05 * * *"
+  sunspec_type: int_sf
+  batt_min_soc: 5
+  scheduler_mode: crontab
+  windows: []
   pw_consumption: "11000"
-  max_charge: "3500"
-  pw_lwt: "0"
-  pw_upt: "0"
+  pw_base_load: 0
   pw_batt_reserve: "4000"
   batt_reserve_start_hr: ""
   batt_reserve_end_hr: ""
+  pw_lwt: "0"
+  pw_upt: "0"
+  grid_import_limit: 0
+  grid_import_margin: 200
+  grid_charge_priority: battery
+  start_hr: "00:00"
+  end_hr: "06:00"
+  crontab: "00 00-05 * * *"
+  max_charge: "3500"
   defaults: true
-  reset: false
-  debug: false
-  log_type: console
   cache_forecast: false
   cache_time: 7200
   cache_file_prefix: cached_forecast
@@ -40,27 +46,61 @@ options:
   mqtt_topic_prefix: sbam
   mqtt_ha_discovery: true
   mqtt_ha_discovery_prefix: homeassistant
-  scheduler_mode: crontab
-  windows: []
+  reset: false
+  debug: false
+  log_type: console
+  optimizer:
+    price_entity: ""
+    consumption_entity: ""
+    ev_entity: ""
+    ev_guard_w: 1000
+    purchase_surcharge: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+    vat_rate: 0.25
+    sell_margin: 0
+    min_gain: 0.5
+    wear_cost: 0
+    battery_efficiency: 0.83
+    max_charge_rate_w: 4500
+    max_discharge_rate_w: 4500
+    min_soc_pct: 7
+    history_days: 10
+    dry_run: true
 
 schema:
   url: str
   apikey: password
   fronius_ip: match(^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$)
-  start_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
-  end_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
-  crontab: match(^((((\d+,)+\d+|(\d+(\/|-|#)\d+)|\d+L?|\*(\/\d+)?|L(-\d+)?|\?|[A-Z]{3}(-[A-Z]{3})?) ?){5,7})|(0 0 0 0 0)|(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\d+(ns|us|µs|ms|s|m|h))+)$)
+  sunspec_type: list(int_sf|float|auto)?
+  batt_min_soc: float(0,100)?
+  scheduler_mode: list(crontab|windows|optimize)
+  windows:
+    - name: str
+      start: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
+      end: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
+      weekdays: match(^$|^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?(,(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?)*$)
+      max_charge: float
+      tick_minutes: int?
+      forecast_horizon: list(default|next_solar_day|remaining_today|today|tomorrow|off)?
+      consumption_horizon: list(full_day|remaining_today|to_next_window)?
+      reserve_horizon: list(until_solar)?
+      hold_battery: bool?
+      set_defaults: bool?
+      before_end_defaults_minutes: int?
   pw_consumption: float
-  max_charge: float
-  pw_lwt: float
-  pw_upt: float
+  pw_base_load: float(0,)?
   pw_batt_reserve: float
   batt_reserve_start_hr: match(^$|^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
   batt_reserve_end_hr: match(^$|^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
+  pw_lwt: float
+  pw_upt: float
+  grid_import_limit: float(0,)?
+  grid_import_margin: float(0,)?
+  grid_charge_priority: list(battery|loads)?
+  start_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
+  end_hr: match(^(|([01]?[0-9]|2[0-3]):[0-5][0-9])$)
+  crontab: match(^((((\d+,)+\d+|(\d+(\/|-|#)\d+)|\d+L?|\*(\/\d+)?|L(-\d+)?|\?|[A-Z]{3}(-[A-Z]{3})?) ?){5,7})|(0 0 0 0 0)|(@(annually|yearly|monthly|weekly|daily|hourly|reboot))|(@every (\d+(ns|us|µs|ms|s|m|h))+)$)
+  max_charge: float
   defaults: bool
-  reset: bool
-  debug: bool
-  log_type: list(console|json)
   cache_forecast: bool
   cache_time: int
   cache_file_prefix: str
@@ -72,15 +112,24 @@ schema:
   mqtt_topic_prefix: str
   mqtt_ha_discovery: bool
   mqtt_ha_discovery_prefix: str
-  scheduler_mode: list(crontab|windows)
-  windows:
-    - name: str
-      start: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
-      end: match(^([01]?[0-9]|2[0-3]):[0-5][0-9]$)
-      max_charge: float
-      forecast_horizon: list(default|next_solar_day|remaining_today|today|tomorrow|off)?
-      consumption_horizon: list(full_day|remaining_today|to_next_window)?
-      tick_minutes: int?
-      set_defaults: bool?
-      before_end_defaults_minutes: int?
-      weekdays: match(^$|^(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?(,(mon|tue|wed|thu|fri|sat|sun)(-(mon|tue|wed|thu|fri|sat|sun))?)*$)
+  reset: bool
+  debug: bool
+  log_type: list(console|json)
+  optimizer:
+    price_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    consumption_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    ev_entity: match(^$|^sensor\.[a-z0-9_]+$)
+    ev_guard_w: float(0,50000)
+    purchase_surcharge: match(^\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)(\s*,\s*(-?[0-4](\.\d+)?|-5(\.0+)?|[5-9](\.\d+)?|10(\.0+)?)){23}\s*$)
+    vat_rate: float(0,1)
+    sell_margin: float(-5,10)
+    min_gain: float(0,10)
+    wear_cost: float(0,5)
+    battery_efficiency: float(0.01,1)
+    max_charge_rate_w: float(1,30000)
+    max_discharge_rate_w: float(1,30000)
+    min_soc_pct: float(0,99.9)
+    history_days: int(1,30)
+    dry_run: bool
+    ha_url: str?
+    ha_token: password?

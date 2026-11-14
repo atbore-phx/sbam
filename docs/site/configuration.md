@@ -18,6 +18,7 @@ Where CLI and HA add-on forms differ (different defaults, different validation, 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
 | `fronius_ip` | Fronius inverter LAN IP address. | `--fronius_ip` | `FRONIUS_IP` | `fronius_ip` | — |
+| `sunspec_type` | Must match the inverter's Modbus **SunSpec Model Type**. `int_sf` — the inverter is set to `int + SF`; sbam uses the fixed storage register addresses, as in previous versions. `float` — the inverter is set to `float`; sbam locates the SunSpec storage model (124) at runtime and writes nothing if it cannot find it, or if the model is shorter than the SunSpec definition or its `InOutWRte_SF` is not `-2` (sbam writes charge/discharge rates as percentages with two decimals). `auto` — sbam locates the storage model the same way, which works with either inverter setting, and falls back to the `int + SF` addresses on devices without a SunSpec map. At startup, `schedule` reads the inverter's model type (read-only) and logs a warning if it does not match. Optimize mode writes to the same located registers. | `--sunspec_type` | `SUNSPEC_TYPE` | `sunspec_type` | `int_sf` |
 
 ## Charge Windows
 
@@ -51,8 +52,10 @@ Each window accepts these fields:
 | `consumption_horizon` | No | Per-window consumption horizon override. See [Consumption horizon modes](#consumption-horizon-modes). |
 | `tick_minutes` | No | Evaluation interval in minutes within this window. |
 | `set_defaults` | No | Whether to reset inverter to defaults when this window ends. |
-| `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. |
+| `before_end_defaults_minutes` | No | Minutes before window end to trigger defaults. `0` resets exactly at the window end. Whatever the value, the tick that leaves the window resets too, and ticks outside every window restore normal mode if the inverter is still held or force-charging, unless that came from a command given outside a window. |
 | `weekdays` | No | Day-of-week filter for the window. See [Weekday Filtering](weekdays.md). |
+| `hold_battery` | No | When `true`, block battery discharge while the window is active and sbam is not force-charging. Loads run from the grid at the window's price and the stored energy is kept for the expensive hours. PV can still charge the battery. sbam releases the hold when the window ends: with `set_defaults`, at its usual time; without it, at the window end. Default `false`. |
+| `reserve_horizon` | No | `until_solar` sizes the battery reserve for this window from the forecast. See [Reserve until solar](#reserve-until-solar). Empty keeps the static `pw_batt_reserve`. |
 
 ## Battery Reserve
 
@@ -63,6 +66,63 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 | `pw_batt_reserve` | Minimum battery capacity to maintain in watt-hours. | `--pw_batt_reserve` | `PW_BATT_RESERVE` | `pw_batt_reserve` | `4000` |
 | `batt_reserve_start_hr` | Start time for reserve window (HH:MM). Empty uses `start_hr`. | `--batt_reserve_start_hr` | `BATT_RESERVE_START_HR` | `batt_reserve_start_hr` | `start_hr` value |
 | `batt_reserve_end_hr` | End time for reserve window (HH:MM). Empty uses `end_hr`. | `--batt_reserve_end_hr` | `BATT_RESERVE_END_HR` | `batt_reserve_end_hr` | `end_hr` value |
+| `batt_min_soc` | Minimum state of charge (%) the battery keeps, as set in the inverter's battery settings (Fronius default 5 %). Set it to the same value: sbam neither reads nor writes the inverter's setting. Used by `reserve_horizon: until_solar` to size the reserve target, so a mismatch only mis-sizes that target and `reserve_at_risk`. | `--batt_min_soc` | `BATT_MIN_SOC` | `batt_min_soc` | `5` |
+| `grid_import_limit` | Maximum grid import in watts for the whole site (usually the contracted power) while sbam charges from the grid. Each charge is sized to what is left under the limit, measured on the Fronius meter, and re-checked every 30 s while charging. `0` disables it. Not supported with `scheduler_mode: optimize` yet: optimize mode refuses to start when it is above `0`. See [Grid import limit](#grid-import-limit). | `--grid_import_limit` | `GRID_IMPORT_LIMIT` | `grid_import_limit` | `0` |
+| `grid_charge_priority` | Who gets the power first under `grid_import_limit`. `battery`: sbam claims the charge power it needs and backs off only if the site import goes over the limit (a load that does not throttle). Loads that throttle to the meter, such as EV chargers in dynamic mode, yield. `loads`: sbam only uses the power other loads leave free. | `--grid_charge_priority` | `GRID_CHARGE_PRIORITY` | `grid_charge_priority` | `battery` |
+| `grid_import_margin` | Watts kept free under `grid_import_limit`. Must be lower than the limit. | `--grid_import_margin` | `GRID_IMPORT_MARGIN` | `grid_import_margin` | `200` |
+| `pw_base_load` | House load in watts the battery has to cover until PV takes over. Used by `reserve_horizon: until_solar`. `0` uses `pw_consumption / 24`. | `--pw_base_load` | `PW_BASE_LOAD` | `pw_base_load` | `0` |
+
+### Grid import limit
+
+Battery charging from the grid shares the contracted power with every other load in the house (an EV charger, a heat pump, an oven). sbam does not need to know what those loads are: the Fronius smart meter reports the grid import and the battery power, so the load of everything else is `P_Grid + P_Akku`.
+
+With `grid_import_limit` set, sbam:
+
+- with `grid_charge_priority: battery` (default), starts each grid charge at the rate the decision asks for (never above the window's `max_charge`). 10 s later it reads the meter: if the site import is over the limit because a load did not throttle, it backs off by the excess plus the margin. While the import stays under `limit − margin`, it grows back to the requested rate;
+- with `grid_charge_priority: loads`, sizes each grid charge to at most `grid_import_limit − grid_import_margin − (P_Grid + P_Akku)`. If a throttling load already takes the whole line, the battery waits;
+- re-reads the meter every 30 s while a grid charge runs and rewrites the charge rate when it moves by 5 points or more (to 0 % it writes the hold when `hold_battery` is on, otherwise the defaults);
+- does not charge from the grid when the meter cannot be read, since it cannot know how much power is free;
+- caps a manual MQTT `force_charge` to the power free under the limit when it is sent (and rejects it when the meter cannot be read). The rate is not re-checked while it runs. The full-charge override (`ignore_max_charge: true`) is not capped;
+- publishes `reserve_target_wh`, `reserve_deficit_wh`, `grid_charge_allowance_w` and `reserve_at_risk` (MQTT). `reserve_at_risk` turns on when the reserve deficit cannot be charged before the window ends at the power free now, so an automation can pause a load if you want.
+
+Use `battery` when the large load throttles itself (a dynamic EV charger). Both controllers aim at the same line, and with `loads` the one that yields first gets nothing, so the battery would wait all night behind an EV that starts first. With `battery`, a load that does not throttle can push the import over the limit for up to 10 s before sbam backs off. A typical setup charges the reserve first and keeps it with `hold_battery`:
+
+```yaml
+grid_import_limit: 3200   # W, contracted power in the cheap period
+windows:
+  - name: valle
+    start: "00:00"
+    end: "08:00"
+    max_charge: 2500
+    hold_battery: true
+    reserve_horizon: until_solar
+```
+
+### Reserve until solar
+
+`pw_batt_reserve` is a fixed amount of energy measured from 0 %, and it says nothing about how long the battery must last after the window ends. On a sunny day the daily forecast can be large enough that sbam skips charging, yet the hours between the end of the cheap window and the moment PV covers the house still come from the grid at the expensive rate.
+
+With `reserve_horizon: until_solar` on a window, every tick in that window computes the reserve as:
+
+```
+reserve = capacity × batt_min_soc / 100
+        + Σ max(pw_base_load − PV forecast, 0) × 0.5 h
+```
+
+The sum runs over Solcast's 30-minute periods, from the window end until the first period whose forecast (summed across sites) reaches `pw_base_load`. The result is never lower than `pw_batt_reserve` and never higher than the battery capacity. Reserve charging still only happens inside the reserve window (`batt_reserve_start_hr` / `batt_reserve_end_hr`). When no forecast is available, `pw_batt_reserve` is used.
+
+```yaml
+batt_min_soc: 25         # the inverter keeps 25 %
+pw_base_load: 600        # W, typical morning load
+pw_batt_reserve: 1800    # lower bound
+windows:
+  - name: valle
+    start: "00:00"
+    end: "08:00"
+    max_charge: 2500
+    hold_battery: true
+    reserve_horizon: until_solar
+```
 
 ## Power and Thresholds
 
@@ -72,13 +132,16 @@ The battery reserve defines a minimum charge level to maintain during the reserv
 | `pw_lwt` | Hysteresis lower threshold offset in watt-hours to stop charging. | `--pw_lwt` | `PW_LWT` | `pw_lwt` | `0` |
 | `pw_upt` | Hysteresis upper threshold offset in watt-hours to start charging. | `--pw_upt` | `PW_UPT` | `pw_upt` | `0` |
 
+!!! note "`pw_consumption` in optimize mode"
+    With `scheduler_mode: optimize`, `pw_consumption / 24` is the static fallback for every hour of day with fewer than 3 days of consumption history. It must be greater than 0 in that mode, otherwise startup fails.
+
 ## Scheduling
 
 `crontab + windows`: cron drives ticks, but each tick uses the window parameters from the windows: list. This is a transitional mode: cron cadence, multi-window decisions.
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
-| `scheduler_mode` | Scheduling mode. `crontab` — the legacy cron engine. Uses the global `crontab` field and the top-level `start_hr`/`end_hr` single window. Fully backward-compatible with existing configs. `windows` — the new internal ticker. No cron needed. Ticks fire at per-window intervals (tick_minutes), window transitions are detected at exact boundary times, and a tick fires immediately on startup. This is the recommended mode.. | `--scheduler_mode` | `SCHEDULER_MODE` | `scheduler_mode` | `crontab` |
+| `scheduler_mode` | Scheduling mode. `crontab` — the legacy cron engine. Uses the global `crontab` field and the top-level `start_hr`/`end_hr` single window. Fully backward-compatible with existing configs. `windows` — the new internal ticker. No cron needed. Ticks fire at per-window intervals (tick_minutes), window transitions are detected at exact boundary times, and a tick fires immediately on startup. This is the recommended mode.. `optimize` — hourly cost-optimized dispatch on spot prices; see [Cost Optimizer](#cost-optimizer) and [Cost-optimized Dispatch](optimizer.md). | `--scheduler_mode` | `SCHEDULER_MODE` | `scheduler_mode` | `crontab` |
 | `crontab` | Cron expression for recurring execution. Deprecated use `scheduler_mode: windows` instead.| `--crontab` | `CRONTAB` | `crontab` | `0 0 0 0 0` (CLI) / `00 00-05 * * *` (HA) |
 
 !!! warning "crontab deprecation"
@@ -88,6 +151,7 @@ The battery reserve defines a minimum charge level to maintain during the reserv
     - if `scheduler_mode: windows` is used, the `crontab` field is ignored.
     - If `scheduler_mode: crontab` and `windows` is empty, the legacy single window (`start_hr`, `end_hr`, `max_charge`) is used.
     - If `scheduler_mode: crontab` and `windows` is non-empty, the windows list is used for decisions, but ticks are still driven by the cron schedule.
+    - If `scheduler_mode: optimize` is used, `crontab`, `windows`, `start_hr`/`end_hr`/`max_charge` and the reserve window are ignored. A Warn is logged when `crontab` is set.
 
 !!! note "HA add-on crontab default"
     The HA add-on default is `00 00-05 * * *` (runs every minute from midnight to 5 AM). The CLI binary default is `0 0 0 0 0` (crontab disabled).
@@ -129,10 +193,91 @@ The battery reserve defines a minimum charge level to maintain during the reserv
       carry the load until the next chance to charge. It is bounded in
       practice by battery capacity, so the effect is simply "charge toward
       full."
-    - **DST:** day advancement uses fixed 24 h steps. In timezones that
-      observe daylight-saving, a span that crosses a DST boundary can be off
-      by an hour. Timezones without DST (e.g. `Australia/Perth`) are
-      unaffected.
+    - **DST:** window times are local wall-clock times and days advance by
+      calendar day, so the next window start stays at its local time across
+      a daylight-saving change. The span is measured in real hours, so on
+      the night of the change it is one hour longer or shorter.
+
+## Cost Optimizer
+
+These keys are used by `sbam schedule` with `scheduler_mode: optimize` and by `sbam optimize`. They are ignored in the other modes, so existing configurations stay valid. See [Cost-optimized Dispatch](optimizer.md) for how the optimizer works and the dry-run-first workflow.
+
+In `config.yaml` and the add-on these options are grouped under one `optimizer:` map:
+
+```yaml
+scheduler_mode: optimize
+optimizer:
+  price_entity: sensor.nordpool_kwh_dk2_dkk_3_10_025
+  consumption_entity: sensor.solarnet_power_load_consumed
+  dry_run: true
+```
+
+The CLI flags keep their flat names (`--opt_price_entity`, `--ha_url`, …). Environment variables are `OPTIMIZER_<NAME>` (for example `OPTIMIZER_PRICE_ENTITY`); for the Home Assistant access `HA_URL` and `HA_TOKEN` are the documented names. The flat keys of the first dev builds (`opt_*` in `config.yaml`, `OPT_*` in the environment) are still read for this release when the `optimizer:` key is not set, with a deprecation warning at startup. In the add-on, options saved under the old flat names are not carried over: re-enter them under **optimizer** after the update (dry run is the default until you do).
+
+All CLI flags are long-only. Every problem found at startup is reported in one message (`invalid configuration for scheduler_mode=optimize (N problems)`) and the process exits with code 1. The values are validated even in dry run.
+
+### Home Assistant API
+
+| Option | Description | CLI flag | Env var | HA add-on key | Default |
+|--------|-------------|----------|---------|---------------|---------|
+| `optimizer.ha_url` | Home Assistant base URL, e.g. `http://homeassistant.local:8123`. Scheme `http` or `https`; no user info, query or fragment. `/api` is appended if missing. A Warn is logged for plain `http` to a non-private host. | `--ha_url` | `HA_URL` | `optimizer.ha_url` (optional, hidden) | — |
+| `optimizer.ha_token` | Home Assistant long-lived access token. **Secret**: printed as `***` in the startup dump. Required when `optimizer.ha_url` is set. Prefer the env var over `config.yaml` and never pass it as a flag in shell history. | `--ha_token` | `HA_TOKEN` | `optimizer.ha_token` (optional, hidden, password) | — |
+
+How sbam reaches Home Assistant:
+
+| Condition | Access used |
+|-----------|-------------|
+| `optimizer.ha_url` is set | `optimizer.ha_url` with `optimizer.ha_token`. This also wins inside the add-on. |
+| `optimizer.ha_url` is empty and the Supervisor token is present (add-on) | The Supervisor API proxy with the add-on's own token. Nothing to configure. |
+| Neither | Startup error: `home assistant access: no Supervisor token found and optimizer.ha_url/optimizer.ha_token are not set`. |
+
+The startup log line `optimize mode active` shows `ha_access=supervisor` or `ha_access=url`. The Supervisor token is never logged.
+
+To create a long-lived token for Docker or the CLI: in Home Assistant open your **Profile → Security → Long-lived access tokens → Create token**. A dedicated non-admin user is recommended. sbam only reads from Home Assistant (`/api/states/` and `/api/history/period/`).
+
+### Optimizer keys
+
+| Option | Description | CLI flag | Env var | HA add-on key | Default | Valid range |
+|--------|-------------|----------|---------|---------------|---------|-------------|
+| `optimizer.price_entity` | Nordpool price sensor (prices incl. VAT), e.g. `sensor.nordpool_kwh_dk2_dkk_3_10_025`. **Required** in optimize mode. | `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | `optimizer.price_entity` | — | `sensor.<object_id>` (`^sensor\.[a-z0-9_]+$`) |
+| `optimizer.consumption_entity` | Household load power sensor (W or kW), e.g. `sensor.solarnet_power_load_consumed`. **Required** in optimize mode. | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | `optimizer.consumption_entity` | — | `sensor.<object_id>` |
+| `optimizer.ev_entity` | Optional EV charger power sensor (W or kW). Its energy is subtracted from the household load, and it drives the EV guard. | `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | `optimizer.ev_entity` | — (EV skipped) | empty or `sensor.<object_id>` |
+| `optimizer.ev_guard_w` | EV power in W above which sbam holds the battery instead of letting it discharge into the car in `self_consume` hours. Needs `optimizer.ev_entity`. `0` disables it. See [EV guard](optimizer.md#ev-guard). | `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | `optimizer.ev_guard_w` | `1000` | `0`–`50000` |
+| `optimizer.history_days` | Days of consumption history used for the hourly profile. Keep the HA recorder's `purge_keep_days` at least this high. | `--opt_history_days` | `OPTIMIZER_HISTORY_DAYS` | `optimizer.history_days` | `10` | `1`–`30` |
+| `optimizer.battery_efficiency` | Battery round-trip efficiency η. sbam splits the loss evenly: √η on charging and √η on discharging. | `--opt_battery_efficiency` | `OPTIMIZER_BATTERY_EFFICIENCY` | `optimizer.battery_efficiency` | `0.83` | `> 0` and `≤ 1` |
+| `optimizer.max_charge_rate_w` | Maximum battery charge rate in W, measured at the battery (the power stored, after conversion losses), like the inverter's own charge setpoint. Also capped by the inverter's `WChaMax`. | `--opt_max_charge_rate_w` | `OPTIMIZER_MAX_CHARGE_RATE_W` | `optimizer.max_charge_rate_w` | `4500` | `> 0` and `≤ 30000` |
+| `optimizer.max_discharge_rate_w` | Maximum battery discharge rate in W, measured at the battery (the power taken out of it). sbam writes it to the inverter as the AC-side setpoint × √`optimizer.battery_efficiency`, because the Gen24 discharge setpoint is AC-side ([details](optimizer.md#the-five-actions)). Also capped by the inverter's `WChaMax`. | `--opt_max_discharge_rate_w` | `OPTIMIZER_MAX_DISCHARGE_RATE_W` | `optimizer.max_discharge_rate_w` | `4500` | `> 0` and `≤ 30000` |
+| `optimizer.min_soc_pct` | Minimum battery SoC in percent that the plan never goes below. Values below 5 log a Warn. | `--opt_min_soc_pct` | `OPTIMIZER_MIN_SOC_PCT` | `optimizer.min_soc_pct` | `7` | `≥ 0` and `< 100` |
+| `optimizer.vat_rate` | VAT rate as a fraction (`0.25` = 25 %). Used to derive the sell price. | `--opt_vat_rate` | `OPTIMIZER_VAT_RATE` | `optimizer.vat_rate` | `0.25` | `0`–`1` (a value like `25` is rejected with a hint) |
+| `optimizer.sell_margin` | Supplier's sell margin in currency/kWh **incl. VAT**, subtracted from the ex-VAT spot price. | `--opt_sell_margin` | `OPTIMIZER_SELL_MARGIN` | `optimizer.sell_margin` | `0` | `-5`–`10` |
+| `optimizer.min_gain` | Minimum saving in currency **per hour** before a `charge` or `discharge` replaces the inverter's normal self-consumption; `hold` and `standby` need a tenth of it. Smaller gains stay `self_consume`. `0` disables the threshold. See [minimum gain and wear cost](optimizer.md#minimum-gain-and-wear-cost). | `--opt_min_gain` | `OPTIMIZER_MIN_GAIN` | `optimizer.min_gain` | `0.5` | `0`–`10` |
+| `optimizer.wear_cost` | Battery wear cost in currency **per kWh** a forced `charge` or `discharge` moves beyond self-consumption, added to `optimizer.min_gain`. Example: `0.15`. `0` disables it. | `--opt_wear_cost` | `OPTIMIZER_WEAR_COST` | `optimizer.wear_cost` | `0` | `0`–`5` |
+| `optimizer.purchase_surcharge` | 24 hourly surcharges (grid tariff, taxes, fees) in currency/kWh **incl. VAT**, added to the spot price. First value = 00:00–01:00. See the format below. | `--opt_purchase_surcharge` | `OPTIMIZER_PURCHASE_SURCHARGE` | `optimizer.purchase_surcharge` | 24 × `0` | exactly 24 numbers, each `-5`–`10` |
+| `optimizer.dry_run` | Compute and publish the plan without writing to the inverter. Set to `false` to go live. Must be `true` or `false`; a malformed value is an error and sbam stays in dry run. | `--opt_dry_run` | `OPTIMIZER_DRY_RUN` | `optimizer.dry_run` | `true` | `true` / `false` |
+
+!!! warning "Dry run is the default everywhere"
+    `optimizer.dry_run` defaults to `true` on the CLI, in Docker and in the add-on. Work through [Before going live](optimizer.md#before-going-live) before setting it to `false`.
+
+!!! info "Surcharge format (`optimizer.purchase_surcharge`)"
+    - Exactly **24** numbers, one per hour of the day, starting with 00:00–01:00.
+    - Use `.` as the decimal separator. A decimal comma (`0,52`) splits into two values and fails the count check.
+    - Negative values (for example a rebate) are allowed. Empty items (`0.5,,0.5`) and non-numbers are errors.
+    - CLI flag, env var and add-on: one comma-separated string, e.g. `"0.52,0.52,0.52,0.52,0.52,0.52,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,2.04,2.04,2.04,2.04,0.78,0.78,0.78"`.
+    - `config.yaml`: the same string, or a YAML list of 24 numbers.
+    - Empty or unset means 24 × `0`.
+
+    Error examples:
+
+    ```
+    optimizer.purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 23; use '.' as decimal separator
+    optimizer.purchase_surcharge: item 7 ("0,78x") is not a number
+    ```
+
+**Prices.** For every hour: `buy = spot incl. VAT + surcharge[hour of day]` and `sell = spot incl. VAT / (1 + optimizer.vat_rate) − optimizer.sell_margin`. Example: spot 2.00, surcharge 2.04, VAT 0.25, margin 0.05 gives `buy = 4.04` and `sell = 1.55`.
+
+**Efficiency and terminal value.** Charging ΔE into the battery costs ΔE / η, so grid-charging only pays when a later price beats the current price ÷ η. Energy left at the end of the horizon is valued at `η × mean(buy)` per kWh, so a short horizon does not empty the battery.
+
+**Other keys in optimize mode.** `fronius_ip`, `url` and `apikey` are required as in the other modes. The PV forecast is always read through the forecast cache (`cache_file_prefix`, `cache_time`), whatever `cache_forecast` says; a cached forecast older than `max(cache_time, 24 h)` is treated as missing.
 
 ## Forecast Caching
 

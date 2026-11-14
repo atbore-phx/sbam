@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	u "sbam/src/utils"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -13,6 +14,10 @@ import (
 
 var fronius_ip string
 var appVersion = "dev"
+
+// flagAnnotationNoViper marks a command-local flag that bindFlags skips
+// (e.g. `sbam optimize --dry-run`).
+const flagAnnotationNoViper = "sbam_no_viper"
 
 var rootCmd = &cobra.Command{
 	Use:   "sbam",
@@ -26,6 +31,10 @@ func Execute() error {
 	u.Log.Debug("Debug Logs activated: true")
 	err := rootCmd.Execute()
 	if err != nil {
+		var ec interface{ ExitCode() int }
+		if errors.As(err, &ec) {
+			os.Exit(ec.ExitCode())
+		}
 		os.Exit(1)
 	}
 	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
@@ -40,6 +49,10 @@ func Execute() error {
 
 func init() {
 	viper.AutomaticEnv()
+	// Nested keys map to env vars with "_" (optimizer.price_entity →
+	// OPTIMIZER_PRICE_ENTITY). Flat keys have no dot and are unaffected.
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	bindOptimizeEnv()
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -61,6 +74,7 @@ func init() {
 	registerCfgCmd()
 	registerEstCmd()
 	registerScdCmd()
+	registerOptCmd()
 }
 
 func SetVersionInfo(version, commit, date string) error {
@@ -75,14 +89,22 @@ func SetVersionInfo(version, commit, date string) error {
 // the viper key. It is intended to be called from each subcommand's
 // PersistentPreRunE so the currently executing subcommand owns the binding.
 // This restores Viper's documented precedence (flag > env > config > default)
-// for keys shared across multiple subcommands.
+// for keys shared across multiple subcommands. Flags annotated with
+// flagAnnotationNoViper are command-local and are not bound.
 func bindFlags(cmd *cobra.Command) error {
 	var firstErr error
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if firstErr != nil {
 			return
 		}
-		if err := viper.BindPFlag(f.Name, f); err != nil {
+		if _, local := f.Annotations[flagAnnotationNoViper]; local {
+			return
+		}
+		key := f.Name
+		if ann, ok := f.Annotations[flagAnnotationViperKey]; ok && len(ann) == 1 {
+			key = ann[0] // e.g. --opt_price_entity → optimizer.price_entity
+		}
+		if err := viper.BindPFlag(key, f); err != nil {
 			firstErr = err
 		}
 	})

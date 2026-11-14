@@ -56,7 +56,7 @@ func parseIntentAt(topic string, payload []byte, now time.Time) (Intent, error) 
 	info := parseCommandTopic(topic)
 
 	switch info.Canonical {
-	case IntentTriggerNow, IntentSetDefaults, IntentResume:
+	case IntentTriggerNow, IntentSetDefaults, IntentHold, IntentResume:
 		if err := validateEmptyOrObjectPayload(payload); err != nil {
 			return Intent{}, err
 		}
@@ -141,6 +141,9 @@ func parseCommandTopic(topic string) commandTopicInfo {
 		info.KnownCommand = true
 	case string(IntentSetDefaults):
 		info.Canonical = IntentSetDefaults
+		info.KnownCommand = true
+	case string(IntentHold):
+		info.Canonical = IntentHold
 		info.KnownCommand = true
 	case string(IntentPause):
 		info.Canonical = IntentPause

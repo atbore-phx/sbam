@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"sbam/pkg/fronius"
 	"sbam/pkg/mqtt"
+	"sbam/pkg/optimize"
 	pw "sbam/pkg/power"
 	"sbam/pkg/storage"
 	u "sbam/src/utils"
@@ -26,7 +27,8 @@ var s_apiKey, s_url, start_hr, end_hr, batt_reserve_start_hr, batt_reserve_end_h
 	mqtt_password, mqtt_tls_ca_file, mqtt_tls_client_cert, mqtt_tls_client_cert_key,
 	mqtt_topic_prefix, mqtt_ha_discovery_prefix, forecast_horizon, consumption_horizon,
 	scheduler_mode string
-var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve float64
+var pw_consumption, max_charge, pw_lwt, pw_upt, pw_batt_reserve, batt_min_soc, pw_base_load, grid_import_limit, grid_import_margin float64
+var grid_charge_priority string
 var s_cache_time int32
 var s_defaults, s_cache_forecast, mqtt_enabled, mqtt_ha_discovery, mqtt_tls_insecure_skip, weekday_feature bool
 
@@ -48,6 +50,8 @@ const (
 	const_consumption_horizon = "full_day"
 	const_scheduler_mode      = "crontab"
 	const_weekday_feature     = true
+	const_batt_min_soc        = 5.0
+	const_grid_import_margin  = 200.0
 	scheduleClockLayout       = "15:04"
 )
 
@@ -62,11 +66,13 @@ type clockSegment struct {
 type froniusClient interface {
 	Handler(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve float64,
 		start_hr, end_hr, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt, pw_upt float64,
-		forecast_charge_enabled bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
+		forecast_charge_enabled bool, hold_battery bool, fronius_port ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error)
 }
 
-var newFronius = func() froniusClient {
-	return fronius.New()
+var newFronius = func(sunspecType fronius.SunSpecType) froniusClient {
+	f := fronius.New()
+	f.SunSpecType = sunspecType
+	return f
 }
 
 type storageClient interface {
@@ -79,6 +85,7 @@ var newStorage = func() storageClient {
 
 type powerClient interface {
 	Handler(apiKey string, url string, cache_forecast bool, cache_file_prefix string, cache_time int32, forecastHorizon string, now time.Time) (float64, bool, error)
+	LastForecasts() []pw.Forecasts
 }
 
 var newPower = func() powerClient {
@@ -92,7 +99,7 @@ var scdCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		return bindFlags(cmd)
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		s_url = viper.GetString("url")
 		s_apiKey = viper.GetString("apikey")
 		fronius_ip = viper.GetString("fronius_ip")
@@ -103,6 +110,11 @@ var scdCmd = &cobra.Command{
 		pw_lwt = viper.GetFloat64("pw_lwt")
 		pw_upt = viper.GetFloat64("pw_upt")
 		pw_batt_reserve = viper.GetFloat64("pw_batt_reserve")
+		batt_min_soc = viper.GetFloat64("batt_min_soc")
+		pw_base_load = viper.GetFloat64("pw_base_load")
+		grid_import_limit = viper.GetFloat64("grid_import_limit")
+		grid_import_margin = viper.GetFloat64("grid_import_margin")
+		grid_charge_priority = viper.GetString("grid_charge_priority")
 		s_cache_forecast = viper.GetBool("cache_forecast")
 		s_cache_file_prefix = viper.GetString("cache_file_prefix")
 		s_cache_time = viper.GetInt32("cache_time")
@@ -122,23 +134,24 @@ var scdCmd = &cobra.Command{
 		consumption_horizon = viper.GetString("consumption_horizon")
 		scheduler_mode = viper.GetString("scheduler_mode")
 		weekday_feature = viper.GetBool("weekday_feature")
+		sunspec_type = viper.GetString("sunspec_type")
 
 		// Resolve windows with flag > env > config.yaml precedence.
 		var windows []pw.Window
 		if f := cmd.Flags().Lookup("windows"); f != nil && f.Changed {
 			if err := yaml.Unmarshal([]byte(f.Value.String()), &windows); err != nil {
 				u.Log.Errorf("invalid --windows flag: %v", err)
-				return
+				return nil
 			}
 		} else if env, ok := os.LookupEnv("WINDOWS"); ok {
 			if err := yaml.Unmarshal([]byte(env), &windows); err != nil {
 				u.Log.Errorf("invalid WINDOWS env var: %v", err)
-				return
+				return nil
 			}
 		} else if viper.InConfig("windows") {
 			if err := viper.UnmarshalKey("windows", &windows); err != nil {
 				u.Log.Errorf("invalid windows in config.yaml: %v", err)
-				return
+				return nil
 			}
 		}
 		for i := range windows {
@@ -165,6 +178,17 @@ var scdCmd = &cobra.Command{
 		}
 		crontab = viper.GetString("crontab")
 		s_defaults = viper.GetBool("defaults")
+		optimizeMode := scheduler_mode == schedulerModeOptimize
+
+		// Apply and verify sunspec_type before the MQTT background connect:
+		// the verify is a blocking Modbus session and must not run between the
+		// connect and the OnConnect registration below, and no command may be
+		// handled before the selected type is in place.
+		sunspecType, err := setupSunSpecType(sunspec_type, fronius_ip, strings.TrimSpace(fronius_ip) != "")
+		if err != nil {
+			u.Log.Error(err)
+			return nil
+		}
 
 		mqttCfg := mqtt.Config{
 			Enabled:           mqtt_enabled,
@@ -180,6 +204,9 @@ var scdCmd = &cobra.Command{
 			HADiscovery:       mqtt_ha_discovery,
 			HADiscoveryPrefix: mqtt_ha_discovery_prefix,
 			FroniusIP:         fronius_ip,
+			// The optimizer entities are published only in optimize mode;
+			// otherwise discovery removes them and clears <prefix>/plan.
+			Optimizer: optimizeMode,
 		}
 		mqttClient, mqttCleanup, err := mqtt.InitWithCleanup(mqttCfg, appVersion)
 		defer mqttCleanup()
@@ -199,9 +226,35 @@ var scdCmd = &cobra.Command{
 		u.LogStartupParams(cmd, extras)
 
 		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature)
-		if err != nil {
+		var (
+			optCfg  OptimizeConfig
+			optDeps optimizeDeps
+		)
+		if optimizeMode {
+			// Optimize mode fails with exit code 1 after the ADR-0004 §3
+			// defaults attempt; the other modes keep their exit behaviour.
+			err = errors.Join(err, checkOptimizeGridLimit(grid_import_limit))
+			optCfg, optDeps, err = prepareOptimizeMode(err, sunspecType)
+			if err != nil {
+				cmd.SilenceUsage = true
+				cmd.SilenceErrors = true // already logged
+				return err
+			}
+		} else if err != nil {
 			u.Log.Error(err)
-			return
+			return nil
+		}
+		if err := checkReserveOptions(batt_min_soc, pw_base_load); err != nil {
+			u.Log.Error(err)
+			return nil
+		}
+		if err := checkGridChargePriority(grid_charge_priority); err != nil {
+			u.Log.Error(err)
+			return nil
+		}
+		if err := checkGridLimitOptions(grid_import_limit, grid_import_margin); err != nil {
+			u.Log.Error(err)
+			return nil
 		}
 
 		runnerCfg := RunnerConfig{
@@ -211,6 +264,11 @@ var scdCmd = &cobra.Command{
 			PWConsumption:      pw_consumption,
 			MaxCharge:          max_charge,
 			PWBattReserve:      pw_batt_reserve,
+			BattMinSoC:         batt_min_soc,
+			PWBaseLoad:         pw_base_load,
+			GridImportLimit:    grid_import_limit,
+			GridImportMargin:   grid_import_margin,
+			GridChargePriority: grid_charge_priority,
 			StartHR:            start_hr,
 			EndHR:              end_hr,
 			BattReserveStartHR: batt_reserve_start_hr,
@@ -226,8 +284,11 @@ var scdCmd = &cobra.Command{
 			ConsumptionHorizon: consumption_horizon,
 			SchedulerMode:      scheduler_mode,
 			WeekdayFeature:     weekday_feature,
+			SunSpecType:        sunspecType,
 			MQTT:               mqttCfg,
 			Now:                time.Now,
+			Optimize:           optCfg,
+			OptimizeDeps:       optDeps,
 		}
 
 		runner := NewRunner(runnerCfg, mqttClient)
@@ -261,14 +322,14 @@ var scdCmd = &cobra.Command{
 			}
 
 			if crontab != const_ct {
-				if err := crontabSchedule(runCtx, runner, crontab, s_defaults, w_end_hr); err != nil {
+				if err := crontabSchedule(runCtx, runner, crontab, s_defaults || anyHoldBattery(windows), w_end_hr); err != nil {
 					u.Log.Error(err)
 					_ = runner.Submit(mqtt.Intent{Kind: mqtt.IntentShutdown})
 					stop()
 					if waitErr := waitForRunnerDone(runDone); waitErr != nil {
 						u.Log.Error(waitErr)
 					}
-					return
+					return nil
 				}
 			}
 
@@ -279,14 +340,22 @@ var scdCmd = &cobra.Command{
 			u.Log.Info("scheduler_mode=windows active; starting internal ticker")
 			runner.StartWindowsTicker(time.Now())
 
+		case schedulerModeOptimize:
+			if crontab != const_ct {
+				u.Log.Warn("crontab is set but scheduler_mode=optimize; crontab will be ignored")
+			}
+			logOptimizeModeActive(optCfg)
+			runner.StartOptimizeTicker()
+
 		default:
 			u.Log.Errorf("unexpected scheduler_mode %q", scheduler_mode)
-			return
+			return nil
 		}
 
 		if err := finalizeRunnerMode(mqtt_enabled, scheduler_mode, runner, runDone, stop); err != nil {
 			u.Log.Error(err)
 		}
+		return nil
 	},
 }
 
@@ -329,9 +398,16 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&mqtt_ha_discovery_prefix, "mqtt_ha_discovery_prefix", const_ha_discovery_prefix, "Home Assistant MQTT discovery prefix")
 	scdCmd.Flags().StringVar(&forecast_horizon, "forecast_horizon", const_forecast_horizon, "Forecast horizon mode (default, next_solar_day, remaining_today, today, tomorrow, off)")
 	scdCmd.Flags().StringVar(&consumption_horizon, "consumption_horizon", const_consumption_horizon, "Consumption horizon mode (full_day, remaining_today, to_next_window)")
-	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows)")
+	scdCmd.Flags().StringVar(&scheduler_mode, "scheduler_mode", const_scheduler_mode, "Scheduler mode (crontab, windows, optimize)")
 	scdCmd.Flags().BoolVar(&weekday_feature, "weekday_feature", const_weekday_feature, "Enable weekday filtering on charge windows")
+	scdCmd.Flags().Float64Var(&batt_min_soc, "batt_min_soc", const_batt_min_soc, "Minimum battery SoC (%) configured in the inverter; used by reserve_horizon until_solar")
+	scdCmd.Flags().Float64Var(&grid_import_limit, "grid_import_limit", 0, "Max grid import (W) for the whole site while sbam charges from the grid; 0 = disabled")
+	scdCmd.Flags().StringVar(&grid_charge_priority, "grid_charge_priority", GridChargePriorityBattery, "Under grid_import_limit, who gets the power first: battery (claims its charge, throttling loads yield) or loads (battery uses only free power)")
+	scdCmd.Flags().Float64Var(&grid_import_margin, "grid_import_margin", const_grid_import_margin, "Power (W) kept free under grid_import_limit")
+	scdCmd.Flags().Float64Var(&pw_base_load, "pw_base_load", 0, "Base house load (W) used by reserve_horizon until_solar (0 = pw_consumption/24)")
+	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
+	registerOptimizeFlags(scdCmd)
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -447,7 +523,11 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
 	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string, weekdayFeature bool) error {
 
-	if len(windows) > 0 {
+	// Optimize mode ignores crontab, windows, start_hr/end_hr/max_charge and
+	// the reserve window (configuration.md), so they are not validated there.
+	legacy := scheduler_mode != schedulerModeOptimize
+
+	if legacy && len(windows) > 0 {
 		u.Log.Info("windows configuration is provided; start_hr/end_hr will be ignored")
 		if err := pw.ValidateWindows(windows, weekdayFeature); err != nil {
 			return fmt.Errorf("invalid windows configuration: %w", err)
@@ -462,10 +542,12 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 		if len(windows) == 0 {
 			return errors.New("scheduler_mode is 'windows' but no windows are configured; add at least one entry to windows:")
 		}
+	case schedulerModeOptimize:
+		// The ha_*/opt_* keys are validated by loadOptimizeConfig.
 	case "auto":
 		return fmt.Errorf("scheduler_mode 'auto' is not yet available — see issue #149")
 	default:
-		return fmt.Errorf("unknown scheduler_mode %q: must be crontab, windows, or auto", scheduler_mode)
+		return fmt.Errorf("unknown scheduler_mode %q: must be crontab, windows or optimize", scheduler_mode)
 	}
 
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
@@ -477,7 +559,7 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
-	} else if len(windows) == 0 {
+	} else if legacy && len(windows) == 0 {
 		// Legacy window validation — skipped when windows: is configured.
 		if _, _, err := validateScheduleWindow("start_hr", start_hr, "end_hr", end_hr); err != nil {
 			return err
@@ -487,11 +569,12 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 			return err
 		}
 	}
-	if len(crontab) == 0 {
+	if legacy && len(crontab) == 0 {
 		fmt.Printf("the --crontab must be set")
 		err := errors.New("crontab must to be integer > 0")
 		return err
-	} else if pw_consumption < 0 {
+	}
+	if pw_consumption < 0 {
 		err := errors.New("pw_consumption must to be float > 0")
 		return err
 	} else if pw_lwt < 0 {
@@ -503,14 +586,18 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	} else if pw_batt_reserve < 0 {
 		err := errors.New("pw_batt_reserve must to be float > 0")
 		return err
-	} else if _, _, err := validateScheduleWindow("batt_reserve_start_hr", batt_reserve_start_hr, "batt_reserve_end_hr", batt_reserve_end_hr); err != nil {
-		return err
-	} else if contained, err := isWindowContainedIn(batt_reserve_start_hr, batt_reserve_end_hr, start_hr, end_hr); err != nil {
-		return err
-	} else if !contained {
-		err := errors.New("batt_reserve_start_hr/batt_reserve_end_hr must be contained within start_hr/end_hr")
-		return err
-	} else if (s_cache_time < 0) || (s_cache_time > 86400) {
+	}
+	if legacy {
+		if _, _, err := validateScheduleWindow("batt_reserve_start_hr", batt_reserve_start_hr, "batt_reserve_end_hr", batt_reserve_end_hr); err != nil {
+			return err
+		} else if contained, err := isWindowContainedIn(batt_reserve_start_hr, batt_reserve_end_hr, start_hr, end_hr); err != nil {
+			return err
+		} else if !contained {
+			err := errors.New("batt_reserve_start_hr/batt_reserve_end_hr must be contained within start_hr/end_hr")
+			return err
+		}
+	}
+	if (s_cache_time < 0) || (s_cache_time > 86400) {
 		err := errors.New("The cache_time must be between 0 and 86400 seconds")
 		return err
 	} else if _, err := pw.ValidateForecastHorizon(forecast_horizon); err != nil {
@@ -623,6 +710,17 @@ func waitForRunnerDone(runDone <-chan error) error {
 // crontabSchedule installs the `schedule` function into a cron scheduler
 func strPtr(s string) *string { return &s }
 
+// anyHoldBattery reports whether a window holds the battery. Crontab mode
+// then needs the end_hr reset even with defaults off, to release the hold.
+func anyHoldBattery(windows []pw.Window) bool {
+	for _, w := range windows {
+		if w.HoldBattery != nil && *w.HoldBattery {
+			return true
+		}
+	}
+	return false
+}
+
 // crontabSchedule installs the `schedule` function into a cron scheduler
 // using the provided cron expression. Callbacks submit intents and return
 // immediately; the runner serializes all schedule and Modbus operations.
@@ -652,11 +750,7 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 		return err
 	}
 	if defaults {
-		_, err = c.AddFunc(end_crontab, func() {
-			if !runner.Submit(mqtt.Intent{Kind: mqtt.IntentSetDefaults}) {
-				u.Log.Warn("set_defaults dropped because runner queue is full")
-			}
-		})
+		_, err = c.AddFunc(end_crontab, runner.submitSystemDefaults)
 		if err != nil {
 			return err
 		}
@@ -671,4 +765,110 @@ func crontabSchedule(ctx context.Context, runner *Runner, crontab string, defaul
 	u.Log.Info("Scheduler started with crontab: " + crontab + " press ctrl+c to exit...")
 	<-ctx.Done()
 	return nil
+}
+
+// checkReserveOptions validates the options used by reserve_horizon
+// until_solar.
+func checkReserveOptions(battMinSoC, pwBaseLoad float64) error {
+	if battMinSoC < 0 || battMinSoC > 100 {
+		return fmt.Errorf("batt_min_soc must be between 0 and 100, got %.2f", battMinSoC)
+	}
+	if pwBaseLoad < 0 {
+		return fmt.Errorf("pw_base_load must be >= 0, got %.2f", pwBaseLoad)
+	}
+	return nil
+}
+
+// errOptimizeGridLimit is returned when grid_import_limit is set together
+// with scheduler_mode optimize.
+var errOptimizeGridLimit = errors.New("grid_import_limit is not supported with scheduler_mode optimize yet: planned charging does not apply the grid import allowance; set grid_import_limit to 0 or use scheduler_mode windows")
+
+// checkOptimizeGridLimit refuses grid_import_limit > 0 in optimize mode. The
+// optimizer caps charging only by opt_max_charge_rate_w, so the allowance
+// would be silently bypassed; until optDispatchCommand applies it, optimize
+// mode does not start with the limit set.
+func checkOptimizeGridLimit(limit float64) error {
+	if limit > 0 {
+		return errOptimizeGridLimit
+	}
+	return nil
+}
+
+// optStartupDefaultsTimeout bounds the ADR-0004 §3 defaults attempt.
+var optStartupDefaultsTimeout = 5 * time.Second
+
+var errDefaultsTimeout = errors.New("timed out")
+
+// prepareOptimizeMode loads and validates the optimize configuration
+// (logging its warnings at Warn) and builds the optimizer dependencies.
+// baseErr is the result of the generic schedule validation. On any failure it
+// attempts an ordered defaults write when live (ADR-0004 §3, TC-001c) and
+// returns the error, which makes `sbam schedule` exit with code 1.
+func prepareOptimizeMode(baseErr error, sunspecType fronius.SunSpecType) (OptimizeConfig, optimizeDeps, error) {
+	cfg, warnings, cfgErr := loadOptimizeConfig()
+	for _, w := range warnings {
+		u.Log.Warn(w)
+	}
+	err := errors.Join(baseErr, cfgErr)
+	var deps optimizeDeps
+	if err == nil {
+		deps, err = newOptimizeDeps(cfg)
+	}
+	if err != nil {
+		u.Log.Error(err)
+		optStartupFailSafe(cfg, sunspecType)
+		return cfg, optimizeDeps{}, err
+	}
+	return cfg, deps, nil
+}
+
+// optStartupFailSafe restores inverter defaults after a startup validation
+// failure in live optimize mode, so a broken config edit never leaves a
+// forced state from an earlier live run (ADR-0004 §3). It never writes in
+// dry-run or without a usable fronius_ip.
+func optStartupFailSafe(cfg OptimizeConfig, sunspecType fronius.SunSpecType) {
+	ip := strings.TrimSpace(cfg.FroniusIP)
+	if cfg.DryRun || ip == "" || strings.ContainsAny(ip, " /\\") {
+		u.Log.Info("optimize mode: startup validation failed; no defaults write (dry run or no fronius_ip)")
+		return
+	}
+	if err := optSetDefaultsWithin(newDispatchWriter(sunspecType), ip, optStartupDefaultsTimeout); err != nil {
+		u.Log.Errorw("defaults restore failed; inverter state unknown", "reason", "startup_validation_failed", "error", err)
+		return
+	}
+	u.Log.Warn("optimize mode: startup validation failed; inverter defaults restored")
+}
+
+// optSetDefaultsWithin writes ordered defaults with a deadline. The write
+// keeps running in the background after a timeout; the caller is exiting.
+func optSetDefaultsWithin(w dispatchWriter, ip string, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- w.SetDefaults(ip)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return errDefaultsTimeout
+	}
+}
+
+// logOptimizeModeActive writes the optimize-mode startup Info line (UX §7.1).
+// It never logs the HA token or URL.
+func logOptimizeModeActive(cfg OptimizeConfig) {
+	access := "supervisor"
+	if strings.TrimSpace(cfg.HAURL) != "" {
+		access = "url"
+	}
+	u.Log.Infow("optimize mode active",
+		"ha_access", access,
+		"dry_run", cfg.DryRun,
+		"forecast_cache", true,
+		"horizon_max_h", optimize.DefaultMaxHours,
+		"steps", optimize.DefaultSteps,
+		"revert_s", fronius.RevertSeconds,
+	)
 }

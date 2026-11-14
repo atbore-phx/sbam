@@ -28,6 +28,13 @@ go.work
 
 # config yaml files
 config.yaml
+config.addon-copy.yaml
+
+# Solcast forecast cache written by local runs (cache_file_prefix default)
+cached_forecast.*
+
+# Visual Studio workspace state
+.vs/
 
 # Compound Engineering local config
 .compound-engineering/*.local.yaml

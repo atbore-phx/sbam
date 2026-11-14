@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,8 @@ func resetViper(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_")) // as in root init
+	bindOptimizeEnv()
 	t.Cleanup(viper.Reset)
 }
 
@@ -286,4 +289,225 @@ func TestBindFlags_RealScheduleCmdMQTTKeysPrecedence(t *testing.T) {
 			})
 		}
 	})
+}
+
+// newOptimizeFlagCmd returns a probe command carrying only the shared
+// ha_*/opt_* flags, so the test does not depend on wave-3 wiring into scdCmd.
+func newOptimizeFlagCmd() *cobra.Command {
+	c := &cobra.Command{Use: "probe", Run: func(cmd *cobra.Command, args []string) {}}
+	registerOptimizeFlags(c)
+	return c
+}
+
+// T-0126: opt_max_charge_rate_w honours flag > env > yaml > default, both in
+// viper and in loadOptimizeConfig.
+func TestBindFlags_T0126_OptimizeRatePrecedence(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    bool
+		env     bool
+		flag    bool
+		want    float64
+		wantCfg float64
+	}{
+		{name: "default", want: 4500, wantCfg: 4500},
+		{name: "yaml beats default", yaml: true, want: 1000, wantCfg: 1000},
+		{name: "env beats yaml", yaml: true, env: true, want: 2000, wantCfg: 2000},
+		{name: "flag beats env", yaml: true, env: true, flag: true, want: 3000, wantCfg: 3000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			if tc.yaml {
+				writeConfig(t, "optimizer:\n  max_charge_rate_w: 1000\n")
+			}
+			if tc.env {
+				t.Setenv("OPTIMIZER_MAX_CHARGE_RATE_W", "2000")
+			}
+			c := newOptimizeFlagCmd()
+			if tc.flag {
+				require.NoError(t, c.Flags().Set("opt_max_charge_rate_w", "3000"))
+			}
+			require.NoError(t, bindFlags(c))
+
+			assert.Equal(t, tc.want, viper.GetFloat64("optimizer.max_charge_rate_w"))
+
+			viper.Set("optimizer.ha_url", "http://homeassistant.local:8123")
+			viper.Set("optimizer.ha_token", "test-ha-token")
+			viper.Set("optimizer.price_entity", "sensor.price")
+			viper.Set("optimizer.consumption_entity", "sensor.load")
+			viper.Set("pw_consumption", 12000.0)
+			cfg, _, err := optCfgLoad(func(string) string { return "" })
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantCfg, cfg.MaxChargeW)
+		})
+	}
+}
+
+// T-0126 / UX §2.2: opt_purchase_surcharge from a YAML list, an env string
+// and the string flag all normalize to the same [24]float64, with the
+// documented precedence.
+func TestBindFlags_T0126_SurchargeSources(t *testing.T) {
+	yamlList := "optimizer:\n  purchase_surcharge: [" + strings.TrimSuffix(strings.Repeat("0.1, ", 24), ", ") + "]\n"
+	envVal := strings.TrimSuffix(strings.Repeat("0.2,", 24), ",")
+	flagVal := strings.TrimSuffix(strings.Repeat("0.3,", 24), ",")
+
+	cases := []struct {
+		name string
+		yaml bool
+		env  bool
+		flag bool
+		want float64
+	}{
+		{name: "default zeros", want: 0},
+		{name: "yaml list", yaml: true, want: 0.1},
+		{name: "env string beats yaml", yaml: true, env: true, want: 0.2},
+		{name: "flag string beats env", yaml: true, env: true, flag: true, want: 0.3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetViper(t)
+			if tc.yaml {
+				writeConfig(t, yamlList)
+			}
+			if tc.env {
+				t.Setenv("OPTIMIZER_PURCHASE_SURCHARGE", envVal)
+			}
+			c := newOptimizeFlagCmd()
+			if tc.flag {
+				require.NoError(t, c.Flags().Set("opt_purchase_surcharge", flagVal))
+			}
+			require.NoError(t, bindFlags(c))
+
+			got, err := parseSurcharge(viper.Get("optimizer.purchase_surcharge"))
+			require.NoError(t, err)
+			for h := 0; h < 24; h++ {
+				assert.InDelta(t, tc.want, got[h], 1e-12, "hour %d", h)
+			}
+		})
+	}
+}
+
+// T-0126: opt_dry_run defaults to true and can be overridden from env/yaml.
+func TestBindFlags_T0126_DryRunPrecedence(t *testing.T) {
+	t.Run("default true", func(t *testing.T) {
+		resetViper(t)
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.True(t, viper.GetBool("optimizer.dry_run"))
+	})
+	t.Run("yaml false", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "optimizer:\n  dry_run: false\n")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.False(t, viper.GetBool("optimizer.dry_run"))
+	})
+	t.Run("env beats yaml", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "optimizer:\n  dry_run: false\n")
+		t.Setenv("OPTIMIZER_DRY_RUN", "true")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.True(t, viper.GetBool("optimizer.dry_run"))
+	})
+	t.Run("flag beats env", func(t *testing.T) {
+		resetViper(t)
+		t.Setenv("OPTIMIZER_DRY_RUN", "true")
+		c := newOptimizeFlagCmd()
+		require.NoError(t, c.Flags().Set("opt_dry_run", "false"))
+		require.NoError(t, bindFlags(c))
+		assert.False(t, viper.GetBool("optimizer.dry_run"))
+	})
+}
+
+// optLoadWith loads the optimize config with the required keys set and the
+// given getenv.
+func optLoadWith(t *testing.T, getenv func(string) string) (OptimizeConfig, []string) {
+	t.Helper()
+	viper.Set("optimizer.ha_url", "http://homeassistant.local:8123")
+	viper.Set("optimizer.ha_token", "test-ha-token")
+	viper.Set("optimizer.price_entity", "sensor.price")
+	viper.Set("optimizer.consumption_entity", "sensor.load")
+	viper.Set("pw_consumption", 12000.0)
+	cfg, warnings, err := optCfgLoad(getenv)
+	require.NoError(t, err)
+	return cfg, warnings
+}
+
+// Compatibility: the flat opt_* keys of the dev builds still work for one
+// release when the optimizer: key is not set, with a deprecation warning;
+// optimizer: wins when both are present.
+func TestOptimizerGroup_DeprecatedFlatYAMLKeys(t *testing.T) {
+	t.Run("flat key used with warning", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_max_charge_rate_w: 1000\nopt_dry_run: false\n")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		cfg, warnings := optLoadWith(t, func(string) string { return "" })
+		assert.Equal(t, 1000.0, cfg.MaxChargeW)
+		assert.False(t, cfg.DryRun)
+		assert.Contains(t, warnings, "config key opt_max_charge_rate_w is deprecated; move it to optimizer.max_charge_rate_w:")
+		assert.Contains(t, warnings, "config key opt_dry_run is deprecated; move it to optimizer.dry_run:")
+	})
+	t.Run("nested key wins", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_max_charge_rate_w: 1000\noptimizer:\n  max_charge_rate_w: 2500\n")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		cfg, warnings := optLoadWith(t, func(string) string { return "" })
+		assert.Equal(t, 2500.0, cfg.MaxChargeW)
+		assert.Empty(t, warnings)
+	})
+	t.Run("flag beats flat key", func(t *testing.T) {
+		resetViper(t)
+		writeConfig(t, "opt_max_charge_rate_w: 1000\n")
+		c := newOptimizeFlagCmd()
+		require.NoError(t, c.Flags().Set("opt_max_charge_rate_w", "3000"))
+		require.NoError(t, bindFlags(c))
+		cfg, _ := optLoadWith(t, func(string) string { return "" })
+		assert.Equal(t, 3000.0, cfg.MaxChargeW)
+	})
+}
+
+// Compatibility: OPT_* env vars still work with a warning; OPTIMIZER_* wins;
+// HA_URL/HA_TOKEN stay the documented names without a warning.
+func TestOptimizerGroup_EnvNames(t *testing.T) {
+	t.Run("deprecated OPT_ env", func(t *testing.T) {
+		resetViper(t)
+		t.Setenv("OPT_MAX_CHARGE_RATE_W", "1200")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		cfg, warnings := optLoadWith(t, os.Getenv)
+		assert.Equal(t, 1200.0, cfg.MaxChargeW)
+		assert.Contains(t, warnings, "environment variable OPT_MAX_CHARGE_RATE_W is deprecated; use OPTIMIZER_MAX_CHARGE_RATE_W")
+	})
+	t.Run("OPTIMIZER_ env wins", func(t *testing.T) {
+		resetViper(t)
+		t.Setenv("OPT_MAX_CHARGE_RATE_W", "1200")
+		t.Setenv("OPTIMIZER_MAX_CHARGE_RATE_W", "1300")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		cfg, warnings := optLoadWith(t, os.Getenv)
+		assert.Equal(t, 1300.0, cfg.MaxChargeW)
+		assert.Empty(t, warnings)
+	})
+	t.Run("HA_TOKEN maps to optimizer.ha_token", func(t *testing.T) {
+		resetViper(t)
+		t.Setenv("HA_URL", "http://homeassistant.local:8123")
+		t.Setenv("HA_TOKEN", "env-token")
+		require.NoError(t, bindFlags(newOptimizeFlagCmd()))
+		assert.Equal(t, "env-token", viper.GetString("optimizer.ha_token"))
+		assert.Equal(t, "http://homeassistant.local:8123", viper.GetString("optimizer.ha_url"))
+		viper.Set("optimizer.price_entity", "sensor.price")
+		viper.Set("optimizer.consumption_entity", "sensor.load")
+		viper.Set("pw_consumption", 12000.0)
+		cfg, warnings, err := optCfgLoad(os.Getenv)
+		require.NoError(t, err)
+		assert.Equal(t, "env-token", cfg.HAToken)
+		assert.Empty(t, warnings)
+	})
+}
+
+// The flat flags are bound to the nested keys.
+func TestOptimizerGroup_FlagsBindNestedKeys(t *testing.T) {
+	c := newOptimizeFlagCmd()
+	for _, spec := range optKeySpecs {
+		f := c.Flags().Lookup(spec.flag)
+		require.NotNil(t, f, spec.flag)
+		assert.Equal(t, []string{spec.key}, f.Annotations[flagAnnotationViperKey], spec.flag)
+	}
 }
