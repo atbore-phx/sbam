@@ -8,22 +8,38 @@ Fail-safes: an inverter revert timeout on every write, register read-back, and a
 
 `opt_dry_run` (now `optimizer.dry_run`) defaults to `true`: the plan is computed and published but nothing is written to the inverter. `sbam optimize` prints the plan once (always dry run); `sbam schedule` runs it hourly in optimize mode. New MQTT `<prefix>/plan` topic and Home Assistant discovery entities expose the action, rate, expected cost, horizon and per-hour plan.
 
-The optimizer options are grouped under one `optimizer:` map in `config.yaml` and the add-on. The CLI keeps the flat `--opt_*`/`--ha_*` flags; environment variables are `OPTIMIZER_*` (with `HA_URL`/`HA_TOKEN` for Home Assistant access). See [Cost-optimized Dispatch](https://atbore-phx.github.io/sbam/optimizer/) and [#210](https://github.com/atbore-phx/sbam/pull/210).
+The optimizer options are grouped under one `optimizer:` map in `config.yaml` and the add-on. The CLI keeps the flat `--opt_*`/`--ha_*` flags; environment variables are `OPTIMIZER_*` (with `HA_URL`/`HA_TOKEN` for Home Assistant access). Contributed by [@Morten-bigum](https://github.com/Morten-bigum) in [#210](https://github.com/atbore-phx/sbam/pull/210). See [Cost-optimized Dispatch](https://atbore-phx.github.io/sbam/optimizer/).
 
 ### Charge-window hold, reserve and grid import limit
 
-`hold_battery: true` keeps the battery from discharging during a cheap charge window when no charge is needed. `reserve_horizon: until_solar` sizes the reserve from the Solcast 30-minute periods so the battery covers the house until PV does. `grid_import_limit` keeps the whole site under the contracted power while sbam charges from the grid, measured on the Fronius meter, and `grid_import_margin` keeps a safety margin. A new `hold` MQTT command, the `reserve_target_wh`/`reserve_deficit_wh`/`grid_charge_allowance_w` sensors and the `reserve_at_risk` binary sensor are available. See [#208](https://github.com/atbore-phx/sbam/pull/208).
+`hold_battery: true` keeps the battery from discharging during a cheap charge window when no charge is needed. `reserve_horizon: until_solar` sizes the reserve from the Solcast 30-minute periods so the battery covers the house until PV does. `grid_import_limit` keeps the whole site under the contracted power while sbam charges from the grid, measured on the Fronius meter, and `grid_import_margin` keeps a safety margin. A new `hold` MQTT command, the `reserve_target_wh`/`reserve_deficit_wh`/`grid_charge_allowance_w` sensors and the `reserve_at_risk` binary sensor are available. Contributed by [@ccervigon](https://github.com/ccervigon) in [#208](https://github.com/atbore-phx/sbam/pull/208).
 
-### SunSpec float model fix
+### SunSpec auto/float model
 
-sbam now locates the SunSpec storage model on inverters configured for the `float` model type instead of relying on the fixed int+SF addresses. See [#201](https://github.com/atbore-phx/sbam/pull/201).
+sbam now locates the SunSpec storage model on inverters configured for the `float` model type instead of relying on the fixed int+SF addresses. `auto` locates the storage model the same way, works with either inverter setting and falls back to the fixed int+SF addresses on devices without a SunSpec map. `int_sf` keeps the previous behavior and uses the fixed addresses. Contributed by [@ccervigon](https://github.com/ccervigon) in [#201](https://github.com/atbore-phx/sbam/pull/201).
 
-### Upgrade notes
+### Window-end reset fix
 
-- Optimizer options moved under `optimizer:` before release. Add-on users who experimented with dev builds must re-enter them under **optimizer**; dry run remains the default. The flat `opt_*`/`OPT_*` keys are still read for one release with a deprecation warning in Docker/CLI configurations.
-- Legacy shared paths changed deliberately: `Setdefaults` now writes in a fixed order and verifies by read-back (a mismatch is only a warning); `GetForecast` rejects non-200 Solcast responses instead of decoding an error body; `ForceCharge` caps percentages above 100.
-- The add-on manifest sets `homeassistant_api: true` so the optimizer can reach Home Assistant through the Supervisor token. This permission is granted to sbam even when `scheduler_mode` stays `crontab`/`windows`.
-- Live optimize mode writes to the inverter; work through the [go-live checklist](https://atbore-phx.github.io/sbam/optimizer/) first.
+The tick that leaves a charge window could cancel the window-end reset timer (for example with `before_end_defaults_minutes: 0`), and a dropped intent, a failed Modbus write or a restart at the wrong moment left the inverter held or force-charging with nothing to restore it. The tick leaving a window now resets as well, a failed reset retries after five minutes, and in `windows` mode a tick outside every window reads `StorCtl_Mod` and restores normal mode if the inverter is still held or force-charging. `force_charge` and `hold` commands given outside a window are left alone until `set_defaults`; that exemption lives in memory, so a restart ends it. The new behavior only runs for windows with `set_defaults` or `hold_battery`; windows with neither leave the inverter alone, and `crontab` and `optimize` modes are unchanged. Contributed by [@ccervigon](https://github.com/ccervigon) in [#220](https://github.com/atbore-phx/sbam/pull/220). See [Configuration → Scheduling](https://atbore-phx.github.io/sbam/configuration/#scheduling).
+
+### Optimizer consumption profile rebuild fix
+
+The interim mitigation from #210 cancelled the daily consumption profile rebuild whenever any intent was queued. With the EV guard enabled, sbam queues its own EV poll every 60 seconds, so the rebuild gave up almost every hour, the profile expired after 26 hours and the plan silently fell back to the static `pw_consumption` profile. The runner now counts queued commands separately from its own timer intents: tick, EV poll, watchdog and limit check wait for the rebuild instead of cancelling it, while MQTT commands and shutdown still make it yield. A yielded rebuild no longer logs the misleading consumption-profile failure warning. Contributed by [@Morten-bigum](https://github.com/Morten-bigum) in [#221](https://github.com/atbore-phx/sbam/pull/221). See [Cost-optimized Dispatch](https://atbore-phx.github.io/sbam/optimizer/).
+
+### New documentation
+
+- [Cost-optimized Dispatch](https://atbore-phx.github.io/sbam/optimizer/) — new page covering the hourly plan, dry run, go-live checklist, fail-safes and reason codes.
+- [Configuration → Cost Optimizer](https://atbore-phx.github.io/sbam/configuration/#cost-optimizer) — the `optimizer:` options and Home Assistant API access.
+- [Configuration → Inverter Connection](https://atbore-phx.github.io/sbam/configuration/#inverter-connection) — `sunspec_type` for `int_sf`, `float` and `auto`.
+- [Configuration → Multi-window](https://atbore-phx.github.io/sbam/configuration/#multi-window) — `hold_battery` and the per-window options.
+- [Configuration → Grid import limit](https://atbore-phx.github.io/sbam/configuration/#grid-import-limit) — `grid_import_limit`, `grid_import_margin` and `grid_charge_priority`.
+- [Configuration → Reserve until solar](https://atbore-phx.github.io/sbam/configuration/#reserve-until-solar) — `reserve_horizon: until_solar`, `pw_base_load` and `batt_min_soc`.
+- [MQTT Guide → Optimizer Entities (optimize mode)](https://atbore-phx.github.io/sbam/mqtt/#optimizer-entities-optimize-mode) — plan topic, sensors and discovery entities.
+- [MQTT Guide → Commands in Optimize Mode](https://atbore-phx.github.io/sbam/mqtt/#commands-in-optimize-mode) — command semantics in optimize mode.
+- [MQTT Guide → Broker Security in Optimize Mode](https://atbore-phx.github.io/sbam/mqtt/#broker-security-in-optimize-mode) — broker permissions and topic exposure.
+- [MQTT Guide → Optimizer Plan Topic](https://atbore-phx.github.io/sbam/mqtt/#optimizer-plan-topic) — full plan payload reference.
+- [CLI Reference → `optimize`](https://atbore-phx.github.io/sbam/cli/#optimize) — `sbam optimize`, the `--opt_*`/`--ha_*` flags and exit codes.
+- [Prerequisites → Cost Optimizer Prerequisites](https://atbore-phx.github.io/sbam/prerequisites/#cost-optimizer-prerequisites) — the Home Assistant entities and API access.
 
 ## What's New in v2.2.0
 
