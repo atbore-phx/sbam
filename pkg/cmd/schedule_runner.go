@@ -67,6 +67,7 @@ type batteryWriter interface {
 	ForceCharge(froniusIP string, targetPct int16) error
 	SetDefaults(froniusIP string) error
 	Hold(froniusIP string) error
+	ControlMode(froniusIP string) (int16, error)
 }
 
 // froniusBatteryWriter writes through the fronius package using the selected
@@ -96,6 +97,10 @@ func (w froniusBatteryWriter) Hold(froniusIP string) error {
 	return fronius.ApplyHold(w.sunspecType, froniusIP, w.ports()...)
 }
 
+func (w froniusBatteryWriter) ControlMode(froniusIP string) (int16, error) {
+	return fronius.ReadStorageControlMode(w.sunspecType, froniusIP, w.ports()...)
+}
+
 var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
 	return froniusBatteryWriter{sunspecType: sunspecType}
 }
@@ -103,6 +108,11 @@ var newBatteryWriter = func(sunspecType fronius.SunSpecType) batteryWriter {
 // newTimerFunc is a package-level factory for one-shot timers. Tests may
 // override it to inject deterministic timer behavior.
 var newTimerFunc = time.AfterFunc
+
+// windowResetRetryDelay is how long after a failed window-end reset, or a
+// failed read of the inverter mode outside every window, the next tick runs.
+// Tests replace it.
+var windowResetRetryDelay = 5 * time.Minute
 
 // latest state caching was removed; the runner publishes state directly.
 
@@ -119,11 +129,48 @@ type Runner struct {
 	boundaryTimer *time.Timer
 	defaultsFired atomic.Bool
 	activeWindow  string // name of active window for change detection
-	limit         *limitSession
-	limitStop     chan struct{}
-	reserve       *reserveTelemetry // last reserve evaluation in the reserve window
+	// activeWindowResets is true while the active window owes the inverter a
+	// return to normal when it ends (set_defaults or hold_battery).
+	activeWindowResets bool
+	// manualOutsideWindow is true after a force_charge or hold command given
+	// outside every window: the periodic guard leaves it in place. It lives in
+	// memory only, so a restart hands that state back to the guard.
+	manualOutsideWindow bool
+	resetRetryTimer     *time.Timer
+	limit               *limitSession
+	limitStop           chan struct{}
+	reserve             *reserveTelemetry // last reserve evaluation in the reserve window
 	// opt holds the optimize-mode state; nil in the other scheduler modes.
 	opt *optRunnerState
+	// queuedCommands counts queued intents that a long-running step (the
+	// optimize-mode profile rebuild) must give way to: everything except
+	// sbam's own timer intents (see isTimerIntent).
+	queuedCommands atomic.Int32
+}
+
+// isTimerIntent reports whether an intent is one of sbam's own periodic or
+// internal intents. A short wait for these is harmless, so a long-running
+// step does not give way to them.
+func isTimerIntent(kind mqtt.IntentKind) bool {
+	switch kind {
+	case mqtt.IntentTick, mqtt.IntentEVPoll, mqtt.IntentWatchdog, mqtt.IntentLimitCheck:
+		return true
+	}
+	return false
+}
+
+// commandDequeued decrements queuedCommands for a handled command intent,
+// never below zero (tests may inject intents without Submit).
+func (r *Runner) commandDequeued(kind mqtt.IntentKind) {
+	if isTimerIntent(kind) {
+		return
+	}
+	for {
+		n := r.queuedCommands.Load()
+		if n <= 0 || r.queuedCommands.CompareAndSwap(n, n-1) {
+			return
+		}
+	}
 }
 
 // NewRunner constructs a Runner with the provided configuration and MQTT
@@ -150,10 +197,18 @@ func NewRunner(cfg RunnerConfig, client mqtt.Client) *Runner {
 // success or false if the internal intent queue is full, in which case an
 // error is logged and published to MQTT.
 func (r *Runner) Submit(intent mqtt.Intent) bool {
+	if !isTimerIntent(intent.Kind) {
+		// Counted before the send so a consumer never sees the intent
+		// before the count.
+		r.queuedCommands.Add(1)
+	}
 	select {
 	case r.intents <- intent:
 		return true
 	default:
+		if !isTimerIntent(intent.Kind) {
+			r.queuedCommands.Add(-1)
+		}
 		err := fmt.Errorf("%w: %s", errRunnerIntentQueueFull, intent.Kind)
 		u.Log.Warn(err)
 		r.publishError(context.Background(), "runner", err)
@@ -206,8 +261,10 @@ func (r *Runner) startWindowsTicker(now time.Time) {
 	active := pw.ResolveActiveWindow(r.cfg.Windows, now, r.cfg.WeekdayFeature)
 	if active != nil {
 		r.activeWindow = active.Name
+		r.activeWindowResets = windowResets(active)
 	} else {
 		r.activeWindow = ""
+		r.activeWindowResets = false
 	}
 
 	interval := 60 * time.Minute
@@ -253,6 +310,71 @@ func (r *Runner) stopWindowsTicker() {
 	}
 	r.defaultsFired.Store(false)
 	r.activeWindow = ""
+	r.activeWindowResets = false
+}
+
+// windowResets reports whether a window must leave the inverter in normal
+// mode when it ends.
+func windowResets(w *pw.Window) bool {
+	return (w.Defaults != nil && *w.Defaults) || (w.HoldBattery != nil && *w.HoldBattery)
+}
+
+// anyWindowResets reports whether at least one configured window returns the
+// inverter to normal, which is what entitles sbam to enforce it between windows.
+func (r *Runner) anyWindowResets() bool {
+	for i := range r.cfg.Windows {
+		if windowResets(&r.cfg.Windows[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// resetOnWindowExit returns the inverter to normal as part of the tick that
+// leaves a window. The window-end timer usually got there first; this tick
+// cancels the timer when both land together (before_end_defaults_minutes: 0),
+// and its intent can be dropped on a full queue. Writing defaults twice is
+// harmless, so it runs regardless of what the timer did.
+func (r *Runner) resetOnWindowExit(ctx context.Context) {
+	r.stopLimitLoop()
+	if err := r.handleSetDefaults(ctx, mqtt.Intent{Kind: mqtt.IntentSetDefaults, System: true}); err != nil {
+		u.HandleError(err, "window-end reset failed")
+		r.scheduleResetRetry()
+	}
+}
+
+// enforceNormalOutsideWindow is the periodic safety net: outside every window
+// the inverter must not be held or force-charged. It reads the real inverter
+// mode, so it also covers a reset lost to a restart or a failed write. Commands
+// given outside a window are left alone.
+func (r *Runner) enforceNormalOutsideWindow(ctx context.Context) {
+	if r.manualOutsideWindow || !r.anyWindowResets() {
+		return
+	}
+	mode, err := r.writer.ControlMode(r.cfg.FroniusIP)
+	if err != nil {
+		u.Log.Warnw("cannot read inverter mode outside the charge windows", "error", err)
+		r.scheduleResetRetry()
+		return
+	}
+	if mode == 0 {
+		return
+	}
+	u.Log.Warnw("inverter not in normal mode outside the charge windows, restoring it", "storctl_mod", mode)
+	r.resetOnWindowExit(ctx)
+}
+
+// scheduleResetRetry asks for another tick soon, without waiting for the
+// hourly tick between windows. Only the latest retry is kept.
+func (r *Runner) scheduleResetRetry() {
+	if r.resetRetryTimer != nil {
+		r.resetRetryTimer.Stop()
+	}
+	r.resetRetryTimer = newTimerFunc(windowResetRetryDelay, func() {
+		if !r.Submit(mqtt.Intent{Kind: mqtt.IntentTick}) {
+			u.Log.Warn("window reset retry dropped because runner queue is full")
+		}
+	})
 }
 
 // scheduleDefaults parses the active window's end time and schedules a
@@ -421,7 +543,13 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 		prevWindow := r.activeWindow
 		if activeWindowName != prevWindow {
 			u.Log.Infow("active window changed", "from", prevWindow, "to", activeWindowName)
+			leftResettingWindow := r.activeWindowResets
 			r.startWindowsTicker(now)
+			if leftResettingWindow {
+				r.resetOnWindowExit(ctx)
+			}
+		} else if !inChargeWindow {
+			r.enforceNormalOutsideWindow(ctx)
 		}
 	}
 
@@ -619,6 +747,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 // the appropriate handler. It also acknowledges MQTT commands where
 // required.
 func (r *Runner) handleIntent(ctx context.Context, intent mqtt.Intent) {
+	r.commandDequeued(intent.Kind)
 	// Commands that write the battery or stop the schedule end the
 	// grid_import_limit loop; ticks start or stop it themselves.
 	switch intent.Kind {
@@ -710,12 +839,21 @@ func (r *Runner) handleForceCharge(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "force_charge", err)
 		return err
 	}
+	r.noteManualCommand()
 
 	payload := r.newCommandPayload(string(mqtt.IntentForceCharge), "force charge command executed", r.now())
 	payload.Paused = false
 	payload.ChargePct = &targetPct
 	r.publishState(payload)
 	return nil
+}
+
+// noteManualCommand records a command given outside every window, so the
+// periodic guard does not undo it. Inside a window the window end still wins.
+func (r *Runner) noteManualCommand() {
+	if inWindow, _, _, _, _, _ := r.resolveActiveWindow(r.now()); !inWindow {
+		r.manualOutsideWindow = true
+	}
 }
 
 // forceChargeTargetPct validates a force_charge intent and resolves the
@@ -807,6 +945,7 @@ func (r *Runner) handleSetDefaults(ctx context.Context, intent mqtt.Intent) erro
 		r.publishError(ctx, "set_defaults", err)
 		return err
 	}
+	r.manualOutsideWindow = false
 
 	payload := r.newCommandPayload(string(mqtt.IntentSetDefaults), "set defaults command executed", r.now())
 	payload.Paused = paused // the window-end reset leaves a pause in place
@@ -830,6 +969,7 @@ func (r *Runner) handleHold(ctx context.Context, intent mqtt.Intent) error {
 		r.publishError(ctx, "hold", err)
 		return err
 	}
+	r.noteManualCommand()
 
 	payload := r.newCommandPayload(string(mqtt.IntentHold), "hold command executed: battery discharge blocked", r.now())
 	payload.Paused = false

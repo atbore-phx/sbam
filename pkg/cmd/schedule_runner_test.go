@@ -25,6 +25,9 @@ type fakeBatteryWriter struct {
 	lastTargetPct    int16
 	forceChargeErr   error
 	setDefaultsErr   error
+	controlMode      int16
+	controlModeErr   error
+	controlModeCalls int
 }
 
 // stubFroniusClient is a test helper that implements the froniusClient
@@ -58,6 +61,12 @@ func (f *fakeBatteryWriter) Hold(froniusIP string) error {
 	f.holdCalls++
 	f.lastFroniusIP = froniusIP
 	return f.holdErr
+}
+
+func (f *fakeBatteryWriter) ControlMode(froniusIP string) (int16, error) {
+	f.controlModeCalls++
+	f.lastFroniusIP = froniusIP
+	return f.controlMode, f.controlModeErr
 }
 
 func newRunnerForTests(client mqtt.Client) *Runner {

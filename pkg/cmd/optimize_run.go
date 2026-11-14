@@ -165,6 +165,10 @@ func (c *profileCache) rebuild(ctx context.Context, deps optimizeDeps, cfg Optim
 	profile, reasons, err := optBuildProfile(bctx, deps, cfg, now)
 	if err != nil {
 		c.lastFailed = true
+		if errors.Is(context.Cause(bctx), errRebuildYielded) {
+			// Gave way to a command: not a failed build (the caller logs it).
+			return err
+		}
 		u.Log.Warnw("optimizer degraded input", "reason", optimize.ReasonConsumptionStaticFallback, "detail", "consumption profile build failed", "error", err)
 		return err
 	}
