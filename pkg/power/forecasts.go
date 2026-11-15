@@ -28,6 +28,9 @@ type ForecastSourceMeta struct {
 	// Missing is true when no usable forecast exists: no cache, an unreadable
 	// cache, or an empty forecast, together with a failed download.
 	Missing bool
+	// LastPolled is the Home Assistant Solcast integration's last poll time
+	// when the staleness check ran (HAForecastReader only); zero otherwise.
+	LastPolled time.Time
 }
 
 // ForecastMeta holds per-URL metadata in the same order as the urls passed

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tbrandon/mbserver"
 )
 
 // schedule is a small test-only compatibility wrapper that constructs a
@@ -477,49 +481,49 @@ func TestMakeBasePayloadSetsCommonFields(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckScheduleschedule_EmptyFroniusIP(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fronius_ip")
 }
 
 func TestCheckScheduleschedule_EmptyApiKey(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "apikey")
 }
 
 func TestCheckScheduleschedule_EmptyURL(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "url")
 }
 
 func TestCheckScheduleschedule_EmptyCrontab(t *testing.T) {
-	err := checkScheduleschedule("", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "crontab")
 }
 
 func TestCheckScheduleschedule_NegativePWConsumption(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", -1, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", -1, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_consumption")
 }
 
 func TestCheckScheduleschedule_NegativeMaxCharge(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, -1, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, -1, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max_charge")
 }
 
 func TestCheckScheduleschedule_InvalidWindow(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "bad", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "bad", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid start_hr")
 }
 
 func TestCheckScheduleschedule_BattReserveNotContained(t *testing.T) {
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "06:00", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "06:00", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "batt_reserve_start_hr")
 }
@@ -534,7 +538,7 @@ func TestCheckScheduleschedule_InvalidCacheTime(t *testing.T) {
 	s_cache_time = -1
 	defer func() { s_cache_time = oldCacheTime }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cache_time")
 }
@@ -549,7 +553,7 @@ func TestCheckScheduleschedule_CacheTimeTooLarge(t *testing.T) {
 	s_cache_time = 90000
 	defer func() { s_cache_time = oldCacheTime }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cache_time")
 }
@@ -570,7 +574,7 @@ func TestCheckScheduleschedule_InvalidForecastHorizon(t *testing.T) {
 	forecast_horizon = "invalid_horizon"
 	defer func() { forecast_horizon = oldForecastHorizon }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forecast_horizon")
 }
@@ -591,7 +595,7 @@ func TestCheckScheduleschedule_InvalidConsumptionHorizon(t *testing.T) {
 	consumption_horizon = "invalid_horizon"
 	defer func() { consumption_horizon = oldConsumptionHorizon }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "consumption_horizon")
 }
@@ -767,7 +771,7 @@ func TestCheckScheduleschedule_NegativePWLWT(t *testing.T) {
 	pw_lwt = -1
 	defer func() { pw_lwt = oldPwLwt }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_lwt")
 }
@@ -788,7 +792,7 @@ func TestCheckScheduleschedule_NegativePWUPT(t *testing.T) {
 	pw_upt = -1
 	defer func() { pw_upt = oldPwUpt }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_upt")
 }
@@ -809,7 +813,7 @@ func TestCheckScheduleschedule_NegativePWBattReserve(t *testing.T) {
 	pw_batt_reserve = -1
 	defer func() { pw_batt_reserve = oldPwBR }()
 
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, -1, "00:00", "23:59", nil, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, -1, "00:00", "23:59", nil, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_batt_reserve")
 }
@@ -831,7 +835,7 @@ func TestCheckScheduleschedule_WithWindowsValidates(t *testing.T) {
 	windows := []pw.Window{
 		{Name: "morning", Start: "06:00", End: "08:00", MaxCharge: 3500},
 	}
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", windows, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "00:00", "23:59", windows, "crontab", true, defPVSource)
 	require.NoError(t, err)
 }
 
@@ -851,7 +855,160 @@ func TestCheckScheduleschedule_InvalidWindows(t *testing.T) {
 	windows := []pw.Window{
 		{Start: "bad", End: "also_bad", MaxCharge: -1},
 	}
-	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "", "", windows, "crontab", true)
+	err := checkScheduleschedule("0 0 * * *", "key", "http://url", "127.0.0.1", 1000, 3500, 100, "", "", windows, "crontab", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "windows")
+}
+
+// fakePVDay is a pvDaySource returning fixed values.
+type fakePVDay struct {
+	wh      float64
+	ok      bool
+	err     error
+	calls   int
+	horizon string
+	sites   []pw.Forecasts
+}
+
+func (f *fakePVDay) DayProduction(_ context.Context, horizon string, _ time.Time) (float64, bool, error) {
+	f.calls++
+	f.horizon = horizon
+	return f.wh, f.ok, f.err
+}
+
+func (f *fakePVDay) LastForecasts() []pw.Forecasts { return f.sites }
+
+// T-0316 (AC-7, AC-8, AC-12): a failed HA day source disables forecast
+// charging for the run, logs the existing Warn once and publishes the error
+// with source "power"; a good one passes the total through.
+func TestTick_PVDaySourceDegrade_T0316(t *testing.T) {
+	cases := []struct {
+		name string
+		src  *fakePVDay
+	}{
+		{"a: missing", &fakePVDay{err: fmt.Errorf("pv forecast: sensor.solcast_pv_forecast_forecast_tomorrow: %w", pw.ErrHAForecastAttributeMissing)}},
+		{"b: stale", &fakePVDay{err: fmt.Errorf("pv forecast: %w: last polled 2026-10-25T05:12:00+02:00 (44h ago)", pw.ErrHAForecastStale)}},
+		{"c: day not covered", &fakePVDay{err: fmt.Errorf("pv forecast: %w: 2026-05-11 (horizon tomorrow)", pw.ErrForecastDayNotCovered)}},
+		{"d: forecast", &fakePVDay{wh: 18400, ok: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := pvTestObserveLogs(t)
+			client := newFakeClient()
+
+			oldS, oldF, oldP := newStorage, newFronius, newPower
+			newStorage = func() storageClient { return &fakeStorageClient{capacityToCharge: 9000, capacityMax: 10000, socPct: 5} }
+			tf := &trackingFroniusClient{decision: fronius.DecisionIdle, reason: "fake"}
+			newFronius = func(fronius.SunSpecType) froniusClient { return tf }
+			newPower = func() powerClient { t.Fatal("the Solcast handler must not be called with a PVDay source"); return nil }
+			t.Cleanup(func() { newStorage, newFronius, newPower = oldS, oldF, oldP })
+
+			r := newRunnerForTests(client)
+			r.cfg.PVDay = tc.src
+			r.cfg.ForecastHorizon = pw.ForecastHorizonTomorrow
+			require.NoError(t, r.Tick(context.Background(), r.now()))
+
+			require.Equal(t, 1, tc.src.calls)
+			require.Equal(t, 1, tf.calls)
+			assert.True(t, tf.lastReserveWindowArg, "the reserve charge stays independent of the forecast")
+			msgs := drainPublishes(client)
+			errMsg, published := findPublishedBySuffix(msgs, "/error")
+			warns := logs.FilterMessageSnippet("power forecast retrieval failed; disabling forecast for this run").All()
+
+			if tc.src.err == nil {
+				assert.Equal(t, 18400.0, tf.lastForecastWh)
+				assert.True(t, tf.lastForecastEnabled)
+				assert.False(t, published)
+				assert.Empty(t, warns)
+				return
+			}
+			assert.Equal(t, 0.0, tf.lastForecastWh)
+			assert.False(t, tf.lastForecastEnabled)
+			require.Len(t, warns, 1)
+			assert.Equal(t, "warn", warns[0].Level.String())
+			require.True(t, published)
+			var p mqtt.ErrorPayload
+			require.NoError(t, json.Unmarshal(errMsg.payload, &p))
+			assert.Equal(t, "power", p.Source)
+			assert.Equal(t, tc.src.err.Error(), p.Error)
+		})
+	}
+}
+
+// realFroniusOnPort is the production fronius handler (classifier plus
+// Modbus writes) aimed at a mock Modbus server. The runner calls Handler
+// without a port, so the port is the only thing this adapter adds.
+type realFroniusOnPort struct {
+	port     string
+	calls    int
+	decision fronius.Decision
+}
+
+func (r *realFroniusOnPort) Handler(pw_forecast float64, pw_batt2charge float64, pw_batt_max float64, pw_consumption float64, max_charge float64, pw_batt_reserve float64, start_hr string, end_hr string, fronius_ip string, batt_reserve_charge_enabled bool, pw_lwt float64, pw_upt float64, forecast_charge_enabled bool, hold_battery bool, _ ...string) (int16, fronius.Decision, fronius.Reason, fronius.PowerState, error) {
+	r.calls++
+	pct, d, reason, ps, err := fronius.New().Handler(pw_forecast, pw_batt2charge, pw_batt_max, pw_consumption, max_charge, pw_batt_reserve,
+		start_hr, end_hr, fronius_ip, batt_reserve_charge_enabled, pw_lwt, pw_upt, forecast_charge_enabled, hold_battery, r.port)
+	r.decision = d
+	return pct, d, reason, ps, err
+}
+
+// startTestModbusServer starts an mbserver on a free loopback port.
+func startTestModbusServer(t *testing.T) (*mbserver.Server, string) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+	require.NoError(t, l.Close())
+	srv := mbserver.NewServer()
+	require.NoError(t, srv.ListenTCP("127.0.0.1:"+port))
+	t.Cleanup(srv.Close)
+	return srv, port
+}
+
+// T-0316 (a), S-023 (TC-023e): with the HA forecast failed and the SoC below
+// pw_batt_reserve inside the reserve window, the real fronius classifier
+// still decides reserve_charge and writes the force-charge registers.
+func TestTick_PVDaySourceFailed_ReserveChargeRealClassifier_T0316(t *testing.T) {
+	logs := pvTestObserveLogs(t)
+	mb, port := startTestModbusServer(t)
+	ha := newPVTestHAServer(t)
+	delete(ha.bodies, pvTestToday) // 404: HA source failed, no retry
+	delete(ha.bodies, pvTestTomorrow)
+	src, err := newPVDaySource(pvTestHAConfig(ha.srv.URL), solcastDaySource{}, true)
+	require.NoError(t, err)
+
+	oldS, oldF, oldP := newStorage, newFronius, newPower
+	// 1 000 Wh in a 10 000 Wh battery, reserve 3 000 Wh.
+	newStorage = func() storageClient {
+		return &fakeStorageClient{capacityToCharge: 9000, capacityMax: 10000, socPct: 10}
+	}
+	rf := &realFroniusOnPort{port: port}
+	newFronius = func(fronius.SunSpecType) froniusClient { return rf }
+	newPower = func() powerClient { t.Fatal("no Solcast call with ha_solcast"); return nil }
+	t.Cleanup(func() { newStorage, newFronius, newPower = oldS, oldF, oldP })
+
+	client := newFakeClient()
+	r := newRunnerForTests(client)
+	r.cfg.PVDay = src
+	r.cfg.PWBattReserve = 3000
+	r.cfg.ForecastHorizon = pw.ForecastHorizonToday
+	require.NoError(t, r.Tick(context.Background(), pvTestNow(t)))
+
+	require.Equal(t, 1, rf.calls)
+	assert.Equal(t, "reserve_charge", rf.decision.String())
+	require.Len(t, logs.FilterMessageSnippet("power forecast retrieval failed; disabling forecast for this run").All(), 1)
+
+	msgs := drainPublishes(client)
+	stateMsg, ok := findPublishedBySuffix(msgs, "/state")
+	require.True(t, ok)
+	st := decodeStatePayload(t, stateMsg.payload)
+	assert.Equal(t, "reserve_charge", st.LastDecision)
+	require.NotNil(t, st.ChargePct)
+	assert.Equal(t, int16(20), *st.ChargePct, "(3000-1000)/10000 = 20 %")
+	_, published := findPublishedBySuffix(msgs, "/error")
+	assert.True(t, published, "the PV error is published")
+
+	// The force charge reached the inverter registers.
+	assert.Equal(t, uint16(2), mb.HoldingRegisters[fronius.StorCtl_Mod-1], "StorCtl_Mod limits discharging")
+	assert.Equal(t, uint16(0xFFFF&(-2000)), mb.HoldingRegisters[fronius.OutWRte-1], "OutWRte = -100 x 20 %")
 }

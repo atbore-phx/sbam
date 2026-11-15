@@ -80,7 +80,7 @@ func TestCheckScheduleScheduleValid(t *testing.T) {
 		args.startHr,
 		args.endHr,
 		nil,
-		args.schedulerMode, true)
+		args.schedulerMode, true, defPVSource)
 
 	require.NoError(t, err)
 }
@@ -225,7 +225,7 @@ func TestCheckScheduleScheduleValidationErrors(t *testing.T) {
 				args.startHr,
 				args.endHr,
 				nil,
-				args.schedulerMode, true)
+				args.schedulerMode, true, defPVSource)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.errSubstr)
@@ -250,7 +250,7 @@ func TestCheckScheduleScheduleCrossMidnightChargeWindowValid(t *testing.T) {
 		args.startHr,
 		args.endHr,
 		nil,
-		args.schedulerMode, true)
+		args.schedulerMode, true, defPVSource)
 
 	require.NoError(t, err)
 }
@@ -317,7 +317,7 @@ func TestCheckScheduleScheduleReserveWindowContainment(t *testing.T) {
 				args.startHr,
 				args.endHr,
 				nil,
-				args.schedulerMode, true)
+				args.schedulerMode, true, defPVSource)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -335,11 +335,11 @@ func TestCheckScheduleScheduleOptimizeMode(t *testing.T) {
 	args := validScheduleValidationArgs()
 
 	err := checkScheduleschedule(args.crontab, args.apiKey, args.url, args.froniusIP, args.pwConsumption,
-		args.maxCharge, args.pwBattReserve, args.startHr, args.endHr, nil, "optimize", true)
+		args.maxCharge, args.pwBattReserve, args.startHr, args.endHr, nil, "optimize", true, defPVSource)
 	require.NoError(t, err, "optimize is a valid scheduler_mode")
 
 	err = checkScheduleschedule(args.crontab, args.apiKey, args.url, args.froniusIP, args.pwConsumption,
-		args.maxCharge, args.pwBattReserve, args.startHr, args.endHr, nil, "invalid", true)
+		args.maxCharge, args.pwBattReserve, args.startHr, args.endHr, nil, "invalid", true, defPVSource)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "crontab, windows or optimize")
 }
@@ -532,15 +532,15 @@ func TestCheckScheduleschedule_OptimizeSkipsLegacyChecks(t *testing.T) {
 	batt_reserve_start_hr, batt_reserve_end_hr = "25:00", "26:00"
 	badWindows := []pw.Window{{Name: "bad", Start: "99:00", End: "06:00", MaxCharge: 1000}}
 
-	err := checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, -1, 0, "bogus", "", badWindows, schedulerModeOptimize, false)
+	err := checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, -1, 0, "bogus", "", badWindows, schedulerModeOptimize, false, "")
 	assert.NoError(t, err)
 
-	err = checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", nil, "crontab", false)
+	err = checkScheduleschedule("", "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", nil, "crontab", false, "")
 	assert.Error(t, err, "crontab mode still requires crontab")
 
-	err = checkScheduleschedule(const_ct, "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", badWindows, "windows", false)
+	err = checkScheduleschedule(const_ct, "key", "https://solcast.example.invalid", "192.0.2.10", 12000, 3000, 0, "00:00", "06:00", badWindows, "windows", false, "")
 	assert.Error(t, err, "windows mode still validates windows")
 
-	err = checkScheduleschedule("", "", "https://solcast.example.invalid", "192.0.2.10", 12000, 0, 0, "", "", nil, schedulerModeOptimize, false)
+	err = checkScheduleschedule("", "", "https://solcast.example.invalid", "192.0.2.10", 12000, 0, 0, "", "", nil, schedulerModeOptimize, false, "")
 	assert.Error(t, err, "optimize mode still requires the Solcast API key")
 }

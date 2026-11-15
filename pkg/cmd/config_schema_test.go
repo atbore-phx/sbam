@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -350,4 +351,127 @@ func TestAddonOptimizerTranslations(t *testing.T) {
 	for k := range tr.Configuration {
 		assert.False(t, optCfgIsOptimizeFlag(k), "flat translation key %s belongs under optimizer.fields", k)
 	}
+}
+
+// pvAddonKeys are the SPEC-0003 add-on options (UX §2.2).
+var pvAddonKeys = []string{"pv_source", "pv_entity_today", "pv_entity_tomorrow", "pv_entity_last_polled"}
+
+// pvAddonDefaults are the option defaults from UX §2.1/§2.2. Wave 2 registers
+// the flags with the same defaults; TestAddonPVFlagParity_T0323 compares them.
+var pvAddonDefaults = map[string]string{
+	"pv_source":             "solcast_api",
+	"pv_entity_today":       "sensor.solcast_pv_forecast_forecast_today",
+	"pv_entity_tomorrow":    "sensor.solcast_pv_forecast_forecast_tomorrow",
+	"pv_entity_last_polled": "sensor.solcast_pv_forecast_api_last_polled",
+}
+
+// T-0323 (AC-11, S-027 TC-027e, UX §2.2): pv_source is a required list with
+// the solcast_api default, the three entity regexes accept the defaults and ""
+// and reject non-sensor, upper-case and path-like IDs, and url/apikey became
+// optional so pv_source=ha_solcast users can save the form without them.
+func TestAddonSchema_PVSource_T0323(t *testing.T) {
+	cfg := loadAddonConfig(t)
+
+	src, ok := cfg.Schema["pv_source"].(string)
+	require.True(t, ok, "pv_source schema missing")
+	require.True(t, strings.HasPrefix(src, "list(") && strings.HasSuffix(src, ")"), "pv_source must be a required list(...), got %q", src)
+	assert.ElementsMatch(t, []string{"solcast_api", "ha_solcast"}, strings.Split(src[len("list("):len(src)-1], "|"))
+
+	for _, k := range pvAddonKeys {
+		assert.Equal(t, pvAddonDefaults[k], cfg.Options[k], "options default for %s", k)
+	}
+
+	assert.Equal(t, "str?", cfg.Schema["url"], "url must be an optional string")
+	assert.Equal(t, "password?", cfg.Schema["apikey"], "apikey must stay a password, now optional")
+	assert.Contains(t, cfg.Options, "url", "url placeholder stays visible for solcast_api users")
+
+	for _, k := range pvAddonKeys[1:] {
+		t.Run(k, func(t *testing.T) {
+			re := addonSchemaRegex(t, cfg.Schema, k)
+			for _, s := range []string{pvAddonDefaults[k], "", "sensor.solcast_pv_forecast_prognose_heute", "sensor.a1_b2"} {
+				assert.True(t, re.MatchString(s), "expected %q to match", s)
+			}
+			for _, s := range []string{"light.x", "sensor.Upper", "sensor.a/b", "sensor.x/../../config", "sensor.", "binary_sensor.x", " sensor.x", "sensor.x ", "sensor.a-b"} {
+				assert.False(t, re.MatchString(s), "expected %q to not match", s)
+			}
+		})
+	}
+}
+
+// T-0323 (UX §2.3): every SPEC-0003 add-on option, plus url and apikey, has a
+// name and description in translations/en.yaml, and ha_url mentions
+// ha_solcast now that it is used outside optimize mode.
+func TestAddonTranslations_PVSource_T0323(t *testing.T) {
+	data, err := os.ReadFile("../../home-assistant/addons/sbam/translations/en.yaml")
+	require.NoError(t, err)
+	type entry struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	var tr struct {
+		Configuration map[string]struct {
+			Name        string           `yaml:"name"`
+			Description string           `yaml:"description"`
+			Fields      map[string]entry `yaml:"fields"`
+		} `yaml:"configuration"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &tr))
+
+	cfg := loadAddonConfig(t)
+	for _, k := range append([]string{"url", "apikey"}, pvAddonKeys...) {
+		t.Run(k, func(t *testing.T) {
+			require.Contains(t, cfg.Schema, k, "translated key must exist in the add-on schema")
+			e, ok := tr.Configuration[k]
+			require.True(t, ok, "missing translation entry")
+			assert.NotEmpty(t, strings.TrimSpace(e.Name))
+			assert.NotEmpty(t, strings.TrimSpace(e.Description))
+		})
+	}
+	assert.Contains(t, tr.Configuration[optimizerGroup].Fields["ha_url"].Description, "ha_solcast")
+
+	// No translation for a key the add-on does not have (a typo there is
+	// silently ignored by the Supervisor).
+	for k := range tr.Configuration {
+		assert.Contains(t, cfg.Schema, k, "translation for unknown add-on key %s", k)
+	}
+}
+
+// T-0323 (surface parity, AC-11): every pv_* add-on option is a flag on
+// schedule, estimate and optimize with the same default, and every pv_* flag
+// is an add-on option.
+func TestAddonPVFlagParity_T0323(t *testing.T) {
+	cfg := loadAddonConfig(t)
+	cmds := map[string]*cobra.Command{"schedule": scdCmd, "estimate": estCmd, "optimize": optCmd}
+
+	for _, k := range pvAddonKeys {
+		require.Contains(t, cfg.Schema, k)
+		require.Contains(t, cfg.Options, k)
+		for name, c := range cmds {
+			t.Run(name+"/"+k, func(t *testing.T) {
+				f := c.Flags().Lookup(k)
+				require.NotNil(t, f, "add-on option %s has no flag on %s", k, name)
+				assert.Equal(t, addonOptionString(cfg.Options[k]), f.DefValue, "options default differs from flag default")
+				assert.Empty(t, f.Shorthand, "pv_* flags are long-only")
+			})
+		}
+	}
+
+	t.Run("no unknown pv_ add-on keys", func(t *testing.T) {
+		known := map[string]bool{}
+		for _, k := range pvAddonKeys {
+			known[k] = true
+		}
+		for k := range cfg.Schema {
+			if strings.HasPrefix(k, "pv_") {
+				assert.True(t, known[k], "schema key %s is not a SPEC-0003 key", k)
+			}
+		}
+		for _, c := range cmds {
+			c.Flags().VisitAll(func(f *pflag.Flag) {
+				if strings.HasPrefix(f.Name, "pv_") {
+					assert.True(t, known[f.Name], "flag %s on %s is not an add-on option", f.Name, c.Name())
+				}
+			})
+		}
+	})
 }

@@ -11,7 +11,7 @@ Charge your Fronius Gen24+ battery intelligently using Solcast weather forecasts
 
 sbam combines three signals your inverter ignores — weather forecasts, daily consumption, and grid rate windows — into a single charging decision. It checks tomorrow's solar production estimate, subtracts what your home will consume, looks at your battery's current charge, and decides whether to charge from the grid during your cheap-rate window.
 
-- **Weather-driven** — uses Solcast solar forecasts, not static schedules
+- **Weather-driven** — uses Solcast solar forecasts, directly from the Solcast API or from the Home Assistant Solcast integration, not static schedules
 - **MQTT-wired** — publishes state and accepts commands for Home Assistant automations
 - **Multi-window** — define multiple charge windows per day, each with its own power limit
 - **Cost-optimized dispatch** — optional hourly plan (charge / hold / standby / discharge) on spot prices; see [Cost-optimized Dispatch](optimizer.md)

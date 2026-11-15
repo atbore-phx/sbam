@@ -820,3 +820,141 @@ func TestNewHAClientAndDeps(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, c)
 }
+
+// T-0314 (AC-4, AC-7, AC-8): optimize mode with pv_source=ha_solcast maps the
+// HA forecast to the same 36 h slot energies as the Solcast shape, and a
+// missing or stale forecast to a degraded PV reason, never a fallback.
+func TestOptLoadPV_HASource_T0314(t *testing.T) {
+	now := pvTestNow(t)
+	loc := now.Location()
+	full := map[string]homeassistant.State{
+		pvTestToday:      pvTestState(t, pvTestToday),
+		pvTestTomorrow:   pvTestState(t, pvTestTomorrow),
+		pvTestLastPolled: pvTestState(t, pvTestLastPolled),
+	}
+	starts := make([]time.Time, optimize.DefaultMaxHours)
+	for i := range starts {
+		starts[i] = optSlot0(now, loc).Add(time.Duration(i) * time.Hour)
+	}
+	tomorrow := time.Date(2026, 10, 27, 0, 0, 0, 0, loc)
+
+	// Reference: the same half-hours in the Solcast API shape, through the
+	// unchanged optLoadPV/BucketPV path.
+	solcastPeriods, solcastReasons, _ := optLoadPV(context.Background(), &optRunFakeForecasts{
+		forecasts: [][]pw.Forecast{pvTestSolcastShape(t, "ha_solcast_today.json", "ha_solcast_tomorrow.json")},
+		meta:      pw.ForecastMeta{Sources: []pw.ForecastSourceMeta{{}}},
+	}, optRunCfg(loc), now)
+	require.Empty(t, solcastReasons)
+	wantPV, wantRs := optimize.BucketPV(solcastPeriods, starts)
+	require.Empty(t, wantRs, "the fixtures cover the whole 36 h grid")
+
+	// runFull runs the whole optimizer with the HA loader on a fake HA that
+	// serves prices, history and the given PV states.
+	runFull := func(t *testing.T, states map[string]homeassistant.State, errs map[string]error) optimizeResult {
+		t.Helper()
+		e := newOptRunEnv(t)
+		e.now = now
+		e.ha.states[optRunPriceEntity] = optRunPriceState(now, loc, nil, nil, 1)
+		for k, v := range states {
+			e.ha.states[k] = v
+		}
+		for k, v := range errs {
+			e.ha.stateErr[k] = v
+		}
+		deps := optimizeDeps{HA: e.ha, Forecasts: newHAForecastLoader(e.ha, pvTestEntities), Battery: e.bat}
+		return runOptimization(context.Background(), deps, e.cfg, now, &profileCache{})
+	}
+	assertNoFallback := func(t *testing.T, res optimizeResult) {
+		t.Helper()
+		assert.Nil(t, res.Fallback)
+		for _, r := range res.Reasons {
+			assert.NotContains(t, string(r), "optimizer_fallback_", "PV problems are degraded inputs, never a fallback")
+		}
+	}
+
+	t.Run("the run bounds the PV fingerprint by the price horizon", func(t *testing.T) {
+		e := newOptRunEnv(t)
+		e.now = now
+		e.ha.states[optRunPriceEntity] = optRunPriceState(now, loc, nil, nil, 1)
+		for k, v := range full {
+			e.ha.states[k] = v
+		}
+		l := newHAForecastLoader(e.ha, pvTestEntities)
+		res := runOptimization(context.Background(), optimizeDeps{HA: e.ha, Forecasts: l, Battery: e.bat}, e.cfg, now, &profileCache{})
+		assertNoFallback(t, res)
+		require.NotEmpty(t, res.Grid.Hours)
+		assert.True(t, l.until.Equal(res.Grid.Hours[len(res.Grid.Hours)-1].End), "until %v, grid end %v", l.until, res.Grid.Hours[len(res.Grid.Hours)-1].End)
+	})
+
+	t.Run("a: full forecast equals the Solcast-shaped slot energies", func(t *testing.T) {
+		pvTestObserveLogs(t)
+		periods, reasons, _ := optLoadPV(context.Background(), newHAForecastLoader(&pvTestStateReader{states: full}, pvTestEntities), optRunCfg(loc), now)
+		assert.Empty(t, reasons)
+		gotPV, rs := optimize.BucketPV(periods, starts)
+		assert.Empty(t, rs)
+		assert.InDeltaSlice(t, wantPV, gotPV, 1e-9)
+
+		res := runFull(t, full, nil)
+		assertNoFallback(t, res)
+		assert.False(t, optHasReason(res.Reasons, optimize.ReasonPVForecastMissing))
+		assert.False(t, optHasReason(res.Reasons, optimize.ReasonPVForecastStale))
+		require.Len(t, res.Grid.Hours, optimize.DefaultMaxHours)
+		for i, h := range res.Grid.Hours {
+			assert.InDelta(t, wantPV[i]*h.Fraction, h.PVWh, 1e-6, "slot %s", h.Start)
+		}
+	})
+
+	t.Run("b: tomorrow missing -> optimizer_pv_forecast_missing for tomorrow's slots", func(t *testing.T) {
+		pvTestObserveLogs(t)
+		errs := map[string]error{pvTestTomorrow: pvTestStatusErr(404)}
+		periods, reasons, _ := optLoadPV(context.Background(), newHAForecastLoader(&pvTestStateReader{states: full, errs: errs}, pvTestEntities), optRunCfg(loc), now)
+		assert.Empty(t, reasons, "one entity is enough for the source")
+		gotPV, rs := optimize.BucketPV(periods, starts)
+		assert.Equal(t, []optimize.Reason{optimize.ReasonPVForecastMissing}, rs)
+		for i, s := range starts {
+			if s.Before(tomorrow) {
+				assert.InDelta(t, wantPV[i], gotPV[i], 1e-9, "today's slot %s", s)
+			} else {
+				assert.Zero(t, gotPV[i], "tomorrow's slot %s counts as 0 Wh", s)
+			}
+		}
+
+		states := map[string]homeassistant.State{pvTestToday: full[pvTestToday], pvTestLastPolled: full[pvTestLastPolled]}
+		res := runFull(t, states, nil)
+		assertNoFallback(t, res)
+		assert.True(t, optHasReason(res.Reasons, optimize.ReasonPVForecastMissing))
+	})
+
+	t.Run("c: both missing -> optimizer_pv_forecast_missing, no periods", func(t *testing.T) {
+		pvTestObserveLogs(t)
+		errs := map[string]error{pvTestToday: pvTestStatusErr(502), pvTestTomorrow: pvTestStatusErr(404)}
+		periods, reasons, _ := optLoadPV(context.Background(), newHAForecastLoader(&pvTestStateReader{states: full, errs: errs}, pvTestEntities), optRunCfg(loc), now)
+		assert.Empty(t, periods)
+		assert.Equal(t, []optimize.Reason{optimize.ReasonPVForecastMissing}, reasons)
+
+		res := runFull(t, map[string]homeassistant.State{pvTestLastPolled: full[pvTestLastPolled]}, errs)
+		assertNoFallback(t, res)
+		assert.True(t, optHasReason(res.Reasons, optimize.ReasonPVForecastMissing))
+		for _, h := range res.Grid.Hours {
+			assert.Zero(t, h.PVWh)
+		}
+	})
+
+	t.Run("d: stale -> optimizer_pv_forecast_stale only", func(t *testing.T) {
+		pvTestObserveLogs(t)
+		stale := map[string]homeassistant.State{
+			pvTestToday:      full[pvTestToday],
+			pvTestTomorrow:   full[pvTestTomorrow],
+			pvTestLastPolled: {State: now.Add(-25 * time.Hour).Format(time.RFC3339)},
+		}
+		periods, reasons, lastPolled := optLoadPV(context.Background(), newHAForecastLoader(&pvTestStateReader{states: stale}, pvTestEntities), optRunCfg(loc), now)
+		assert.Empty(t, periods)
+		assert.Equal(t, []optimize.Reason{optimize.ReasonPVForecastStale}, reasons)
+		assert.False(t, lastPolled.IsZero())
+
+		res := runFull(t, stale, nil)
+		assertNoFallback(t, res)
+		assert.True(t, optHasReason(res.Reasons, optimize.ReasonPVForecastStale))
+		assert.False(t, optHasReason(res.Reasons, optimize.ReasonPVForecastMissing), "stale already explains the missing PV")
+	})
+}

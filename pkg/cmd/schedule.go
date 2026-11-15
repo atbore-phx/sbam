@@ -225,10 +225,24 @@ var scdCmd = &cobra.Command{
 		}
 		u.LogStartupParams(cmd, extras)
 
-		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature)
+		// PV forecast source (SPEC-0003). In optimize mode its problems are
+		// reported by loadOptimizeConfig, together with the HA access check,
+		// so only the source is taken from this first read.
+		var (
+			pvCfg PVSourceConfig
+			pvErr error
+		)
+		if optimizeMode {
+			pvCfg, _, _ = loadPVSourceConfig(os.Getenv, false)
+		} else {
+			pvCfg, pvErr = loadPVSourceConfigEnv()
+		}
+
+		err = checkScheduleschedule(crontab, s_apiKey, s_url, fronius_ip, pw_consumption, max_charge, pw_batt_reserve, w_start_hr, w_end_hr, windows, scheduler_mode, weekday_feature, pvCfg.Source)
 		var (
 			optCfg  OptimizeConfig
 			optDeps optimizeDeps
+			pvDay   pvDaySource
 		)
 		if optimizeMode {
 			// Optimize mode fails with exit code 1 after the ADR-0004 §3
@@ -240,9 +254,26 @@ var scdCmd = &cobra.Command{
 				cmd.SilenceErrors = true // already logged
 				return err
 			}
-		} else if err != nil {
-			u.Log.Error(err)
-			return nil
+			logPVSourceStartup(optCfg.PV)
+		} else {
+			if err = errors.Join(err, pvErr); err != nil {
+				u.Log.Error(err)
+				return nil
+			}
+			logPVSourceStartup(pvCfg)
+			// Classic runs retry transient HA failures (S-023). HA is not
+			// contacted here: there is no startup probe.
+			pvDay, err = newPVDaySource(pvCfg, solcastDaySource{
+				apiKey:        s_apiKey,
+				url:           s_url,
+				cacheForecast: s_cache_forecast,
+				cachePrefix:   s_cache_file_prefix,
+				cacheTime:     s_cache_time,
+			}, true)
+			if err != nil {
+				u.Log.Error(err)
+				return nil
+			}
 		}
 		if err := checkReserveOptions(batt_min_soc, pw_base_load); err != nil {
 			u.Log.Error(err)
@@ -289,6 +320,7 @@ var scdCmd = &cobra.Command{
 			Now:                time.Now,
 			Optimize:           optCfg,
 			OptimizeDeps:       optDeps,
+			PVDay:              pvDay,
 		}
 
 		runner := NewRunner(runnerCfg, mqttClient)
@@ -367,8 +399,8 @@ var scdCmd = &cobra.Command{
 //
 // See: `scdCmd` defined above.
 func registerScdCmd() {
-	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", "Set the Forecast URL. For multiple URLs, use a comma (,) to separate them")
-	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", "APIKEY")
+	scdCmd.Flags().StringVarP(&s_url, "url", "u", "", helpSolcastURL)
+	scdCmd.Flags().StringVarP(&s_apiKey, "apikey", "k", "", helpSolcastAPIKey)
 	scdCmd.Flags().StringVarP(&fronius_ip, "fronius_ip", "H", "", "FRONIUS_IP")
 	scdCmd.Flags().StringVarP(&start_hr, "start_hr", "s", const_sh, "START_HR")
 	scdCmd.Flags().StringVarP(&end_hr, "end_hr", "e", const_eh, "END_HR")
@@ -408,6 +440,7 @@ func registerScdCmd() {
 	scdCmd.Flags().StringVar(&sunspec_type, "sunspec_type", const_sunspec_type, "Inverter Modbus SunSpec model type (int_sf, float, auto)")
 	scdCmd.Flags().String("windows", "", "Charge windows in YAML format (same as config.yaml windows: key)")
 	registerOptimizeFlags(scdCmd)
+	registerPVSourceFlags(scdCmd)
 
 	rootCmd.AddCommand(scdCmd)
 }
@@ -520,8 +553,12 @@ func isWindowContainedIn(innerStart, innerEnd, outerStart, outerEnd string) (boo
 //
 // The function intentionally keeps validation local to the command so the
 // runtime can exit early with user-friendly messages when flags are invalid.
+//
+// apikey and url are required unless pvSource is ha_solcast (SPEC-0003 AC-5);
+// any other value, including an invalid one, keeps today's checks (AC-1).
 func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumption, max_charge,
-	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string, weekdayFeature bool) error {
+	pw_batt_reserve float64, start_hr, end_hr string, windows []pw.Window, scheduler_mode string, weekdayFeature bool, pvSource string) error {
+	solcastAPI := pvSource != pw.PVSourceHASolcast
 
 	// Optimize mode ignores crontab, windows, start_hr/end_hr/max_charge and
 	// the reserve window (configuration.md), so they are not validated there.
@@ -553,10 +590,10 @@ func checkScheduleschedule(crontab, apiKey, url, fronius_ip string, pw_consumpti
 	if len(strings.TrimSpace(fronius_ip)) == 0 {
 		err := errors.New("the --fronius_ip flag must be set")
 		return err
-	} else if len(strings.TrimSpace(apiKey)) == 0 {
+	} else if solcastAPI && len(strings.TrimSpace(apiKey)) == 0 {
 		err := errors.New("the --apikey flag must be set")
 		return err
-	} else if len(strings.TrimSpace(url)) == 0 {
+	} else if solcastAPI && len(strings.TrimSpace(url)) == 0 {
 		err := errors.New("the --url flag must be set")
 		return err
 	} else if legacy && len(windows) == 0 {
@@ -866,7 +903,7 @@ func logOptimizeModeActive(cfg OptimizeConfig) {
 	u.Log.Infow("optimize mode active",
 		"ha_access", access,
 		"dry_run", cfg.DryRun,
-		"forecast_cache", true,
+		"forecast_cache", !cfg.PV.isHA(),
 		"horizon_max_h", optimize.DefaultMaxHours,
 		"steps", optimize.DefaultSteps,
 		"revert_s", fronius.RevertSeconds,

@@ -59,14 +59,15 @@ func registerOptCmd() {
 	f.Bool(optCLIFlagDryRun, true, "print the plan only; write nothing to the inverter (always on; --dry-run=false is rejected)")
 	// Command-local: never bound to viper, never in the startup dump.
 	_ = f.SetAnnotation(optCLIFlagDryRun, flagAnnotationNoViper, []string{"true"})
-	f.StringP("url", "u", "", "Solcast forecast URL(s), comma-separated")
-	f.StringP("apikey", "k", "", "Solcast API key")
+	f.StringP("url", "u", "", helpOptimizeSolcastURL)
+	f.StringP("apikey", "k", "", helpOptimizeSolcastAPIKey)
 	f.StringP("fronius_ip", "H", "", "Fronius inverter LAN IP")
-	f.BoolP("cache_forecast", "n", false, "accepted for compatibility; optimize always uses the forecast cache")
+	f.BoolP("cache_forecast", "n", false, "accepted for compatibility; with pv_source=solcast_api optimize always uses the forecast cache")
 	f.StringP("cache_file_prefix", "f", optCfgDefaultCachePrefix, "CACHE_FILE_PREFIX")
 	f.Int32P("cache_time", "l", optCfgDefaultCacheTime, "CACHE_TIME in seconds")
 	f.Float64P("pw_consumption", "c", 0, "daily consumption Wh; static fallback for hours without history")
 	registerOptimizeFlags(optCmd)
+	registerPVSourceFlags(optCmd)
 	f.String(optCLIFlagOutput, optCLIOutTable, "output format: table | json")
 
 	rootCmd.AddCommand(optCmd)
@@ -101,6 +102,7 @@ func runOptimizeCmd(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	logPVSourceStartup(cfg.PV)
 	cfg.Location = optCLILocation()
 	cfg.DryRun = true // the CLI never writes, whatever opt_dry_run says
 
@@ -228,7 +230,12 @@ func renderOptCLITable(w io.Writer, res optimizeResult, cfg OptimizeConfig, now 
 	}
 	fmt.Fprintf(&b, "%-12s%s\n", "Consumption", consumption)
 	fmt.Fprintf(&b, "%-12shistory %d days; static fallback hours: %s\n", "", cfg.HistoryDays, optCLIStaticStatus(res.Reasons))
-	fmt.Fprintf(&b, "%-12sSolcast (%s)\n", "PV", optCLIPVStatus(res.Reasons))
+	if cfg.PV.isHA() {
+		fmt.Fprintf(&b, "%-12sSolcast via HA (%s)\n", "PV", optCLIPVStatusHA(res, now, loc))
+		fmt.Fprintf(&b, "%-12s%s, %s\n", "", cfg.PV.Entities.Today, cfg.PV.Entities.Tomorrow)
+	} else {
+		fmt.Fprintf(&b, "%-12sSolcast (%s)\n", "PV", optCLIPVStatus(res.Reasons))
+	}
 	b.WriteString("\n")
 
 	fmt.Fprintf(&b, "%-18s%7s%8s%7s%8s  %-13s%8s%11s\n", "START", "CONS Wh", "PV Wh", "BUY", "SELL", "ACTION", "RATE W", "SOC END %")
@@ -323,6 +330,24 @@ func optCLIPVStatus(rs []optimize.Reason) string {
 	default:
 		return "forecast cache"
 	}
+}
+
+// optCLIPVStatusHA is the PV row status with pv_source=ha_solcast (UX §6.1):
+// the stale/missing texts as for Solcast, otherwise the integration's last
+// poll in local time with its age in whole hours.
+func optCLIPVStatusHA(res optimizeResult, now time.Time, loc *time.Location) string {
+	if optHasReason(res.Reasons, optimize.ReasonPVForecastStale) || optHasReason(res.Reasons, optimize.ReasonPVForecastMissing) {
+		return optCLIPVStatus(res.Reasons)
+	}
+	if res.PVLastPolled.IsZero() {
+		return "last poll not checked"
+	}
+	age := now.Sub(res.PVLastPolled)
+	ago := "<1 h ago"
+	if age >= time.Hour {
+		ago = fmt.Sprintf("%d h ago", int(age.Hours()))
+	}
+	return fmt.Sprintf("last polled %s, %s", res.PVLastPolled.In(loc).Format("2006-01-02 15:04"), ago)
 }
 
 func optCLIJoinReasons(rs []optimize.Reason) string {

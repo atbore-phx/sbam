@@ -81,7 +81,7 @@ docs/
   brainstorms/                # CE brainstorm artifacts
   plans/                      # CE implementation plans
   implementations/            # Archived pre-CE implementation plans
-  decisions/                  - ADRs (HA REST client, DP solver, dispatch register mapping, fail-safes, optimize-mode MQTT commands)
+  decisions/                  - ADRs (HA REST client, DP solver, dispatch register mapping, fail-safes, optimize-mode MQTT commands, PV forecast source)
 
 main.go                      # Entry point, version vars, delegates to pkg/cmd
 main_test.go                 # CLI-level tests
@@ -111,6 +111,10 @@ pkg/
     optimize_run.go           - One optimizer run: fetch inputs, build profile and grid, solve, map fallbacks
     optimize_run_test.go      - Unit tests for optimizer runs and fallback reason codes
     optimize_adapters.go      - Production adapters (HA client, Solcast forecast cache, battery reader) for optimizer runs
+    pv_source_config.go       - pv_* and ha_url/ha_token flag registration, PV source config load, shared HA access check, startup log lines
+    pv_source_config_test.go  - Unit tests for PV source validation, HA access resolution and startup log lines
+    pv_source.go              - PV day sources (Solcast API, HA Solcast integration), HA entity adapter, classic-run retry, optimize HA forecast loader
+    pv_source_test.go         - Unit tests for the PV sources, mock-HA end-to-end runs and no Solcast traffic with ha_solcast
     schedule.go               - `schedule` command: main intelligent charging workflow
     schedule_runner.go        - Single-goroutine runner that serializes schedule ticks and command intents
     schedule_optimize.go      - Optimize-mode runner: hourly optimizer tick, dispatch, fail-safes, watchdog, optimize-mode commands
@@ -127,7 +131,7 @@ pkg/
     schedule_cron_test.go     - Unit tests for cron-based scheduling
     precedence_test.go        - Unit tests for flag > env > yaml viper precedence
     config_schema_test.go     - Unit tests for HA add-on config.json schema regex validation
-    testdata/                 - Golden files (optimize command table output)
+    testdata/                 - Golden files (optimize command table output, Solcast API and HA Solcast sources)
   fronius/
     types.go                  - Fronius struct definitions
     handler.go                - Main battery control dispatcher
@@ -211,6 +215,11 @@ pkg/
     power_test.go             - HTTP mock tests for Solcast API
     forecasts.go              - Per-URL Solcast forecasts via the cache with age metadata (optimizer)
     forecasts_test.go         - Unit tests for forecast cache loading
+    source.go                 - PV forecast source constants and validation (solcast_api, ha_solcast)
+    source_test.go            - Unit tests for PV source validation
+    haforecast.go             - Home Assistant Solcast integration reader: parse, validate, merge, staleness, day coverage, day total
+    haforecast_test.go        - Unit tests for the HA forecast reader
+    testdata/                 - HA Solcast integration state fixtures
   storage/
     types.go                  - Fronius battery JSON response structs
     handler.go                - Main handler fetching battery data
@@ -288,7 +297,7 @@ Rules:
 
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_entity`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
+- Key parameters: `pv_source`, `pv_entity_today`, `pv_entity_tomorrow`, `pv_entity_last_polled`, `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_entity`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
 
 ### Build
 
