@@ -845,3 +845,117 @@ func TestHAForecastReader_LastForecasts(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, failing.LastForecasts())
 }
+
+// Edge and failure branches of the reader: cancelled contexts at each read,
+// an unconfigured entity, overlapping periods and an entity with no usable
+// periods.
+func TestLoadHAForecast_EdgeBranches(t *testing.T) {
+	loc := copenhagen(t)
+	now := time.Date(2026, 10, 26, 10, 0, 0, 0, loc)
+	today := stateOf(dayElements(loc, 2026, 10, 26, 0))
+	tomorrow := stateOf(dayElements(loc, 2026, 10, 27, 0))
+	full := func() *fakeReader { return newFakeReader().set(entToday, today).set(entTomorrow, tomorrow) }
+	entities := HAForecastEntities{Today: entToday, Tomorrow: entTomorrow}
+
+	t.Run("context cancelled before the first read", func(t *testing.T) {
+		observeLogs(t)
+		fake := full()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, meta, err := NewHAForecastReader(fake, entities).Load(ctx, now)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.True(t, meta.Missing)
+		assert.Zero(t, fake.count(entToday), "no entity is read")
+	})
+
+	t.Run("context cancelled during the tomorrow read", func(t *testing.T) {
+		logs := observeLogs(t)
+		fake := full()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		fake.onBefore = func(id string) {
+			if id == entTomorrow {
+				cancel()
+			}
+		}
+		_, meta, err := NewHAForecastReader(fake, entities).Load(ctx, now)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.True(t, meta.Missing)
+		assert.Empty(t, warnLogs(logs), "a cancelled read is not a read failure")
+	})
+
+	t.Run("context cancelled during the last-polled read", func(t *testing.T) {
+		observeLogs(t)
+		fake := full()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		fake.onBefore = func(id string) {
+			if id == entPolled {
+				cancel()
+			}
+		}
+		_, meta, err := NewHAForecastReader(fake, testEntities).Load(ctx, now)
+		require.ErrorIs(t, err, context.Canceled)
+		assert.True(t, meta.Missing)
+		assert.Zero(t, fake.count(entToday), "the forecast entities are not read")
+	})
+
+	t.Run("unconfigured today entity uses tomorrow only", func(t *testing.T) {
+		logs := observeLogs(t)
+		f, meta, err := NewHAForecastReader(full(), HAForecastEntities{Tomorrow: entTomorrow}).Load(context.Background(), now)
+		require.NoError(t, err)
+		assert.False(t, meta.Missing)
+		assert.Len(t, f.Forecasts, 48)
+		w := logs.FilterMessage("PV forecast entity could not be read from Home Assistant").All()
+		require.Len(t, w, 1)
+		assert.Contains(t, fmt.Sprint(fieldsOf(w[0])["error"]), "pv_entity_today is not configured")
+	})
+
+	t.Run("overlapping periods are ignored", func(t *testing.T) {
+		logs := observeLogs(t)
+		shifted := stateOf([]any{element(time.Date(2026, 10, 26, 10, 15, 0, 0, loc).Format(time.RFC3339), 1.0)})
+		f, _, err := NewHAForecastReader(full().set(entTomorrow, shifted), entities).Load(context.Background(), now)
+		require.NoError(t, err)
+		assert.Len(t, f.Forecasts, 48, "the 10:15 period overlaps 10:00 and 10:30")
+		d := logs.FilterMessage("PV forecast overlapping periods ignored").All()
+		require.Len(t, d, 1)
+		assert.EqualValues(t, 1, fieldsOf(d[0])["count"])
+	})
+
+	t.Run("entity with no usable periods", func(t *testing.T) {
+		logs := observeLogs(t)
+		bad := stateOf([]any{element(now.Format(time.RFC3339), "1.2"), element(now.Format(time.RFC3339), -1.0)})
+		f, _, err := NewHAForecastReader(full().set(entToday, bad), entities).Load(context.Background(), now)
+		require.NoError(t, err, "tomorrow is still usable")
+		assert.Len(t, f.Forecasts, 48)
+		w := logs.FilterMessage("PV forecast entity has no usable detailedForecast periods").All()
+		require.Len(t, w, 1)
+		assert.EqualValues(t, 2, fieldsOf(w[0])["elements"])
+	})
+}
+
+// Bounded log values: a multi-byte string is cut on a rune boundary and
+// every JSON kind has a name.
+func TestBoundedLogValueHelpers(t *testing.T) {
+	odd := "a" + strings.Repeat("é", 40) // byte 64 is inside a rune
+	got := quoteTrunc(odd)
+	assert.True(t, strings.HasSuffix(got, "(truncated)"))
+	assert.NotContains(t, got, "�")
+
+	for _, tc := range []struct {
+		v    any
+		kind string
+		desc string
+	}{
+		{nil, "null", "null"},
+		{map[string]any{}, "object", "object"},
+		{[]any{1.0}, "list", "list"},
+		{"x", "string", `"x"`},
+		{1.5, "number", "1.5"},
+		{true, "boolean", "true"},
+		{42, "int", "int"},
+	} {
+		assert.Equal(t, tc.kind, jsonKind(tc.v), "jsonKind(%#v)", tc.v)
+		assert.Equal(t, tc.desc, describeValue(tc.v), "describeValue(%#v)", tc.v)
+	}
+}
