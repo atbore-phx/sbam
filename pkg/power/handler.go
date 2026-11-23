@@ -61,6 +61,13 @@ func (power *Power) Handler(apiKey string, urls string, cache_forecast bool, cac
 		production += dailyProduction
 	}
 	power.lastForecasts = fetched
-	u.Log.Infof("Total Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(production))
+	logTotalForecast(day, production)
 	return production, true, nil
+}
+
+// logTotalForecast logs the day total used for the charge decision. The
+// Solcast API path (Handler) and the Home Assistant path
+// (HAForecastReader.DayProduction) both use it, so the line is identical.
+func logTotalForecast(day time.Time, wh float64) {
+	u.Log.Infof("Total Forecast Solar Power for %d/%d/%d: %d Wh", day.Day(), day.Month(), day.Year(), int(wh))
 }

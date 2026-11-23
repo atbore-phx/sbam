@@ -1,0 +1,12 @@
+{
+  "_note": "SYNTHETIC fixture shaped like GET /api/states/ENTITY of the Solcast PV Forecast integration; replace with a recorded state.",
+  "attributes": {
+    "device_class": "timestamp",
+    "friendly_name": "Solcast PV Forecast API Last Polled",
+    "icon": "mdi:clock"
+  },
+  "entity_id": "sensor.solcast_pv_forecast_api_last_polled",
+  "last_changed": "2026-10-26T05:12:04.512345+00:00",
+  "last_updated": "2026-10-26T05:12:04.512345+00:00",
+  "state": "2026-10-26T05:12:03+00:00"
+}

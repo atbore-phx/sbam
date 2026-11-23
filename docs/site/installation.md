@@ -35,6 +35,8 @@ Before starting, open the **Configuration** tab and set options as needed. See t
 
 For `scheduler_mode: optimize`, the add-on needs no Home Assistant URL or token: it uses the Supervisor API automatically. Start with `optimizer.dry_run` on (the default); see [Cost-optimized Dispatch](optimizer.md).
 
+To use the forecast from the Home Assistant Solcast integration, set **PV forecast source** (`pv_source`) to `ha_solcast`; no Solcast URL, API key or Home Assistant token is needed. Check the three entity fields if Home Assistant is not in English; see [Prerequisites](prerequisites.md#option-b-home-assistant-solcast-integration).
+
 <img width="1362" height="495" alt="Screenshot 2026-06-17 154313" src="https://github.com/user-attachments/assets/4dc73d9c-35fd-4aad-99b9-e1b1b267a914" />
 
 ### Start
@@ -68,6 +70,19 @@ For `scheduler_mode: optimize` outside the add-on, set `HA_URL` and a long-lived
 export HA_URL=http://homeassistant.local:8123
 export HA_TOKEN=<long-lived-token>
 ./sbam optimize -c 11000 --opt_price_entity sensor.nordpool_kwh_dk2_dkk_3_10_025 --opt_consumption_entity sensor.solarnet_power_load_consumed ...
+```
+
+To take the PV forecast from the Home Assistant Solcast integration instead of the Solcast API (any scheduler mode), set `PV_SOURCE` together with `HA_URL` and `HA_TOKEN`. `URL` and `APIKEY` are then not needed:
+
+```bash
+export PV_SOURCE=ha_solcast
+export HA_URL=http://homeassistant.local:8123
+export HA_TOKEN=<long-lived-token>
+# only if the entity IDs differ from the English defaults:
+export PV_ENTITY_TODAY=sensor.solcast_pv_forecast_prognose_heute
+export PV_ENTITY_TOMORROW=sensor.solcast_pv_forecast_prognose_morgen
+./sbam estimate --fronius_ip "192.168.1.100"   # checks the forecast read; exits 1 if it fails
+./sbam schedule --fronius_ip "192.168.1.100"
 ```
 
 For a full list of commands and flags, see the [CLI Reference](cli.md).

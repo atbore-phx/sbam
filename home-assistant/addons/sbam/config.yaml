@@ -13,8 +13,12 @@ url: https://atbore-phx.github.io/sbam/
 image: ghcr.io/atbore-phx/ha-{arch}-sbam
 
 options:
+  pv_source: solcast_api
   url: https://api.solcast.com.au/rooftop_sites/<YOUR-SITE>/forecasts?format=json
   apikey: ""
+  pv_entity_today: sensor.solcast_pv_forecast_forecast_today
+  pv_entity_tomorrow: sensor.solcast_pv_forecast_forecast_tomorrow
+  pv_entity_last_polled: sensor.solcast_pv_forecast_api_last_polled
   fronius_ip: ""
   sunspec_type: int_sf
   batt_min_soc: 5
@@ -67,8 +71,12 @@ options:
     dry_run: true
 
 schema:
-  url: str
-  apikey: password
+  pv_source: list(solcast_api|ha_solcast)
+  url: str?
+  apikey: password?
+  pv_entity_today: match(^$|^sensor\.[a-z0-9_]+$)
+  pv_entity_tomorrow: match(^$|^sensor\.[a-z0-9_]+$)
+  pv_entity_last_polled: match(^$|^sensor\.[a-z0-9_]+$)
   fronius_ip: match(^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$)
   sunspec_type: list(int_sf|float|auto)?
   batt_min_soc: float(0,100)?

@@ -6,12 +6,41 @@ Where CLI and HA add-on forms differ (different defaults, different validation, 
 
 ---
 
-## Core API
+<a id="core-api"></a>
+
+## PV Forecast
+
+sbam takes the PV forecast from one of two sources, chosen with `pv_source`:
+
+- `solcast_api` (default): sbam downloads the forecast from Solcast with `url` and `apikey`. This is the behaviour of earlier versions; existing configurations need no change.
+- `ha_solcast`: sbam reads the forecast from the HACS integration *Solcast PV Forecast* in Home Assistant, including the integration's dampening and hard limit. See [Prerequisites → Home Assistant Solcast integration](prerequisites.md#option-b-home-assistant-solcast-integration).
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
-| `url` | Solcast forecast site URL. Multiple URLs supported (max 2), comma-separated. | `--url` | `URL` | `url` | — |
-| `apikey` | Solcast API key. | `--apikey` | `APIKEY` | `apikey` | — |
+| `pv_source` | Where the PV forecast comes from: `solcast_api` or `ha_solcast`. Exact, case-sensitive value; anything else is a startup error. | `--pv_source` | `PV_SOURCE` | `pv_source` | `solcast_api` |
+| `url` | Solcast forecast site URL. Multiple URLs supported (max 2), comma-separated. **Required with `pv_source: solcast_api`**; ignored with `ha_solcast`. | `--url` | `URL` | `url` (optional in the form) | — |
+| `apikey` | Solcast API key. **Secret**. **Required with `pv_source: solcast_api`**; ignored with `ha_solcast`. | `--apikey` | `APIKEY` | `apikey` (optional in the form, password) | — |
+| `pv_entity_today` | Entity ID of the integration's "Forecast today" sensor. Required with `ha_solcast`. | `--pv_entity_today` | `PV_ENTITY_TODAY` | `pv_entity_today` | `sensor.solcast_pv_forecast_forecast_today` |
+| `pv_entity_tomorrow` | Entity ID of the integration's "Forecast tomorrow" sensor. Required with `ha_solcast`. | `--pv_entity_tomorrow` | `PV_ENTITY_TOMORROW` | `pv_entity_tomorrow` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+| `pv_entity_last_polled` | Entity ID of the integration's "API last polled" sensor. A forecast polled more than 24 hours ago is not used. Empty disables this check. | `--pv_entity_last_polled` | `PV_ENTITY_LAST_POLLED` | `pv_entity_last_polled` | `sensor.solcast_pv_forecast_api_last_polled` |
+
+The three `pv_entity_*` keys must match `^sensor\.[a-z0-9_]+$` (`pv_entity_last_polled` may also be empty). They are validated only when `pv_source: ha_solcast`, so a `solcast_api` configuration is never stopped by them. All problems are reported in one startup message. The defaults are the integration's English entity IDs; with another HA language or renamed entities, copy the IDs from **Settings → Devices & services → Solcast PV Forecast → Entities**. All `pv_*` CLI flags are long-only and exist on `schedule`, `estimate` and `optimize`.
+
+What changes with `pv_source: ha_solcast`:
+
+- **No Solcast requests.** sbam never calls Solcast, so the integration has the whole API quota. When `url` or `apikey` is still set, startup logs the Info line `url and apikey are ignored with pv_source=ha_solcast; sbam makes no Solcast requests` (naming the keys, never their values). In the add-on the `url` field keeps its placeholder, so this line is normal there.
+- **No forecast cache.** `cache_forecast`, `cache_time` and `cache_file_prefix` are not used; the entities are read on every run.
+- **Home Assistant access is needed in every mode.** `schedule` (all scheduler modes), `estimate` and `optimize` reach Home Assistant as described in [Home Assistant API](#home-assistant-api). In the add-on there is nothing to set.
+- **Every place that uses PV switches source**: classic `crontab`/`windows` runs, `sbam estimate`, and optimize mode. Periods are assigned to days by their local date, as with the Solcast API.
+- **Failures degrade like a missing forecast.** There is no fallback to the Solcast API. A failed or stale read logs a Warn naming the entity. A classic run then runs without forecast and publishes the error on MQTT (`<prefix>/error`, `source: power`), optimize mode records `optimizer_pv_forecast_missing` or `optimizer_pv_forecast_stale`, and `sbam estimate` exits with code 1. In a classic run, a read that fails with an HA server error (5xx) or a connection error is retried twice, 15 s apart; auth errors, an unknown entity and invalid data are not retried. If only one of the two entities fails, the other one's periods are used.
+- **No usable periods for the day = no forecast.** When none of the integration's half-hour periods fall on the day the [forecast horizon](#forecast-horizon-modes) resolves to, sbam treats it as "no forecast", never as 0 Wh of sun. Partial coverage is used, with a Warn giving the covered and expected half-hours.
+- **Implausible values are dropped.** A period counts only when `pv_estimate` is a number between 0 and 50 kW and `period_start` is a timestamp with offset within the last 48 h and the next 72 h. A `detailedForecast` that is not a list, or has more than 1000 elements, makes that entity count as failed. Each run logs one Info line with the source, period count, total Wh and covered/expected half-hours.
+- **Last-poll check.** When `pv_entity_last_polled` cannot be read or parsed, or lies more than 10 minutes in the future, the staleness check is skipped and a Warn is logged once per process.
+
+The startup log shows the active source in the line `PV forecast source` (`pv_source=...`, and for `ha_solcast` the three entity IDs and `ha_access=supervisor|url`).
+
+!!! warning "Security: write access to the PV entities = influence over grid charging"
+    With `pv_source: ha_solcast`, write access to the configured PV entities in Home Assistant means influence over grid charging. Anything that can set their state or attributes (an automation, another integration, a user or token with write access) can make sbam charge from the grid or skip a charge. sbam bounds the values and logs a per-run fingerprint, but it cannot tell a steered forecast from a real one. Treat write access to these entities like access to the inverter.
 
 ## Inverter Connection
 
@@ -109,7 +138,7 @@ reserve = capacity × batt_min_soc / 100
         + Σ max(pw_base_load − PV forecast, 0) × 0.5 h
 ```
 
-The sum runs over Solcast's 30-minute periods, from the window end until the first period whose forecast (summed across sites) reaches `pw_base_load`. The result is never lower than `pw_batt_reserve` and never higher than the battery capacity. Reserve charging still only happens inside the reserve window (`batt_reserve_start_hr` / `batt_reserve_end_hr`). When no forecast is available, `pw_batt_reserve` is used.
+The sum runs over the 30-minute forecast periods of the configured PV source (Solcast API sites, or the Home Assistant Solcast integration with `pv_source: ha_solcast`), from the window end until the first period whose forecast (summed across sites) reaches `pw_base_load`. The result is never lower than `pw_batt_reserve` and never higher than the battery capacity. Reserve charging still only happens inside the reserve window (`batt_reserve_start_hr` / `batt_reserve_end_hr`). When no forecast is available, `pw_batt_reserve` is used.
 
 ```yaml
 batt_min_soc: 25         # the inverter keeps 25 %
@@ -165,7 +194,7 @@ windows:
 | `remaining_today` | Only forecast intervals from now through end of local day. |
 | `today` | Full local calendar day. |
 | `tomorrow` | Full next local calendar day. |
-| `off` | Skip forecast retrieval entirely. Only reserve charging is active (no Solcast API calls). |
+| `off` | Skip forecast retrieval entirely. Only reserve charging is active (no Solcast API calls, and no Home Assistant read with `pv_source: ha_solcast`). |
 
 ### Consumption horizon modes
 
@@ -198,7 +227,7 @@ windows:
       a daylight-saving change. The span is measured in real hours, so on
       the night of the change it is one hour longer or shorter.
 
-## Cost Optimizer
+## Home Assistant API
 
 These keys are used by `sbam schedule` with `scheduler_mode: optimize` and by `sbam optimize`. They are ignored in the other modes, so existing configurations stay valid. See [Cost-optimized Dispatch](optimizer.md) for how the optimizer works and the dry-run-first workflow.
 
@@ -218,10 +247,12 @@ All CLI flags are long-only. Every problem found at startup is reported in one m
 
 ### Home Assistant API
 
+Home Assistant access is used by `scheduler_mode: optimize` (`sbam schedule` and `sbam optimize`) and by `pv_source: ha_solcast` in every command that reads PV (`schedule` in every scheduler mode, `estimate`, `optimize`). sbam only reads from Home Assistant. The plain-HTTP Warn and the access check below apply to all of them. The two keys stay in the `optimizer:` map in both cases.
+
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|
-| `optimizer.ha_url` | Home Assistant base URL, e.g. `http://homeassistant.local:8123`. Scheme `http` or `https`; no user info, query or fragment. `/api` is appended if missing. A Warn is logged for plain `http` to a non-private host. | `--ha_url` | `HA_URL` | `optimizer.ha_url` (optional, hidden) | — |
-| `optimizer.ha_token` | Home Assistant long-lived access token. **Secret**: printed as `***` in the startup dump. Required when `optimizer.ha_url` is set. Prefer the env var over `config.yaml` and never pass it as a flag in shell history. | `--ha_token` | `HA_TOKEN` | `optimizer.ha_token` (optional, hidden, password) | — |
+| `optimizer.ha_url` | Home Assistant base URL, e.g. `http://homeassistant.local:8123`. Scheme `http` or `https`; no user info, query or fragment. `/api` is appended if missing. A Warn is logged for plain `http` to a non-private host. | `--ha_url` (`schedule`, `optimize`, `estimate`) | `HA_URL` | `optimizer.ha_url` (optional, hidden) | — |
+| `optimizer.ha_token` | Home Assistant long-lived access token. **Secret**: printed as `***` in the startup dump. Required when `optimizer.ha_url` is set. Prefer the env var over `config.yaml` and never pass it as a flag in shell history. | `--ha_token` (`schedule`, `optimize`, `estimate`) | `HA_TOKEN` | `optimizer.ha_token` (optional, hidden, password) | — |
 
 How sbam reaches Home Assistant:
 
@@ -231,9 +262,17 @@ How sbam reaches Home Assistant:
 | `optimizer.ha_url` is empty and the Supervisor token is present (add-on) | The Supervisor API proxy with the add-on's own token. Nothing to configure. |
 | Neither | Startup error: `home assistant access: no Supervisor token found and optimizer.ha_url/optimizer.ha_token are not set`. |
 
-The startup log line `optimize mode active` shows `ha_access=supervisor` or `ha_access=url`. The Supervisor token is never logged.
+The startup log lines `optimize mode active` and `PV forecast source` show `ha_access=supervisor` or `ha_access=url`. Neither the URL nor a token is logged.
 
-To create a long-lived token for Docker or the CLI: in Home Assistant open your **Profile → Security → Long-lived access tokens → Create token**. A dedicated non-admin user is recommended. sbam only reads from Home Assistant (`/api/states/` and `/api/history/period/`).
+To create a long-lived token for Docker or the CLI: in Home Assistant open your **Profile → Security → Long-lived access tokens → Create token**. A dedicated non-admin user is recommended. sbam only reads from Home Assistant (`/api/states/`, and in optimize mode `/api/history/period/`).
+
+## Cost Optimizer
+
+These keys are used by `sbam schedule` with `scheduler_mode: optimize` and by `sbam optimize`. They are ignored in the other modes, so existing configurations stay valid. See [Cost-optimized Dispatch](optimizer.md) for how the optimizer works and the dry-run-first workflow.
+
+All CLI flags are long-only. Every problem found at startup is reported in one message (`invalid configuration for scheduler_mode=optimize (N problems)`) and the process exits with code 1. The values are validated even in dry run.
+
+Optimize mode reaches Home Assistant as described in [Home Assistant API](#home-assistant-api).
 
 ### Optimizer keys
 
@@ -277,9 +316,11 @@ To create a long-lived token for Docker or the CLI: in Home Assistant open your 
 
 **Efficiency and terminal value.** Charging ΔE into the battery costs ΔE / η, so grid-charging only pays when a later price beats the current price ÷ η. Energy left at the end of the horizon is valued at `η × mean(buy)` per kWh, so a short horizon does not empty the battery.
 
-**Other keys in optimize mode.** `fronius_ip`, `url` and `apikey` are required as in the other modes. The PV forecast is always read through the forecast cache (`cache_file_prefix`, `cache_time`), whatever `cache_forecast` says; a cached forecast older than `max(cache_time, 24 h)` is treated as missing.
+**Other keys in optimize mode.** `fronius_ip` is required as in the other modes; `url` and `apikey` are required with `pv_source: solcast_api`. With `solcast_api` the PV forecast is always read through the forecast cache (`cache_file_prefix`, `cache_time`), whatever `cache_forecast` says; a cached forecast older than `max(cache_time, 24 h)` is treated as missing. With `pv_source: ha_solcast` the integration's entities are read every run without a cache, and a forecast last polled more than 24 h ago is stale (see [PV Forecast](#pv-forecast)).
 
 ## Forecast Caching
+
+These keys apply only to `pv_source: solcast_api`. With `ha_solcast` sbam makes no Solcast requests and the cache is not used.
 
 | Option | Description | CLI flag | Env var | HA add-on key | Default |
 |--------|-------------|----------|---------|---------------|---------|

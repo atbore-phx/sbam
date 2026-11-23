@@ -43,6 +43,16 @@ sbam uses the local Fronius API to retrieve battery data:
 
 sbam uses [Solcast](https://solcast.com/free-rooftop-solar-forecasting) for weather forecasts and solar production estimates. The free tier allows up to 10 API calls per day.
 
+sbam can get the forecast in two ways, chosen with [`pv_source`](configuration.md#pv-forecast):
+
+- **Option A, `pv_source: solcast_api` (default):** sbam downloads the forecast from Solcast itself with your forecast URL and API key.
+- **Option B, `pv_source: ha_solcast`:** sbam reads the forecast from the *Solcast PV Forecast* integration in Home Assistant, including the dampening and hard limit you set up there. sbam then makes no Solcast requests.
+
+!!! note "One Solcast quota"
+    If the Home Assistant integration and sbam both use the same free-plan API key, they share its 10 calls per day. With option B only the integration calls Solcast, so it gets the whole quota.
+
+### Option A: Solcast API
+
 After adding your installation, you will obtain a forecast link:
 
 ```
@@ -51,11 +61,31 @@ https://api.solcast.com.au/rooftop_sites/your-site/forecasts?format=json
 
 Copy it — you will need it for the `url` configuration option.
 
-### API Key
+#### API Key
 
 1. Click on your name at the top right on the Solcast site
 2. Select **Your API Key**
 3. Generate the API key and copy it — you will need it for the `apikey` configuration option
+
+### Option B: Home Assistant Solcast integration
+
+1. **Install the integration.** Install *Solcast PV Forecast* ([`BJReplay/ha-solcast-solar`](https://github.com/BJReplay/ha-solcast-solar)) from HACS, restart Home Assistant and add the integration under **Settings → Devices & services**. Enter your Solcast API key there, not in sbam. Wait until it has fetched a forecast at least once.
+2. **Keep the half-hourly breakdown on.** In **Settings → Devices & services → Solcast PV Forecast → Configure**, **Enable half-hourly breakdown attribute** (`attr_brk_halfhourly`) must be on. It is on by default. Without it the forecast sensors have no `detailedForecast` attribute, and sbam logs a Warn that says so.
+3. **Optional: dampening and hard limit.** Set them up in the integration. sbam uses the forecast as the integration delivers it (`pv_estimate`, the 50 % estimate).
+4. **Find the entity IDs.** Open **Settings → Devices & services → Solcast PV Forecast → Entities** and note the IDs of **Forecast today**, **Forecast tomorrow** and **API last polled**. On an English Home Assistant they are the sbam defaults:
+
+    | sbam key | Default entity ID |
+    |----------|-------------------|
+    | `pv_entity_today` | `sensor.solcast_pv_forecast_forecast_today` |
+    | `pv_entity_tomorrow` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+    | `pv_entity_last_polled` | `sensor.solcast_pv_forecast_api_last_polled` |
+
+    If Home Assistant runs in another language, or you renamed the entities, the IDs differ (for example `sensor.solcast_pv_forecast_prognose_heute` on a German install). Copy them into the three keys. They must be lower-case `sensor.<object_id>` IDs.
+5. **Home Assistant API access.** In the add-on there is nothing to set. Docker and standalone need `ha_url` and a token in `HA_TOKEN`; see [Home Assistant API access](#home-assistant-api-access).
+6. **Check it.** Run `sbam estimate` with the same configuration. It prints the day's total from the integration, or names the entity that failed and exits with code 1.
+
+!!! warning "Write access to the PV entities"
+    With `pv_source: ha_solcast`, write access to the configured PV entities = influence over grid charging. Anything that can change their state or attributes in Home Assistant can steer when sbam charges from the grid. See [Configuration → PV Forecast](configuration.md#pv-forecast).
 
 ## Cost Optimizer Prerequisites
 
@@ -73,11 +103,13 @@ The recorder must keep at least `optimizer.history_days` days of history (defaul
 
 ### Home Assistant API access
 
-sbam reads states and history from the Home Assistant REST API (GET only).
+sbam reads states and history from the Home Assistant REST API (GET only). The same access is used with `pv_source: ha_solcast` in every scheduler mode and by `sbam estimate`; see [Configuration → Home Assistant API](configuration.md#home-assistant-api).
 
 - **HA add-on:** nothing to configure. The add-on requests `homeassistant_api` access and uses the Supervisor token automatically.
 - **Docker / standalone binary:** create a long-lived access token in Home Assistant under **Profile → Security → Long-lived access tokens**, ideally for a dedicated non-admin user. Set `optimizer.ha_url` (e.g. `http://homeassistant.local:8123`) and pass the token as the `HA_TOKEN` environment variable. Use `https` when Home Assistant is not on your local network.
 
 ### Solcast
 
-The optimizer always reads the PV forecast through the forecast cache. Make sure Solcast requests succeed; when the forecast is missing or older than `max(cache_time, 24 h)`, PV is counted as 0 Wh and the plan becomes pessimistic.
+With `pv_source: ha_solcast`, PV comes from the Home Assistant Solcast integration; see [Option B](#option-b-home-assistant-solcast-integration). A forecast whose last poll is older than 24 h is treated as stale.
+
+With `pv_source: solcast_api`, the optimizer always reads the PV forecast through the forecast cache. Make sure Solcast requests succeed; when the forecast is missing or older than `max(cache_time, 24 h)`, PV is counted as 0 Wh and the plan becomes pessimistic.

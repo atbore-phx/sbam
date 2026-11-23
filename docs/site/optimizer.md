@@ -25,7 +25,7 @@ Existing `crontab` and `windows` installations are not affected. The optimizer r
 |-------|--------|----------|
 | Spot price per hour, incl. VAT | Nordpool sensor in Home Assistant (`optimizer.price_entity`). Quarter-hour prices are averaged per hour. | Buy and sell price |
 | Household consumption profile | 10 days (`optimizer.history_days`) of history of the load power sensor (`optimizer.consumption_entity`), minus the EV charger (`optimizer.ev_entity`, optional) | Expected consumption per hour of day |
-| PV forecast | Solcast, always through the forecast cache (`cache_file_prefix`, `cache_time`). After Solcast reports its daily limit as exceeded, sbam stops asking until the limit resets at 00:00 UTC and uses the cache; the log says so once at Info | Expected PV production per hour |
+| PV forecast | With `pv_source: solcast_api` (default): Solcast, always through the forecast cache (`cache_file_prefix`, `cache_time`). After Solcast reports its daily limit as exceeded, sbam stops asking until the limit resets at 00:00 UTC and uses the cache; the log says so once at Info. With `pv_source: ha_solcast`: the HA Solcast integration's `detailedForecast` (today and tomorrow entities), read every run without a cache; see [PV Forecast](configuration.md#pv-forecast) | Expected PV production per hour |
 | Battery SoC and capacity | Fronius Solar API | Starting energy |
 | Battery model | `optimizer.battery_efficiency`, `optimizer.max_charge_rate_w`, `optimizer.max_discharge_rate_w`, `optimizer.min_soc_pct` | Limits and losses |
 
@@ -135,7 +135,8 @@ Two existing options matter in optimize mode:
 4. Paste the 24 hourly surcharges into `optimizer.purchase_surcharge` as one line, for example `0.52,0.52,0.52,0.52,0.52,0.52,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,2.04,2.04,2.04,2.04,0.78,0.78,0.78`.
 5. Check `optimizer.vat_rate`, `optimizer.sell_margin` and the battery values.
 6. Leave `optimizer.dry_run` on.
-7. Save and restart the add-on.
+7. Optional: to use the dampened forecast from the Home Assistant Solcast integration, set `pv_source` to `ha_solcast` ([prerequisites](prerequisites.md#option-b-home-assistant-solcast-integration)).
+8. Save and restart the add-on.
 
 No HA URL or token is needed. The add-on uses the Supervisor token through `homeassistant_api`. `optimizer.ha_url` and `optimizer.ha_token` are hidden optional options; set them only to use a different Home Assistant instance.
 
@@ -153,6 +154,8 @@ export OPTIMIZER_EV_ENTITY=sensor.tesla_wall_connector_total_power
 export OPTIMIZER_PURCHASE_SURCHARGE="0.52,0.52,0.52,0.52,0.52,0.52,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,2.04,2.04,2.04,2.04,0.78,0.78,0.78"
 sbam schedule
 ```
+
+Optional: to use the dampened forecast from the Home Assistant Solcast integration instead of downloading from Solcast, add `export PV_SOURCE=ha_solcast` (and `PV_ENTITY_*` if your entity IDs are not the English defaults). `URL` and `APIKEY` are then not needed.
 
 In `config.yaml` the surcharges can also be a YAML list:
 
@@ -218,6 +221,13 @@ Decision        hour 0: self_consume 0 W - optimizer_self_consume_no_gain
 Reasons         optimizer_self_consume_no_gain
 ```
 
+With `pv_source: ha_solcast` (replace `-k`/`-u` with `--pv_source ha_solcast`), the PV row names the integration and its last poll, and lists the entities:
+
+```
+PV          Solcast via HA (last polled 2026-10-05 05:15, 5 h ago)
+            sensor.solcast_pv_forecast_forecast_today, sensor.solcast_pv_forecast_forecast_tomorrow
+```
+
 The real output prints every hour. `--output json` prints the same object as the [`<prefix>/plan` topic](mqtt.md#optimizer-plan-topic). Exit codes: `0` plan computed, `1` configuration error or `--dry-run=false`, `2` optimizer fallback. See the [CLI reference](cli.md#optimize).
 
 ### Continuous dry run
@@ -273,6 +283,8 @@ On fallback, **Optimizer Action** shows `self_consume`, **Last Decision** shows 
 ### Who can steer the battery
 
 In optimize mode the battery follows whatever the Home Assistant price and consumption sensors say. Anyone who can change those sensor states — any Home Assistant user, an automation, or a holder of a long-lived token (for example via `POST /api/states/...`) — can make sbam charge from the grid at an expensive hour or discharge and export at a cheap one. sbam rejects implausible, stale and inconsistent prices and falls back to the inverter defaults, but a believable fake value is still acted on. The damage is limited to roughly one or two battery cycles a day times the price spread, plus wear.
+
+With `pv_source: ha_solcast` this extends to the PV forecast entities, in every scheduler mode: write access to the configured PV entities = influence over grid charging. sbam drops implausible periods (outside 0–50 kW or the time window) and logs one input fingerprint per run (source, periods, total Wh, covered/expected half-hours), so a steered forecast shows up in the log.
 
 The same applies to anyone who can publish to sbam's MQTT command topics. Treat write access to these sensors and topics like access to the inverter: limit who has Home Assistant admin rights and long-lived tokens, and protect the broker with authentication and ACLs (see [MQTT commands](#mqtt-commands-in-optimize-mode)).
 
@@ -341,8 +353,8 @@ Any other command is rejected in optimize mode; none falls through to the handle
 | `optimizer_consumption_static_fallback` | At least one hour of day has fewer than 3 days of usable history; `pw_consumption / 24` is used for it. | Normal for the first days. Check that `pw_consumption` is realistic. |
 | `optimizer_consumption_entity_not_found` | The consumption entity does not exist or has no history; the whole profile is static. | Check `optimizer.consumption_entity` and the recorder. |
 | `optimizer_ev_entity_not_found` | `optimizer.ev_entity` is set but not found; EV subtraction is skipped. | Check `optimizer.ev_entity`. |
-| `optimizer_pv_forecast_missing` | Solcast has no data for some horizon hours; they count as 0 Wh. | Check the Solcast quota and `url`/`apikey`. On the free plan (10 requests per site per day), `cache_time` of about 3 h (`10800`) spreads the requests over the daylight hours; once the limit is reached sbam waits for the 00:00 UTC reset. |
-| `optimizer_pv_forecast_stale` | The cached forecast is older than `max(cache_time, 24 h)` and is treated as missing. | Check that Solcast requests succeed. |
+| `optimizer_pv_forecast_missing` | Solcast has no data for some horizon hours; they count as 0 Wh. With `pv_source: ha_solcast`: a forecast entity was not found, has no `detailedForecast` attribute (half-hourly breakdown `attr_brk_halfhourly` off), has no usable periods, or Home Assistant could not be reached; the Warn line names the entity. | `solcast_api`: check the Solcast quota and `url`/`apikey`. On the free plan (10 requests per site per day), `cache_time` of about 3 h (`10800`) spreads the requests over the daylight hours; once the limit is reached sbam waits for the 00:00 UTC reset. `ha_solcast`: see [Troubleshooting](#troubleshooting). |
+| `optimizer_pv_forecast_stale` | The cached forecast is older than `max(cache_time, 24 h)` and is treated as missing. With `pv_source: ha_solcast`: the integration's API last polled sensor is older than 24 h. | `solcast_api`: check that Solcast requests succeed. `ha_solcast`: check the integration's API quota and its log in Home Assistant. |
 
 ### Action (one per run, for the current hour)
 
@@ -372,7 +384,11 @@ Any other command is rejected in optimize mode; none falls through to the handle
 | Plan sensors beyond a certain hour are `unavailable` | Normal: the horizon ends at the last published price. |
 | All plan sensors `unavailable`, Optimizer Action `self_consume` | A fallback. Read **Decision Reason** and use the [reason codes](#reason-codes). |
 | Expected Cost has no unit | The currency could not be read from the price sensor yet. It is filled after the first successful price read. |
-| The plan grid-charges before a sunny day | PV is missing (`optimizer_pv_forecast_missing` / `_stale`) and counted as 0 Wh. Check Solcast. |
+| The plan grid-charges before a sunny day | PV is missing (`optimizer_pv_forecast_missing` / `_stale`) and counted as 0 Wh. Check Solcast, or with `pv_source: ha_solcast` the Solcast integration in Home Assistant and the Warn lines below. |
+| Warn `PV forecast entity not found in Home Assistant; check the entity ID and that the Solcast PV Forecast integration is loaded` | `pv_source: ha_solcast` and the entity in `key` does not exist. Copy the ID from **Settings → Devices & services → Solcast PV Forecast → Entities** (IDs differ with HA's language). |
+| Warn `PV forecast entity has no detailedForecast attribute; enable the half-hourly breakdown (attr_brk_halfhourly) ...` | Turn on **Enable half-hourly breakdown attribute** in the integration's options. |
+| Warn `PV forecast entity could not be read from Home Assistant` | HA restarting, unreachable, or the token rejected (`status 401`/`403` in `error`). Usually clears on the next run; for 401/403 check `HA_TOKEN`. |
+| Warn `PV forecast not used: the Solcast integration last polled more than 24 h ago ...` | The integration stopped polling Solcast. Check its API quota and log in Home Assistant. |
 | `trigger_now` is rejected with `rate limited` | Wait 60 s between triggers. |
 | `set_reserve` is rejected | Expected in optimize mode; use `optimizer.min_soc_pct`. |
 | Leaving optimize mode | Set `scheduler_mode` back to `windows` or `crontab`. The optimizer entities are removed from Home Assistant and `<prefix>/plan` is cleared. |

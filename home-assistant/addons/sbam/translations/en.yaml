@@ -1,9 +1,38 @@
 configuration:
+  pv_source:
+    name: PV forecast source
+    description: >-
+      solcast_api downloads the forecast from Solcast with the URL and API key
+      below. ha_solcast reads the Solcast PV Forecast integration (HACS) in
+      Home Assistant instead, including its dampening; sbam then makes no
+      Solcast requests and ignores the URL and API key.
   url:
     name: Solcast forecast URL
-    description: Solcast rooftop site forecast URL. Up to 2 sites, comma-separated.
+    description: >-
+      Required with PV forecast source solcast_api. One or two rooftop site
+      URLs, comma-separated. Ignored with ha_solcast.
   apikey:
     name: Solcast API key
+    description: >-
+      Required with PV forecast source solcast_api. Ignored with ha_solcast.
+  pv_entity_today:
+    name: Solcast integration - forecast today
+    description: >-
+      Used with ha_solcast. Entity ID of the integration's "Forecast today"
+      sensor. Change it if Home Assistant uses another language or the entity
+      was renamed. Its half-hourly breakdown attribute must be enabled in the
+      integration options.
+  pv_entity_tomorrow:
+    name: Solcast integration - forecast tomorrow
+    description: >-
+      Used with ha_solcast. Entity ID of the integration's "Forecast tomorrow"
+      sensor.
+  pv_entity_last_polled:
+    name: Solcast integration - API last polled (optional)
+    description: >-
+      Used with ha_solcast. Entity ID of the integration's "API last polled"
+      sensor. A forecast polled more than 24 hours ago is not used. Leave empty
+      to skip this check.
   fronius_ip:
     name: Fronius inverter IP
     description: LAN IP address of the Gen24 inverter.
@@ -235,7 +264,8 @@ configuration:
         name: Home Assistant URL (optional)
         description: >-
           Leave empty in the add-on: sbam reaches Home Assistant through the
-          Supervisor automatically. Only set it to use another HA instance, e.g.
+          Supervisor automatically, for optimize mode and for PV forecast source
+          ha_solcast. Only set it to use another HA instance, e.g.
           https://homeassistant.local:8123 (requires a token).
       ha_token:
         name: Home Assistant token (optional)

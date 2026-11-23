@@ -61,6 +61,10 @@ type RunnerConfig struct {
 	// "optimize" (SPEC-0001); schedule.go validates and builds them.
 	Optimize     OptimizeConfig
 	OptimizeDeps optimizeDeps
+	// PVDay yields the classic-mode PV day total (SPEC-0003). nil means
+	// solcast_api built from APIKey, URL and the cache settings above at
+	// each tick.
+	PVDay pvDaySource
 }
 
 type batteryWriter interface {
@@ -646,12 +650,12 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 	var siteForecasts []pw.Forecasts
 
 	if r.cfg.ForecastHorizon != pw.ForecastHorizonOff {
-		powerHandler := newPower()
-		solarPowerProduction, forecastRetrieved, forecastErr = powerHandler.Handler(
-			r.cfg.APIKey, r.cfg.URL, r.cfg.CacheForecast,
-			r.cfg.CacheFilePrefix, r.cfg.CacheTime,
-			effectiveForecastHorizon, now,
-		)
+		pvDay := r.cfg.PVDay
+		if pvDay == nil { // solcast_api from the current settings
+			pvDay = &solcastDaySource{apiKey: r.cfg.APIKey, url: r.cfg.URL, cacheForecast: r.cfg.CacheForecast,
+				cachePrefix: r.cfg.CacheFilePrefix, cacheTime: r.cfg.CacheTime}
+		}
+		solarPowerProduction, forecastRetrieved, forecastErr = pvDay.DayProduction(ctx, effectiveForecastHorizon, now)
 		if forecastErr != nil {
 			u.HandleError(forecastErr, "power forecast retrieval failed; disabling forecast for this run")
 			r.publishError(ctx, "power", forecastErr)
@@ -659,7 +663,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) error {
 			forecastRetrieved = false
 		}
 		if forecastRetrieved {
-			siteForecasts = powerHandler.LastForecasts()
+			siteForecasts = pvDay.LastForecasts()
 		}
 	}
 

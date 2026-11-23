@@ -36,4 +36,8 @@ type OptimizeConfig struct {
 	CacheTime      int32
 	ForecastMaxAge time.Duration // max(cache_time, 24 h)
 	Location       *time.Location
+
+	// PV is the PV forecast source (SPEC-0003); the zero value means
+	// solcast_api.
+	PV PVSourceConfig
 }

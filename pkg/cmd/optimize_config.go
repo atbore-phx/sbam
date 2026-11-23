@@ -68,18 +68,17 @@ const (
 var optCfgEntityPattern = regexp.MustCompile(`^sensor\.[a-z0-9_]+$`)
 
 // registerOptimizeFlags registers the long-only ha_* / opt_* flags shared by
-// `sbam schedule` and `sbam optimize`. Values are read through viper (after
+// `sbam schedule` and `sbam optimize`. The pv_* flags are registered by each
+// command with registerPVSourceFlags. Values are read through viper (after
 // bindFlags), so no package variables are bound. --dry-run is intentionally
 // not registered here: it is command-local to `sbam optimize`.
 func registerOptimizeFlags(cmd *cobra.Command) {
+	registerHAAccessFlags(cmd)
 	f := cmd.Flags()
-	bindOptimizeEnv()
 	flag := func(key string) string {
 		spec, _ := optSpecByKey(key)
 		return spec.flag
 	}
-	f.String(flag(keyHAURL), "", "Home Assistant base URL (not needed in the HA add-on)")
-	f.String(flag(keyHAToken), "", "HA long-lived access token (prefer HA_TOKEN env var)")
 	f.String(flag(keyOptPriceEntity), "", "Nordpool price sensor entity ID (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025")
 	f.String(flag(keyOptConsumptionEntity), "", "Household load power sensor entity ID")
 	f.String(flag(keyOptEVEntity), "", "Optional EV charger power sensor entity ID")
@@ -177,23 +176,16 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	addErr(optCfgCheckEntity(keyOptConsumptionEntity, cfg.ConsumptionEntity, true))
 	addErr(optCfgCheckEntity(keyOptEVEntity, cfg.EVEntity, false))
 
-	// HA access (AC-21, S-014).
-	access, err := homeassistant.ResolveAccess(cfg.HAURL, cfg.HAToken, getenv)
-	switch {
-	case err == nil:
-		if access.PlainHTTPToPublicHost() {
-			warnings = append(warnings, keyHAURL+" uses plain http to a non-private host; the HA token is sent unencrypted, use https")
-		}
-	case cfg.HAURL != "" && cfg.HAToken == "":
-		problems = append(problems, keyHAToken+": required when "+keyHAURL+" is set")
-	case cfg.HAURL == "":
-		problems = append(problems, "home assistant access: no Supervisor token found and "+keyHAURL+"/"+keyHAToken+" are not set; set HA_URL and HA_TOKEN (Docker/CLI) or enable homeassistant_api (add-on)")
-	default:
-		problems = append(problems, keyHAURL+": "+strings.TrimPrefix(err.Error(), "homeassistant: "))
-	}
+	// HA access (AC-21, S-014); shared with pv_source=ha_solcast (S-025 a).
+	_, accessProblems, accessWarnings := haAccessProblems(cfg.HAURL, cfg.HAToken, getenv)
+	problems = append(problems, accessProblems...)
+	warnings = append(warnings, accessWarnings...)
 
 	// Numeric bounds (AC-20, S-016).
-	var v float64
+	var (
+		v   float64
+		err error
+	)
 	if v, err = optCfgFloatKey(keyOptBatteryEfficiency, defOptBatteryEfficiency, deprecated); err == nil {
 		cfg.Efficiency = v
 		if !(v > 0 && v <= 1) {
@@ -304,6 +296,12 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 		}
 		addErr(err)
 	}
+
+	// PV forecast source (SPEC-0003). The HA access problem is already in the
+	// list above, so it is not checked twice (UX A-2).
+	pv, pvProblems, _ := loadPVSourceConfig(getenv, false)
+	cfg.PV = pv
+	problems = append(problems, pvProblems...)
 
 	if len(problems) > 0 {
 		return cfg, warnings, &optimizeConfigError{Problems: problems}

@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"sbam/pkg/fronius"
+	"sbam/pkg/homeassistant"
 	"sbam/pkg/mqtt"
 	"sbam/pkg/optimize"
+	pw "sbam/pkg/power"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -328,4 +330,187 @@ func optCLIRunCfg(e *optCLIEnv) OptimizeConfig {
 	cfg.DryRun = true
 	cfg.MinGain = defOptMinGain // the CLI loads opt_min_gain with its default
 	return cfg
+}
+
+// UX §6.1: PV row status with pv_source=ha_solcast (full table golden for
+// the HA row is T-0321, wave 3).
+func TestOptCLIPVStatusHA(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	require.NoError(t, err)
+	now := time.Date(2026, 10, 26, 10, 20, 0, 0, loc)
+	polled := time.Date(2026, 10, 26, 5, 15, 0, 0, loc)
+
+	cases := []struct {
+		name string
+		res  optimizeResult
+		want string
+	}{
+		{"last polled", optimizeResult{PVLastPolled: polled}, "last polled 2026-10-26 05:15, 5 h ago"},
+		{"under an hour", optimizeResult{PVLastPolled: now.Add(-20 * time.Minute)}, "last polled 2026-10-26 10:00, <1 h ago"},
+		{"not checked", optimizeResult{}, "last poll not checked"},
+		{"stale", optimizeResult{PVLastPolled: polled, Reasons: []optimize.Reason{optimize.ReasonPVForecastStale}}, "stale, counted as 0 Wh - optimizer_pv_forecast_stale"},
+		{"missing", optimizeResult{Reasons: []optimize.Reason{optimize.ReasonPVForecastMissing}}, "missing hours counted as 0 Wh - optimizer_pv_forecast_missing"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, optCLIPVStatusHA(tc.res, now, loc))
+		})
+	}
+}
+
+// AC-10: with pv_source=ha_solcast the PV row names the source and the
+// entities; url/apikey are not needed. The forecast entities are absent in
+// the fake HA, so the hours count as missing.
+func TestOptimizeCmd_PVRowHA(t *testing.T) {
+	newOptCLIEnv(t)
+	pvTestObserveLogs(t)
+	args := optCLIValidArgs("--pv_source", "ha_solcast", "--pv_entity_last_polled", "")
+	// Drop -u/-k: they are not required with ha_solcast.
+	var filtered []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-u" || args[i] == "-k" {
+			i++
+			continue
+		}
+		filtered = append(filtered, args[i])
+	}
+
+	out, err := execOptCLI(t, filtered...)
+	require.NoError(t, err)
+	assert.Contains(t, out, "PV          Solcast via HA (missing hours counted as 0 Wh - optimizer_pv_forecast_missing)\n"+
+		"            sensor.solcast_pv_forecast_forecast_today, sensor.solcast_pv_forecast_forecast_tomorrow\n")
+	assert.NotContains(t, out, "Solcast (forecast cache)")
+}
+
+// optCLIHAGoldenPath is the T-0321 table snapshot for pv_source=ha_solcast.
+// Regenerate with SBAM_UPDATE_GOLDEN=1 go test ./pkg/cmd/ -run TestOptimizeTable_PVRowHA.
+var optCLIHAGoldenPath = filepath.Join("testdata", "optimize_table_ha.golden")
+
+// optCLIHAPVStates expresses the env's Solcast-shaped forecast as the
+// integration's today/tomorrow entities (period_start in local time, kW),
+// plus a last-polled state.
+func optCLIHAPVStates(t *testing.T, e *optCLIEnv, polled time.Time) map[string]homeassistant.State {
+	t.Helper()
+	loc := e.run.loc
+	y, m, d := e.run.now.In(loc).Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	tomorrow := time.Date(y, m, d+1, 0, 0, 0, 0, loc)
+	after := time.Date(y, m, d+2, 0, 0, 0, 0, loc)
+	var td, tm []any
+	for _, f := range e.run.fc.forecasts[0] {
+		end, err := time.Parse(time.RFC3339, f.PeriodEnd)
+		require.NoError(t, err)
+		start := end.Add(-30 * time.Minute).In(loc)
+		el := map[string]any{"period_start": start.Format(time.RFC3339), "pv_estimate": f.PVEstimate, "pv_estimate10": 0.0, "pv_estimate90": 0.0}
+		switch {
+		case !start.Before(today) && start.Before(tomorrow):
+			td = append(td, el)
+		case !start.Before(tomorrow) && start.Before(after):
+			tm = append(tm, el)
+		}
+	}
+	require.NotEmpty(t, td)
+	require.NotEmpty(t, tm)
+	return map[string]homeassistant.State{
+		defPVEntityToday:      {EntityID: defPVEntityToday, State: "10.5", Attributes: map[string]any{pw.HAForecastAttribute: td}},
+		defPVEntityTomorrow:   {EntityID: defPVEntityTomorrow, State: "14.0", Attributes: map[string]any{pw.HAForecastAttribute: tm}},
+		defPVEntityLastPolled: {EntityID: defPVEntityLastPolled, State: polled.UTC().Format(time.RFC3339)},
+	}
+}
+
+// optCLIHAArgs are optCLIValidArgs with pv_source=ha_solcast and without the
+// Solcast url/apikey, which ha_solcast does not need.
+func optCLIHAArgs(extra ...string) []string {
+	args := optCLIValidArgs(append([]string{"--pv_source", "ha_solcast"}, extra...)...)
+	var filtered []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-u" || args[i] == "-k" {
+			i++
+			continue
+		}
+		filtered = append(filtered, args[i])
+	}
+	return filtered
+}
+
+// optCLIWithoutPVRow drops the PV row and its continuation line.
+func optCLIWithoutPVRow(out string) []string {
+	var lines []string
+	skipCont := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "PV ") {
+			skipCont = true
+			continue
+		}
+		if skipCont && strings.HasPrefix(l, "            ") && strings.Contains(l, "sensor.") {
+			continue
+		}
+		skipCont = false
+		lines = append(lines, l)
+	}
+	return lines
+}
+
+// T-0321 (AC-10, UX §6.1): `sbam optimize` with pv_source=ha_solcast. The
+// table matches optimize_table_ha.golden and differs from the solcast_api
+// table only in the PV row; the JSON output is identical for the same plan.
+func TestOptimizeTable_PVRowHA_T0321(t *testing.T) {
+	e := newOptCLIEnv(t)
+	pvTestObserveLogs(t)
+	polled := time.Date(2026, 10, 5, 5, 15, 0, 0, e.run.loc)
+
+	solcastOut, err := execOptCLI(t, optCLIValidArgs()...)
+	require.NoError(t, err)
+	solcastJSON, err := execOptCLI(t, optCLIValidArgs("--output", "json")...)
+	require.NoError(t, err)
+
+	for k, v := range optCLIHAPVStates(t, e, polled) {
+		e.run.ha.states[k] = v
+	}
+	fcCalls := e.run.fc.calls
+
+	t.Run("b: table golden with the HA PV row", func(t *testing.T) {
+		out, err := execOptCLI(t, optCLIHAArgs()...)
+		require.NoError(t, err)
+
+		if os.Getenv("SBAM_UPDATE_GOLDEN") == "1" {
+			require.NoError(t, os.WriteFile(optCLIHAGoldenPath, []byte(out), 0o644))
+		}
+		golden, err := os.ReadFile(optCLIHAGoldenPath)
+		require.NoError(t, err, "golden missing; run with SBAM_UPDATE_GOLDEN=1")
+		assert.Equal(t, strings.ReplaceAll(string(golden), "\r\n", "\n"), out)
+
+		assert.Contains(t, out, "PV          Solcast via HA (last polled 2026-10-05 05:15, 5 h ago)\n"+
+			"            sensor.solcast_pv_forecast_forecast_today, sensor.solcast_pv_forecast_forecast_tomorrow\n")
+		assert.Equal(t, optCLIWithoutPVRow(solcastOut), optCLIWithoutPVRow(out), "only the PV row differs from solcast_api")
+		assert.Equal(t, fcCalls, e.run.fc.calls, "the Solcast cache loader is not used")
+		assert.Equal(t, 0, e.spy.batteryWriter)
+		assert.Equal(t, 0, e.spy.dispatchWriter)
+	})
+
+	t.Run("a: solcast_api table still matches optimize_table.golden", func(t *testing.T) {
+		golden, err := os.ReadFile(optCLIGoldenPath)
+		require.NoError(t, err)
+		assert.Equal(t, strings.ReplaceAll(string(golden), "\r\n", "\n"), solcastOut)
+	})
+
+	t.Run("c: last poll not checked", func(t *testing.T) {
+		out, err := execOptCLI(t, optCLIHAArgs("--pv_entity_last_polled", "")...)
+		require.NoError(t, err)
+		assert.Contains(t, out, "PV          Solcast via HA (last poll not checked)\n")
+	})
+
+	t.Run("d: stale", func(t *testing.T) {
+		e.run.ha.states[defPVEntityLastPolled] = homeassistant.State{State: e.run.now.Add(-25 * time.Hour).UTC().Format(time.RFC3339)}
+		t.Cleanup(func() { e.run.ha.states[defPVEntityLastPolled] = optCLIHAPVStates(t, e, polled)[defPVEntityLastPolled] })
+		out, err := execOptCLI(t, optCLIHAArgs()...)
+		require.NoError(t, err)
+		assert.Contains(t, out, "PV          Solcast via HA (stale, counted as 0 Wh - optimizer_pv_forecast_stale)\n")
+	})
+
+	t.Run("JSON output is identical to solcast_api (no new field)", func(t *testing.T) {
+		out, err := execOptCLI(t, optCLIHAArgs("--output", "json")...)
+		require.NoError(t, err)
+		assert.JSONEq(t, solcastJSON, out)
+	})
 }

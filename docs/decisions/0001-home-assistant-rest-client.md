@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted 2026-10-02 (security review incorporated) |
+| Status | Accepted 2026-10-02 (security review incorporated). Scope amended 2026-10-26 by ADR-0006: the client is used in `scheduler_mode: optimize` and, with `pv_source: ha_solcast`, in every scheduler mode and by `estimate`; readers are the price, history, EV and PV entities. All other decisions below remain in force. |
 | Date | 2026-10-02 |
-| Related | SPEC-0001, `docs/design-reviews/2026-10-02-cost-optimized-dispatch.md`, atbore-phx/sbam#148 (future reuse) |
+| Related | SPEC-0001, `docs/design-reviews/2026-10-02-cost-optimized-dispatch.md`, atbore-phx/sbam#148 (future reuse), ADR-0006 and SPEC-0003 (scope extension to the PV forecast) |
 
 ## Context
 

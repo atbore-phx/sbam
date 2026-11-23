@@ -1,10 +1,21 @@
 # sbam — Smart Battery Advanced Manager
 
-Charge your Fronius Gen24+ battery intelligently using Solcast weather forecasts and MQTT.
+Charge your Fronius Gen24+ battery intelligently using Solcast weather forecasts (directly or from the HA Solcast integration) and MQTT.
 
 ## Documentation
 
 Full documentation, prerequisites, installation screenshots, configuration references, MQTT guide, CLI reference, and changelog are available at this link: **[Documentation](https://atbore-phx.github.io/sbam/)**
+
+## PV forecast source
+
+`pv_source` chooses where the PV forecast comes from:
+
+- `solcast_api` (default): sbam downloads the forecast from Solcast with `url` and `apikey`, as before.
+- `ha_solcast`: sbam reads the *Solcast PV Forecast* integration (HACS) in Home Assistant, including its dampening, and makes no Solcast requests itself. `url` and `apikey` are ignored. No token is needed: the add-on uses the Supervisor. The integration's **half-hourly breakdown attribute** must be enabled (it is by default). Check `pv_entity_today`, `pv_entity_tomorrow` and `pv_entity_last_polled` if Home Assistant is not in English or you renamed the entities.
+
+Anything that can write the configured PV entities in Home Assistant can influence when sbam charges from the grid.
+
+Full reference: **[PV Forecast configuration](https://atbore-phx.github.io/sbam/configuration/#pv-forecast)**
 
 ## Cost-optimized dispatch (optimize mode)
 

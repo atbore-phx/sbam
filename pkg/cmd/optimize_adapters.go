@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"sbam/pkg/homeassistant"
@@ -41,17 +40,10 @@ type optimizeDeps struct {
 
 // newHAClient resolves Home Assistant access (Supervisor token via os.Getenv
 // or ha_url + ha_token) and returns the GET-only client. Package-level so
-// tests can swap it, mirroring newStorage/newBatteryWriter.
+// tests can swap it, mirroring newStorage/newBatteryWriter. It delegates to
+// newHAAccessClient, shared with the PV source (SPEC-0003).
 var newHAClient = func(cfg OptimizeConfig) (haClient, error) {
-	access, err := homeassistant.ResolveAccess(cfg.HAURL, cfg.HAToken, os.Getenv)
-	if err != nil {
-		return nil, err
-	}
-	c, err := homeassistant.New(access)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
+	return newHAAccessClient(cfg.HAURL, cfg.HAToken)
 }
 
 // newForecastLoader returns the production cache-path forecast loader.
@@ -72,9 +64,17 @@ func newOptimizeDeps(cfg OptimizeConfig) (optimizeDeps, error) {
 	if err != nil {
 		return optimizeDeps{}, fmt.Errorf("home assistant client: %w", err)
 	}
+	// One HA client per process, shared by the optimizer and the PV reads
+	// with pv_source=ha_solcast (S-025 d).
+	var forecasts forecastLoader
+	if cfg.PV.isHA() {
+		forecasts = newHAForecastLoader(ha, cfg.PV.Entities)
+	} else {
+		forecasts = newForecastLoader()
+	}
 	return optimizeDeps{
 		HA:        ha,
-		Forecasts: newForecastLoader(),
+		Forecasts: forecasts,
 		Battery:   newBatteryReader(),
 	}, nil
 }

@@ -82,6 +82,10 @@ type optimizeResult struct {
 	// TZMismatch is true when the price entries' offset differs from the local
 	// offset (S-008); the runner may surface it.
 	TZMismatch bool
+	// PVLastPolled is the HA Solcast integration's last poll time when the
+	// staleness check ran (pv_source=ha_solcast); zero otherwise. Used only
+	// by the `sbam optimize` PV row (UX §6.1).
+	PVLastPolled time.Time
 }
 
 // reason returns the highest-precedence reason (last_decision_reason).
@@ -225,7 +229,16 @@ func runOptimization(ctx context.Context, deps optimizeDeps, cfg OptimizeConfig,
 	profile, degraded := cache.current(cfg, now)
 
 	// 4. PV forecast (always via the cache path).
-	periods, pvReasons := optLoadPV(ctx, deps.Forecasts, cfg, now)
+	if b, ok := deps.Forecasts.(pvHorizonBounder); ok && len(prices) > 0 {
+		// The plan horizon: the known prices, capped at DefaultMaxHours.
+		end := prices[len(prices)-1].Start.Add(time.Hour)
+		if capEnd := prices[0].Start.Add(time.Duration(optimize.DefaultMaxHours) * time.Hour); capEnd.Before(end) {
+			end = capEnd
+		}
+		b.boundHorizon(end)
+	}
+	periods, pvReasons, pvLastPolled := optLoadPV(ctx, deps.Forecasts, cfg, now)
+	res.PVLastPolled = pvLastPolled
 	degraded = append(degraded, pvReasons...)
 	pvStale := optHasReason(pvReasons, optimize.ReasonPVForecastStale)
 
@@ -516,24 +529,29 @@ func optFetchEntity(ctx context.Context, ha haClient, entity string, days int, n
 	return unit, samples, nil
 }
 
-// optLoadPV loads the Solcast forecasts via the cache path and converts them
-// to PV periods. Failures are degraded inputs, never a fallback.
-func optLoadPV(ctx context.Context, fl forecastLoader, cfg OptimizeConfig, now time.Time) ([]optimize.PVPeriod, []optimize.Reason) {
+// optLoadPV loads the PV forecasts (Solcast cache path or the HA Solcast
+// integration) and converts them to PV periods. Failures are degraded
+// inputs, never a fallback. lastPolled is the HA integration's last poll
+// time when known (zero otherwise).
+func optLoadPV(ctx context.Context, fl forecastLoader, cfg OptimizeConfig, now time.Time) (periods []optimize.PVPeriod, reasons []optimize.Reason, lastPolled time.Time) {
 	if fl == nil {
-		return nil, []optimize.Reason{optimize.ReasonPVForecastMissing}
+		return nil, []optimize.Reason{optimize.ReasonPVForecastMissing}, time.Time{}
 	}
 	forecasts, meta, err := fl.Load(ctx, cfg, now)
 	if err != nil {
 		u.Log.Warnw("optimizer degraded input", "reason", optimize.ReasonPVForecastMissing, "error", err)
-		return nil, []optimize.Reason{optimize.ReasonPVForecastMissing}
+		return nil, []optimize.Reason{optimize.ReasonPVForecastMissing}, time.Time{}
 	}
-	var reasons []optimize.Reason
+	for _, s := range meta.Sources {
+		if !s.LastPolled.IsZero() {
+			lastPolled = s.LastPolled
+		}
+	}
 	if meta.AnyStale() {
 		reasons = append(reasons, optimize.ReasonPVForecastStale)
 	} else if meta.AnyMissing() {
 		reasons = append(reasons, optimize.ReasonPVForecastMissing)
 	}
-	var periods []optimize.PVPeriod
 	dropped := 0
 	for _, list := range forecasts {
 		for _, f := range list {
@@ -548,7 +566,7 @@ func optLoadPV(ctx context.Context, fl forecastLoader, cfg OptimizeConfig, now t
 	if dropped > 0 {
 		u.Log.Debugw("solcast periods dropped", "count", dropped)
 	}
-	return periods, reasons
+	return periods, reasons, lastPolled
 }
 
 // optParams maps the configuration to solver parameters.

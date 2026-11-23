@@ -21,11 +21,15 @@ sbam schedule [flags]
 
 | Flag | Env var | Description | Default |
 |------|---------|-------------|---------|
-| `-k, --apikey` | `APIKEY` | Solcast API key | — |
-| `-u, --url` | `URL` | Forecast URL(s), comma-separated | — |
-| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix | `cached_forecast` |
-| `-n, --cache_forecast` | `CACHE_FORECAST` | Enable forecast caching | `false` |
-| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds | `7200` |
+| `--pv_source` | `PV_SOURCE` | PV forecast source: `solcast_api` (download from Solcast with url/apikey) or `ha_solcast` (read the Home Assistant Solcast PV Forecast integration) | `solcast_api` |
+| `--pv_entity_today` | `PV_ENTITY_TODAY` | Solcast integration sensor with today's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_today` |
+| `--pv_entity_tomorrow` | `PV_ENTITY_TOMORROW` | Solcast integration sensor with tomorrow's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+| `--pv_entity_last_polled` | `PV_ENTITY_LAST_POLLED` | Solcast integration "API last polled" sensor; forecasts older than 24 h are not used; empty disables the check (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_api_last_polled` |
+| `-k, --apikey` | `APIKEY` | Solcast API key (required with `pv_source=solcast_api`) | — |
+| `-u, --url` | `URL` | Solcast forecast URL(s), comma-separated (required with `pv_source=solcast_api`) | — |
+| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix (`solcast_api` only) | `cached_forecast` |
+| `-n, --cache_forecast` | `CACHE_FORECAST` | Enable forecast caching (`solcast_api` only) | `false` |
+| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds (`solcast_api` only) | `7200` |
 | `-t, --crontab` | `CRONTAB` | Cron expression (deprecated) | `0 0 0 0 0` (crontab disabled)|
 | `--scheduler_mode` | `SCHEDULER_MODE` | Scheduling mode (`crontab`, `windows` or `optimize`) | `crontab` |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
@@ -60,7 +64,7 @@ sbam schedule [flags]
 | `--mqtt_tls_client_cert` | `MQTT_TLS_CLIENT_CERT` | MQTT TLS client cert file | — |
 | `--mqtt_tls_client_cert_key` | `MQTT_TLS_CLIENT_CERT_KEY` | MQTT TLS client key file | — |
 | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | Skip TLS verification | `false` |
-| `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
+| `--ha_url` | `HA_URL` | Home Assistant base URL for `scheduler_mode=optimize` or `pv_source=ha_solcast` (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
 | `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
 | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
@@ -78,7 +82,7 @@ sbam schedule [flags]
 | `--opt_purchase_surcharge` | `OPTIMIZER_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
 | `--opt_dry_run` | `OPTIMIZER_DRY_RUN` | Compute and publish the plan without writing to the inverter | `true` |
 
-The `--ha_*` and `--opt_*` flags are used only with `--scheduler_mode optimize`. In `config.yaml` the same options live under the `optimizer:` map (`--opt_price_entity` → `optimizer.price_entity`). See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
+The `--opt_*` flags are used only with `--scheduler_mode optimize`. The `--ha_*` flags are used with `--scheduler_mode optimize` and with `--pv_source ha_solcast` (any scheduler mode); pass the token as `HA_TOKEN` in the environment. The `--pv_entity_*` flags are used only with `--pv_source ha_solcast`; see [Configuration → PV Forecast](configuration.md#pv-forecast). In `config.yaml` the same options live under the `optimizer:` map (`--opt_price_entity` → `optimizer.price_entity`). See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
 
 ### `optimize`
 
@@ -94,14 +98,18 @@ sbam optimize [flags]
 |------|---------|-------------|---------|
 | `--dry-run` | — | Print the plan only. Always on; `--dry-run=false` is rejected with exit code 1. Command-local, not a config key. | `true` |
 | `--output` | — | Output format: `table` or `json` | `table` |
-| `-u, --url` | `URL` | Solcast forecast URL(s), comma-separated | — |
-| `-k, --apikey` | `APIKEY` | Solcast API key | — |
+| `--pv_source` | `PV_SOURCE` | PV forecast source: `solcast_api` or `ha_solcast` | `solcast_api` |
+| `--pv_entity_today` | `PV_ENTITY_TODAY` | Solcast integration sensor with today's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_today` |
+| `--pv_entity_tomorrow` | `PV_ENTITY_TOMORROW` | Solcast integration sensor with tomorrow's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+| `--pv_entity_last_polled` | `PV_ENTITY_LAST_POLLED` | Solcast integration "API last polled" sensor; empty disables the 24 h staleness check (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_api_last_polled` |
+| `-u, --url` | `URL` | Solcast forecast URL(s), comma-separated (used with `pv_source=solcast_api`) | — |
+| `-k, --apikey` | `APIKEY` | Solcast API key (used with `pv_source=solcast_api`) | — |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
-| `-n, --cache_forecast` | `CACHE_FORECAST` | Accepted for compatibility; the optimizer always uses the forecast cache | `false` |
-| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix | `cached_forecast` |
-| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds | `7200` |
+| `-n, --cache_forecast` | `CACHE_FORECAST` | Accepted for compatibility; with `solcast_api` the optimizer always uses the forecast cache | `false` |
+| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix (`solcast_api` only) | `cached_forecast` |
+| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds (`solcast_api` only) | `7200` |
 | `-c, --pw_consumption` | `PW_CONSUMPTION` | Daily consumption (Wh); static fallback for hours without history. Must be > 0. | `0` |
-| `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
+| `--ha_url` | `HA_URL` | Home Assistant base URL for `scheduler_mode=optimize` or `pv_source=ha_solcast` (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
 | `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
 | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
@@ -130,6 +138,8 @@ sbam optimize -H 192.168.1.100 -k "$APIKEY" -u "$SOLCAST_URL" -c 11000 \
   --opt_purchase_surcharge "0.52,0.52,0.52,0.52,0.52,0.52,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,2.04,2.04,2.04,2.04,0.78,0.78,0.78"
 ```
 
+With the Home Assistant Solcast integration as PV source, replace `-k`/`-u` with `--pv_source ha_solcast` (the token still comes from `HA_TOKEN`).
+
 **Table output** (`--output table`, rows shortened here; the real output prints every hour):
 
 ```
@@ -156,7 +166,14 @@ Reasons         optimizer_self_consume_no_gain
 
 - `START` is local time. On DST days, repeated or skipped hours get the UTC offset appended, e.g. `Sun 10-26 02:00+02`.
 - `static fallback hours` shows `none`, `some, see log (optimizer_consumption_static_fallback)` or `all (optimizer_consumption_entity_not_found)`.
-- `PV` shows `forecast cache`, or that missing or stale forecast hours are counted as 0 Wh.
+- `PV` names the source, `Solcast` (`pv_source: solcast_api`) or `Solcast via HA` (`pv_source: ha_solcast`), followed by the status: `forecast cache`, the integration's last poll, or that missing or stale forecast hours are counted as 0 Wh. With `ha_solcast` a continuation line lists the two forecast entities:
+
+```
+PV          Solcast via HA (last polled 2026-10-05 05:15, 5 h ago)
+            sensor.solcast_pv_forecast_forecast_today, sensor.solcast_pv_forecast_forecast_tomorrow
+```
+
+With `ha_solcast` the status is `last polled <local time>, <n> h ago`, `last poll not checked` (check disabled or the entity unreadable), `stale, counted as 0 Wh - optimizer_pv_forecast_stale` or `missing hours counted as 0 Wh - optimizer_pv_forecast_missing`. The JSON output has no PV source field.
 
 **Fallback output.** When no usable plan can be computed, no table is printed:
 
@@ -190,13 +207,28 @@ sbam estimate [flags]
 
 | Flag | Env var | Description | Default |
 |------|---------|-------------|---------|
-| `-k, --apikey` | `APIKEY` | Solcast API key | — |
-| `-u, --url` | `URL` | Forecast URL(s), comma-separated | — |
-| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix | `cached_forecast` |
-| `-n, --cache_forecast` | `CACHE_FORECAST` | Enable forecast caching | `false` |
-| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds | `7200` |
+| `--pv_source` | `PV_SOURCE` | PV forecast source: `solcast_api` or `ha_solcast` | `solcast_api` |
+| `--pv_entity_today` | `PV_ENTITY_TODAY` | Solcast integration sensor with today's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_today` |
+| `--pv_entity_tomorrow` | `PV_ENTITY_TOMORROW` | Solcast integration sensor with tomorrow's forecast (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_forecast_tomorrow` |
+| `--pv_entity_last_polled` | `PV_ENTITY_LAST_POLLED` | Solcast integration "API last polled" sensor; empty disables the 24 h staleness check (`pv_source=ha_solcast`) | `sensor.solcast_pv_forecast_api_last_polled` |
+| `-k, --apikey` | `APIKEY` | Solcast API key (required with `pv_source=solcast_api`) | — |
+| `-u, --url` | `URL` | Solcast forecast URL(s), comma-separated (required with `pv_source=solcast_api`) | — |
+| `-f, --cache_file_prefix` | `CACHE_FILE_PREFIX` | Cache file name prefix (`solcast_api` only) | `cached_forecast` |
+| `-n, --cache_forecast` | `CACHE_FORECAST` | Enable forecast caching (`solcast_api` only) | `false` |
+| `-l, --cache_time` | `CACHE_TIME` | Cache TTL in seconds (`solcast_api` only) | `7200` |
 | `--forecast_horizon` | `FORECAST_HORIZON` | Forecast horizon mode | `default` |
 | `-H, --fronius_ip` | `FRONIUS_IP` | Fronius inverter LAN IP | — |
+| `--ha_url` | `HA_URL` | Home Assistant base URL for `pv_source=ha_solcast` (not needed in the HA add-on) | — |
+| `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
+
+With `pv_source: ha_solcast`, `estimate` reads the integration's entities once, prints the day's total and exits. It exits with code 1 when the configuration is invalid or the forecast cannot be read or is stale, so use it to check the setup before running `schedule`:
+
+```bash
+export HA_TOKEN=<long-lived-token>
+sbam estimate --pv_source ha_solcast --ha_url http://homeassistant.local:8123 -H 192.168.1.100
+```
+
+With `pv_source: solcast_api`, `estimate` also exits with code 1 on an invalid configuration or a battery read error (earlier versions exited 0 on configuration errors and crashed on read errors). A failed Solcast download is logged and still exits 0, as before.
 
 ### `configure`
 

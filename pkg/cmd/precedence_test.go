@@ -511,3 +511,73 @@ func TestOptimizerGroup_FlagsBindNestedKeys(t *testing.T) {
 		assert.Equal(t, []string{spec.key}, f.Annotations[flagAnnotationViperKey], spec.flag)
 	}
 }
+
+// T-0322 (AC-11): flag > env > yaml > default for the four pv_* keys on
+// schedule, estimate and optimize; estimate also takes --ha_url/--ha_token.
+func TestPrecedence_PVSource_T0322(t *testing.T) {
+	keys := []struct {
+		key, env, def, yaml, envVal, flag string
+	}{
+		{keyPVSource, "PV_SOURCE", defPVSource, "ha_solcast", "solcast_api", "ha_solcast"},
+		{keyPVEntityToday, "PV_ENTITY_TODAY", defPVEntityToday, "sensor.yaml_today", "sensor.env_today", "sensor.flag_today"},
+		{keyPVEntityTomorrow, "PV_ENTITY_TOMORROW", defPVEntityTomorrow, "sensor.yaml_tomorrow", "sensor.env_tomorrow", "sensor.flag_tomorrow"},
+		{keyPVEntityLastPolled, "PV_ENTITY_LAST_POLLED", defPVEntityLastPolled, "sensor.yaml_polled", "sensor.env_polled", ""},
+	}
+	layers := []struct {
+		name            string
+		yaml, env, flag bool
+		pick            func(def, yaml, env, flag string) string
+	}{
+		{"default", false, false, false, func(d, _, _, _ string) string { return d }},
+		{"yaml beats default", true, false, false, func(_, y, _, _ string) string { return y }},
+		{"env beats yaml", true, true, false, func(_, _, e, _ string) string { return e }},
+		{"flag beats env", true, true, true, func(_, _, _, f string) string { return f }},
+	}
+	for _, c := range []*cobra.Command{scdCmd, estCmd, optCmd} {
+		for _, l := range layers {
+			t.Run(c.Name()+"/"+l.name, func(t *testing.T) {
+				resetViper(t)
+				t.Cleanup(func() { pvPrecedenceResetFlags(c) })
+				var yaml strings.Builder
+				for _, k := range keys {
+					if l.yaml {
+						yaml.WriteString(k.key + ": " + k.yaml + "\n")
+					}
+					if l.env {
+						t.Setenv(k.env, k.envVal)
+					}
+					if l.flag {
+						require.NoError(t, c.Flags().Set(k.key, k.flag))
+					}
+				}
+				if l.yaml {
+					writeConfig(t, yaml.String())
+				}
+				require.NoError(t, bindFlags(c))
+				for _, k := range keys {
+					assert.Equal(t, l.pick(k.def, k.yaml, k.envVal, k.flag), viper.GetString(k.key), k.key)
+				}
+			})
+		}
+	}
+
+	t.Run("estimate takes ha_url/ha_token but no opt_* flags", func(t *testing.T) {
+		haURL, haToken := estCmd.Flags().Lookup("ha_url"), estCmd.Flags().Lookup("ha_token")
+		require.NotNil(t, haURL)
+		require.NotNil(t, haToken)
+		assert.Nil(t, estCmd.Flags().Lookup("opt_price_entity"))
+		assert.Equal(t, helpHAURL, haURL.Usage)
+		assert.Equal(t, helpHAToken, haToken.Usage)
+		assert.Equal(t, []string{keyHAURL}, haURL.Annotations[flagAnnotationViperKey], "bound to the nested key")
+		assert.Equal(t, []string{keyHAToken}, haToken.Annotations[flagAnnotationViperKey], "bound to the nested key")
+	})
+}
+
+// pvPrecedenceResetFlags restores the pv_* flags of a shared command.
+func pvPrecedenceResetFlags(c *cobra.Command) {
+	for _, k := range []string{keyPVSource, keyPVEntityToday, keyPVEntityTomorrow, keyPVEntityLastPolled} {
+		f := c.Flags().Lookup(k)
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
+}
