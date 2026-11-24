@@ -183,6 +183,8 @@ pkg/
     consumption_test.go       - Unit tests for the consumption profile
     price.go                  - Nordpool price parsing, hourly means, buy/sell derivation
     price_test.go             - Unit tests for price parsing and buy/sell
+    tariff.go                 - Fixed time-of-use tariff (optimizer.price_source: static): hourly prices and buy/sell per hour of day
+    tariff_test.go            - Unit tests for the fixed tariff and its grid
     pv.go                     - Solcast PV periods to hourly slot energy
     pv_test.go                - Unit tests for PV slotting
     grid.go                   - Hourly slot and grid construction (DST-aware)
@@ -288,7 +290,7 @@ Rules:
 
 - Configuration hierarchy: CLI flags > environment variables > config.yaml
 - All config is managed via Viper with `AutomaticEnv()` and cobra flag binding
-- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_entity`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
+- Key parameters: `url`, `apikey`, `fronius_ip`, `pw_consumption`, `start_hr`, `end_hr`, `crontab`, `pw_batt_reserve`, `max_charge`, `pw_lwt`, `pw_upt`, `mqtt_enabled`, `mqtt_broker`, `mqtt_client_id`, `mqtt_username`, `mqtt_password`, `mqtt_topic_prefix`, `mqtt_ha_discovery`, `mqtt_ha_discovery_prefix`, `scheduler_mode`, `sunspec_type`, `optimizer.*` (`price_source`, `price_entity`, `static.buy_price`, `static.sell_price`, `static.currency`, `consumption_entity`, `ev_entity`, `ev_guard_w`, `history_days`, `battery_efficiency`, `max_charge_rate_w`, `max_discharge_rate_w`, `min_soc_pct`, `vat_rate`, `sell_margin`, `min_gain`, `wear_cost`, `purchase_surcharge`, `dry_run`, `ha_url`, `ha_token`; flags `--opt_*`/`--ha_*`, env `OPTIMIZER_*`, `HA_URL`/`HA_TOKEN`)
 
 ### Build
 

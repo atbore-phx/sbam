@@ -865,6 +865,8 @@ func logOptimizeModeActive(cfg OptimizeConfig) {
 	}
 	u.Log.Infow("optimize mode active",
 		"ha_access", access,
+		"price_source", cfg.PriceSource,
+		"utc_offset", optOffset(time.Now(), optLoc(cfg)),
 		"dry_run", cfg.DryRun,
 		"forecast_cache", true,
 		"horizon_max_h", optimize.DefaultMaxHours,

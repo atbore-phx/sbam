@@ -16,7 +16,8 @@ import (
 //
 // The flat keys of the first dev builds (opt_* in config.yaml, OPT_* in the
 // environment) are still read for one release, with a deprecation warning,
-// when the nested key is not set.
+// when the nested key is not set. Keys added after the flat layout have
+// neither.
 
 // optimizerGroup is the config map that holds the optimizer options.
 const optimizerGroup = "optimizer"
@@ -33,7 +34,11 @@ type optKeySpec struct {
 	env       string // primary env var, e.g. OPTIMIZER_PRICE_ENTITY
 	aliasEnv  string // also accepted: HA_URL/HA_TOKEN (current) or OPT_* (deprecated)
 	aliasDepr bool   // aliasEnv is deprecated
+	flat      bool   // has the flat config key and aliasEnv; false for keys added after the flat layout
 }
+
+// optNoFlatKey in the alias column marks a key added after the flat layout.
+const optNoFlatKey = "-"
 
 func optNestedKey(name string) string { return optimizerGroup + "." + name }
 
@@ -48,7 +53,11 @@ var optKeySpecs = func() []optKeySpec {
 		depr              bool
 	}
 	entries := []entry{
+		{"price_source", "opt_price_source", optNoFlatKey, false},
 		{"price_entity", "opt_price_entity", "", true},
+		{"static.buy_price", "opt_static_buy_price", optNoFlatKey, false},
+		{"static.sell_price", "opt_static_sell_price", optNoFlatKey, false},
+		{"static.currency", "opt_static_currency", optNoFlatKey, false},
 		{"consumption_entity", "opt_consumption_entity", "", true},
 		{"ev_entity", "opt_ev_entity", "", true},
 		{"ev_guard_w", "opt_ev_guard_w", "", true},
@@ -68,11 +77,13 @@ var optKeySpecs = func() []optKeySpec {
 	}
 	out := make([]optKeySpec, 0, len(entries))
 	for _, e := range entries {
-		s := optKeySpec{key: optNestedKey(e.name), flag: e.flag}
+		s := optKeySpec{key: optNestedKey(e.name), flag: e.flag, flat: e.alias != optNoFlatKey}
 		s.env = optEnvName(s.key)
-		s.aliasEnv = e.alias
-		s.aliasDepr = e.depr
-		if s.aliasEnv == "" {
+		if s.flat {
+			s.aliasEnv = e.alias
+			s.aliasDepr = e.depr
+		}
+		if s.flat && s.aliasEnv == "" {
 			s.aliasEnv = strings.ToUpper(e.flag) // OPT_PRICE_ENTITY
 		}
 		out = append(out, s)
@@ -95,7 +106,11 @@ func optSpecByKey(key string) (optKeySpec, bool) {
 // variables (primary first). Safe to call more than once.
 func bindOptimizeEnv() {
 	for _, s := range optKeySpecs {
-		_ = viper.BindEnv(s.key, s.env, s.aliasEnv)
+		names := []string{s.key, s.env}
+		if s.flat {
+			names = append(names, s.aliasEnv)
+		}
+		_ = viper.BindEnv(names...)
 	}
 }
 
@@ -106,7 +121,7 @@ func optGet(key string, deprecated func(string)) any {
 	if viper.IsSet(key) {
 		return viper.Get(key)
 	}
-	if s, ok := optSpecByKey(key); ok && viper.InConfig(s.flag) {
+	if s, ok := optSpecByKey(key); ok && s.flat && viper.InConfig(s.flag) {
 		if deprecated != nil {
 			deprecated(fmt.Sprintf("config key %s is deprecated; move it to %s:", s.flag, s.key))
 		}

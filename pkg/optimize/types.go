@@ -39,7 +39,7 @@ type Hour struct {
 	// slot 0 can be < 1. It already scales ConsumptionWh, PVWh and the rate
 	// limits applied by the solver.
 	Fraction      float64
-	SpotInclVAT   float64 // hourly mean spot price incl. VAT, per kWh
+	SpotInclVAT   float64 // hourly mean spot price incl. VAT, per kWh; the buy price with a fixed tariff
 	Buy           float64 // buy price per kWh (AC-6)
 	Sell          float64 // sell price per kWh (AC-6), may be negative
 	ConsumptionWh float64 // expected household consumption in the slot

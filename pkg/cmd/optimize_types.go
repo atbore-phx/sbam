@@ -1,6 +1,10 @@
 package cmd
 
-import "time"
+import (
+	"time"
+
+	"sbam/pkg/optimize"
+)
 
 // OptimizeConfig holds the validated ha_* and opt_* settings for
 // scheduler_mode: optimize and the `sbam optimize` command (SPEC-0001).
@@ -12,7 +16,9 @@ type OptimizeConfig struct {
 	HAURL   string
 	HAToken string
 
-	PriceEntity       string
+	PriceSource       string          // optimizer.price_source: nordpool (default) or static
+	PriceEntity       string          // nordpool only
+	Tariff            optimize.Tariff // optimizer.static; static only
 	ConsumptionEntity string
 	EVEntity          string  // optional; "" disables EV subtraction and the EV guard
 	EVGuardW          float64 // opt_ev_guard_w; EV power that engages the guard, 0 disables (SPEC-0002)

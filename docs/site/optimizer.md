@@ -1,6 +1,6 @@
 # Cost-optimized Dispatch
 
-`scheduler_mode: optimize` replaces fixed charge windows with an hourly plan that minimizes the expected electricity cost. Every hour, sbam reads spot prices and household consumption history from Home Assistant, combines them with the Solcast forecast and the battery's state of charge, and decides what the battery should do in the current hour.
+`scheduler_mode: optimize` replaces fixed charge windows with an hourly plan that minimizes the expected electricity cost. Every hour, sbam reads spot prices (or a [fixed tariff](#fixed-time-of-use-tariffs)) and household consumption history from Home Assistant, combines them with the Solcast forecast and the battery's state of charge, and decides what the battery should do in the current hour.
 
 !!! warning "Dry run is the default"
     `optimizer.dry_run` defaults to `true` on every deployment target. In dry run, sbam computes and publishes the plan but writes nothing to the inverter. Keep it that way until you have compared the plan with reality for a few days and worked through the [hardware checklist](#before-going-live).
@@ -23,7 +23,7 @@ Existing `crontab` and `windows` installations are not affected. The optimizer r
 
 | Input | Source | Used for |
 |-------|--------|----------|
-| Spot price per hour, incl. VAT | Nordpool sensor in Home Assistant (`optimizer.price_entity`). Quarter-hour prices are averaged per hour. | Buy and sell price |
+| Spot price per hour, incl. VAT | Nordpool sensor in Home Assistant (`optimizer.price_entity`). Quarter-hour prices are averaged per hour. With `optimizer.price_source: static`, a [fixed tariff](#fixed-time-of-use-tariffs) from the configuration instead. | Buy and sell price |
 | Household consumption profile | 10 days (`optimizer.history_days`) of history of the load power sensor (`optimizer.consumption_entity`), minus the EV charger (`optimizer.ev_entity`, optional) | Expected consumption per hour of day |
 | PV forecast | Solcast, always through the forecast cache (`cache_file_prefix`, `cache_time`). After Solcast reports its daily limit as exceeded, sbam stops asking until the limit resets at 00:00 UTC and uses the cache; the log says so once at Info | Expected PV production per hour |
 | Battery SoC and capacity | Fronius Solar API | Starting energy |
@@ -45,6 +45,41 @@ sell[h] = spot_incl_vat[h] / (1 + optimizer.vat_rate) - optimizer.sell_margin
 
 **Example.** Spot 2.00 DKK/kWh incl. VAT at 18:00, surcharge for hour 18 = 2.04, `optimizer.vat_rate` = 0.25, `optimizer.sell_margin` = 0.05:
 `buy = 2.00 + 2.04 = 4.04` and `sell = 2.00 / 1.25 - 0.05 = 1.55`.
+
+### Fixed time-of-use tariffs (`optimizer.price_source: static`) { #fixed-time-of-use-tariffs }
+
+Some contracts have no spot price: the buy price and the feed-in price are fixed per time of day. For these, set `optimizer.price_source` to `static` and enter both prices as 24 hourly values in the `optimizer.static` map. For every hour `h`:
+
+```
+buy[h]  = optimizer.static.buy_price[hour_of_day(h)]
+sell[h] = optimizer.static.sell_price[hour_of_day(h)]
+```
+
+- Both lists hold exactly 24 values in currency/kWh, first value = 00:00–01:00, each between `-5` and `50`. Enter the buy price as you pay it (incl. tax) and the sell price as you are paid for exports. sbam logs a warning when the sell list is on average higher than the buy list, because the two are then most likely swapped.
+- The hours are local time of the sbam process. The add-on runs in the Home Assistant time zone. With Docker or the binary, set the `TZ` environment variable (for example `TZ=Australia/Perth`) when the process does not run in your time zone. The startup log line `optimize mode active` shows the offset in use as `utc_offset`.
+- The same 24 values apply to every day. A tariff that differs between weekdays and weekends is not supported.
+- No price sensor is read. `optimizer.price_entity`, `optimizer.vat_rate`, `optimizer.sell_margin` and `optimizer.purchase_surcharge` are not used; sbam logs a warning at startup when the sell margin or a surcharge is set. The VAT rate, sell margin and surcharge must still hold valid values.
+- Home Assistant is only needed for the consumption history (`optimizer.consumption_entity`). When it cannot be reached or rejects the token, sbam keeps planning: with the last consumption profile for up to 26 hours, then with `pw_consumption / 24` for every hour and the reason `optimizer_consumption_static_fallback`. The warning `consumption profile build failed` in the log has the cause.
+- Every hour has a price, so the horizon is always the full 36 hours.
+- `optimizer.static.currency` is optional (for example `AUD`). It is the unit of the expected cost in the `sbam optimize` output and of the Expected Cost sensor in Home Assistant.
+- `optimizer.min_gain` and `optimizer.wear_cost` are amounts in your currency. The default `min_gain` of `0.5` suits prices of a few currency units per kWh. With prices well below 1 per kWh, lower it (for example `0.05`), or the plan stays in `self_consume`.
+
+**Example.** Synergy Midday Saver (Western Australia): cheap from 09:00 to 15:00, peak from 15:00 to 21:00, with a higher feed-in price in the peak band.
+
+```yaml
+scheduler_mode: optimize
+optimizer:
+  price_source: static
+  static:
+    buy_price: "0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.086151,0.086151,0.086151,0.086151,0.086151,0.086151,0.538446,0.538446,0.538446,0.538446,0.538446,0.538446,0.236916,0.236916,0.236916"
+    sell_price: "0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.10,0.10,0.10,0.10,0.10,0.10,0.02,0.02,0.02"
+    currency: AUD
+  consumption_entity: sensor.solarnet_power_load_consumed
+  min_gain: 0.05
+  dry_run: true
+```
+
+In `config.yaml` both prices can also be YAML lists of 24 numbers. The CLI flags are `--opt_price_source`, `--opt_static_buy_price`, `--opt_static_sell_price` and `--opt_static_currency`; the environment variables are `OPTIMIZER_PRICE_SOURCE` and `OPTIMIZER_STATIC_BUY_PRICE`, `OPTIMIZER_STATIC_SELL_PRICE`, `OPTIMIZER_STATIC_CURRENCY`.
 
 ### Efficiency
 
@@ -120,7 +155,7 @@ With `optimizer.ev_entity` set, sbam reads the EV power every 60 seconds. When t
 
 ## Setup
 
-Check the [prerequisites](prerequisites.md#cost-optimizer-prerequisites) first: you need the Nordpool integration, a household load power sensor, enough recorder history, and access to the Home Assistant API.
+Check the [prerequisites](prerequisites.md#cost-optimizer-prerequisites) first: you need the Nordpool integration (not for a [fixed tariff](#fixed-time-of-use-tariffs)), a household load power sensor, enough recorder history, and access to the Home Assistant API.
 
 Two existing options matter in optimize mode:
 
@@ -136,6 +171,8 @@ Two existing options matter in optimize mode:
 5. Check `optimizer.vat_rate`, `optimizer.sell_margin` and the battery values.
 6. Leave `optimizer.dry_run` on.
 7. Save and restart the add-on.
+
+With a [fixed tariff](#fixed-time-of-use-tariffs), set `optimizer.price_source` to `static` and fill in the buy and sell price under `optimizer.static` instead of the price sensor, surcharges, VAT rate and sell margin (steps 3 to 5).
 
 No HA URL or token is needed. The add-on uses the Supervisor token through `homeassistant_api`. `optimizer.ha_url` and `optimizer.ha_token` are hidden optional options; set them only to use a different Home Assistant instance.
 
@@ -338,7 +375,7 @@ Any other command is rejected in optimize mode; none falls through to the handle
 
 | Code | Cause | What to do |
 |------|-------|-----------|
-| `optimizer_consumption_static_fallback` | At least one hour of day has fewer than 3 days of usable history; `pw_consumption / 24` is used for it. | Normal for the first days. Check that `pw_consumption` is realistic. |
+| `optimizer_consumption_static_fallback` | At least one hour of day has fewer than 3 days of usable history, or the history could not be read; `pw_consumption / 24` is used for it. | Normal for the first days. Otherwise look for `consumption profile build failed` in the log. Check that `pw_consumption` is realistic. |
 | `optimizer_consumption_entity_not_found` | The consumption entity does not exist or has no history; the whole profile is static. | Check `optimizer.consumption_entity` and the recorder. |
 | `optimizer_ev_entity_not_found` | `optimizer.ev_entity` is set but not found; EV subtraction is skipped. | Check `optimizer.ev_entity`. |
 | `optimizer_pv_forecast_missing` | Solcast has no data for some horizon hours; they count as 0 Wh. | Check the Solcast quota and `url`/`apikey`. On the free plan (10 requests per site per day), `cache_time` of about 3 h (`10800`) spreads the requests over the daylight hours; once the limit is reached sbam waits for the 00:00 UTC reset. |

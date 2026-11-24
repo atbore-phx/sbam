@@ -65,7 +65,7 @@ These are needed only for `scheduler_mode: optimize` ([Cost-optimized Dispatch](
 
 | Entity | Example | Requirements |
 |--------|---------|--------------|
-| Spot price sensor (`optimizer.price_entity`) | `sensor.nordpool_kwh_dk2_dkk_3_10_025` | From the [Nordpool integration](https://github.com/custom-components/nordpool), configured **with VAT** in your currency. Unit per kWh (or per MWh). Needs the `raw_today`/`raw_tomorrow` or `today`/`tomorrow` attributes; hourly and 15-minute prices both work. |
+| Spot price sensor (`optimizer.price_entity`) | `sensor.nordpool_kwh_dk2_dkk_3_10_025` | From the [Nordpool integration](https://github.com/custom-components/nordpool), configured **with VAT** in your currency. Unit per kWh (or per MWh). Needs the `raw_today`/`raw_tomorrow` or `today`/`tomorrow` attributes; hourly and 15-minute prices both work. Not needed with a [fixed tariff](optimizer.md#fixed-time-of-use-tariffs) (`optimizer.price_source: static`). |
 | Household load power sensor (`optimizer.consumption_entity`) | `sensor.solarnet_power_load_consumed` | Instantaneous power of the whole house in W or kW, recorded by the HA recorder. |
 | EV charger power sensor (`optimizer.ev_entity`, optional) | `sensor.tesla_wall_connector_total_power` | Power in W or kW. Its energy is subtracted from the household load, so EV charging does not distort the profile. |
 

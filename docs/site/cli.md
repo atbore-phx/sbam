@@ -62,7 +62,11 @@ sbam schedule [flags]
 | `--mqtt_tls_insecure_skip` | `MQTT_TLS_INSECURE_SKIP` | Skip TLS verification | `false` |
 | `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
-| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
+| `--opt_price_source` | `OPTIMIZER_PRICE_SOURCE` | Price source: `nordpool` (HA Nordpool sensor) or `static` (fixed tariff) | `nordpool` |
+| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT); required with `--opt_price_source nordpool` | — |
+| `--opt_static_buy_price` | `OPTIMIZER_STATIC_BUY_PRICE` | Fixed tariff: 24 comma-separated buy prices incl. tax, hour 00..23, each [-5, 50] | — |
+| `--opt_static_sell_price` | `OPTIMIZER_STATIC_SELL_PRICE` | Fixed tariff: 24 comma-separated sell prices, hour 00..23, each [-5, 50] | — |
+| `--opt_static_currency` | `OPTIMIZER_STATIC_CURRENCY` | Currency of the fixed tariff, e.g. `AUD` (optional) | — |
 | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
 | `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
 | `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |
@@ -78,7 +82,7 @@ sbam schedule [flags]
 | `--opt_purchase_surcharge` | `OPTIMIZER_PURCHASE_SURCHARGE` | 24 comma-separated surcharges incl. VAT, hour 00..23 | 24 × `0` |
 | `--opt_dry_run` | `OPTIMIZER_DRY_RUN` | Compute and publish the plan without writing to the inverter | `true` |
 
-The `--ha_*` and `--opt_*` flags are used only with `--scheduler_mode optimize`. In `config.yaml` the same options live under the `optimizer:` map (`--opt_price_entity` → `optimizer.price_entity`). See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
+The `--ha_*` and `--opt_*` flags are used only with `--scheduler_mode optimize`. In `config.yaml` the same options live under the `optimizer:` map (`--opt_price_entity` → `optimizer.price_entity`, `--opt_static_buy_price` → `optimizer.static.buy_price`). See [Configuration → Cost Optimizer](configuration.md#cost-optimizer) for valid ranges and the surcharge format. With `scheduler_mode: optimize`, a configuration error makes `sbam schedule` exit with code 1; in live mode it first attempts to restore inverter defaults.
 
 ### `optimize`
 
@@ -103,7 +107,11 @@ sbam optimize [flags]
 | `-c, --pw_consumption` | `PW_CONSUMPTION` | Daily consumption (Wh); static fallback for hours without history. Must be > 0. | `0` |
 | `--ha_url` | `HA_URL` | Home Assistant base URL (not needed in the HA add-on) | — |
 | `--ha_token` | `HA_TOKEN` | HA long-lived access token (secret; prefer the env var) | — |
-| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT) | — |
+| `--opt_price_source` | `OPTIMIZER_PRICE_SOURCE` | Price source: `nordpool` (HA Nordpool sensor) or `static` (fixed tariff) | `nordpool` |
+| `--opt_price_entity` | `OPTIMIZER_PRICE_ENTITY` | Nordpool price sensor entity ID (prices incl. VAT); required with `--opt_price_source nordpool` | — |
+| `--opt_static_buy_price` | `OPTIMIZER_STATIC_BUY_PRICE` | Fixed tariff: 24 comma-separated buy prices incl. tax, hour 00..23, each [-5, 50] | — |
+| `--opt_static_sell_price` | `OPTIMIZER_STATIC_SELL_PRICE` | Fixed tariff: 24 comma-separated sell prices, hour 00..23, each [-5, 50] | — |
+| `--opt_static_currency` | `OPTIMIZER_STATIC_CURRENCY` | Currency of the fixed tariff, e.g. `AUD` (optional) | — |
 | `--opt_consumption_entity` | `OPTIMIZER_CONSUMPTION_ENTITY` | Household load power sensor entity ID | — |
 | `--opt_ev_entity` | `OPTIMIZER_EV_ENTITY` | Optional EV charger power sensor entity ID | — |
 | `--opt_ev_guard_w` | `OPTIMIZER_EV_GUARD_W` | EV power in W above which the battery is held instead of discharging into the car in `self_consume` hours; 0 disables [0, 50000] | `1000` |

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"sbam/pkg/homeassistant"
 	"sbam/pkg/optimize"
@@ -22,7 +24,11 @@ const (
 	// keep the flat --opt_* / --ha_* names.
 	keyHAURL                 = "optimizer.ha_url"
 	keyHAToken               = "optimizer.ha_token"
+	keyOptPriceSource        = "optimizer.price_source"
 	keyOptPriceEntity        = "optimizer.price_entity"
+	keyOptStaticBuyPrice     = "optimizer.static.buy_price"
+	keyOptStaticSellPrice    = "optimizer.static.sell_price"
+	keyOptStaticCurrency     = "optimizer.static.currency"
 	keyOptConsumptionEntity  = "optimizer.consumption_entity"
 	keyOptEVEntity           = "optimizer.ev_entity"
 	keyOptHistoryDays        = "optimizer.history_days"
@@ -38,6 +44,7 @@ const (
 	keyOptDryRun             = "optimizer.dry_run"
 	keyOptEVGuardW           = "optimizer.ev_guard_w"
 	optCfgMaxEVGuardW        = 50000.0
+	optCfgMaxCurrencyLen     = 8
 	optCfgSurchargeHours     = 24
 	optCfgSurchargeMin       = -5.0
 	optCfgSurchargeMax       = 10.0
@@ -48,9 +55,16 @@ const (
 	optCfgDefaultCacheTime   = int32(7200)
 )
 
+// Price sources (optimizer.price_source).
+const (
+	optPriceSourceNordpool = "nordpool"
+	optPriceSourceStatic   = "static"
+)
+
 // Defaults (UX §2.1; opt_dry_run defaults to true for every target per the
 // SPEC-0001 amendment, overriding UX note A).
 const (
+	defOptPriceSource       = optPriceSourceNordpool
 	defOptHistoryDays       = 10
 	defOptBatteryEfficiency = 0.83
 	defOptMaxChargeRateW    = 4500.0
@@ -80,7 +94,11 @@ func registerOptimizeFlags(cmd *cobra.Command) {
 	}
 	f.String(flag(keyHAURL), "", "Home Assistant base URL (not needed in the HA add-on)")
 	f.String(flag(keyHAToken), "", "HA long-lived access token (prefer HA_TOKEN env var)")
-	f.String(flag(keyOptPriceEntity), "", "Nordpool price sensor entity ID (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025")
+	f.String(flag(keyOptPriceSource), defOptPriceSource, "Price source: nordpool (HA Nordpool sensor) or static (fixed tariff from opt_static_buy_price and opt_static_sell_price)")
+	f.String(flag(keyOptPriceEntity), "", "Nordpool price sensor entity ID (prices incl. VAT), e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025; required when opt_price_source is nordpool")
+	f.String(flag(keyOptStaticBuyPrice), "", "Static tariff buy price per kWh incl. tax: 24 comma-separated values, hour 00..23")
+	f.String(flag(keyOptStaticSellPrice), "", "Static tariff sell (feed-in) price per kWh: 24 comma-separated values, hour 00..23")
+	f.String(flag(keyOptStaticCurrency), "", "Currency of the static tariff, e.g. AUD (optional)")
 	f.String(flag(keyOptConsumptionEntity), "", "Household load power sensor entity ID")
 	f.String(flag(keyOptEVEntity), "", "Optional EV charger power sensor entity ID")
 	f.Int(flag(keyOptHistoryDays), defOptHistoryDays, "Days of consumption history used for the profile (1..30)")
@@ -172,8 +190,10 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 		cfg.ForecastMaxAge = optCfgMinForecastMaxAge
 	}
 
-	// Entity IDs (AC-20, S-014).
-	addErr(optCfgCheckEntity(keyOptPriceEntity, cfg.PriceEntity, true))
+	// Price source, then entity IDs (AC-20, S-014).
+	sourceProblems, sourceWarnings := optCfgPriceSource(&cfg, deprecated)
+	problems = append(problems, sourceProblems...)
+	warnings = append(warnings, sourceWarnings...)
 	addErr(optCfgCheckEntity(keyOptConsumptionEntity, cfg.ConsumptionEntity, true))
 	addErr(optCfgCheckEntity(keyOptEVEntity, cfg.EVEntity, false))
 
@@ -295,6 +315,7 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 
 	cfg.Surcharge, err = parseSurcharge(optGet(keyOptPurchaseSurcharge, deprecated))
 	addErr(err)
+	warnings = append(warnings, optCfgStaticIgnored(cfg)...)
 
 	cfg.DryRun = defOptDryRun
 	if dr := optGet(keyOptDryRun, deprecated); dr != nil {
@@ -311,30 +332,112 @@ func optCfgLoad(getenv func(string) string) (OptimizeConfig, []string, error) {
 	return cfg, warnings, nil
 }
 
-// parseSurcharge normalizes opt_purchase_surcharge from any accepted source
-// (UX §2.2) into 24 hourly values. nil or an empty string yields all zeros.
+// optCfgPriceSource reads optimizer.price_source and validates the inputs of that source.
+func optCfgPriceSource(cfg *OptimizeConfig, deprecated func(string)) (problems, warnings []string) {
+	addErr := func(err error) {
+		if err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	cfg.PriceSource = optGetString(keyOptPriceSource, deprecated)
+	if cfg.PriceSource == "" {
+		cfg.PriceSource = defOptPriceSource
+	}
+	switch cfg.PriceSource {
+	case optPriceSourceNordpool:
+		addErr(optCfgCheckEntity(keyOptPriceEntity, cfg.PriceEntity, true))
+	case optPriceSourceStatic:
+		var err error
+		cfg.Tariff.Buy, err = optCfgTariffPrices(keyOptStaticBuyPrice, deprecated)
+		addErr(err)
+		cfg.Tariff.Sell, err = optCfgTariffPrices(keyOptStaticSellPrice, deprecated)
+		addErr(err)
+		cfg.Tariff.Currency, err = optCfgCurrency(optGetString(keyOptStaticCurrency, deprecated))
+		addErr(err)
+		if len(problems) == 0 {
+			warnings = optCfgTariffSwapped(cfg.Tariff)
+		}
+	default:
+		problems = append(problems, fmt.Sprintf("%s: %q must be %s or %s", keyOptPriceSource, cfg.PriceSource, optPriceSourceNordpool, optPriceSourceStatic))
+	}
+	return problems, warnings
+}
+
+// optCfgTariffSwapped warns when the sell list averages above the buy list.
+func optCfgTariffSwapped(t optimize.Tariff) []string {
+	var buy, sell float64
+	for h := range t.Buy {
+		buy += t.Buy[h]
+		sell += t.Sell[h]
+	}
+	if sell <= buy {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s is on average higher than %s; check that the two lists are not swapped", keyOptStaticSellPrice, keyOptStaticBuyPrice)}
+}
+
+// optCfgTariffPrices reads one required 24-value price list of the static tariff.
+func optCfgTariffPrices(key string, deprecated func(string)) ([24]float64, error) {
+	vals, set, err := parseHourly(key, optGet(key, deprecated), optimize.MinPriceKWh, optimize.MaxPriceKWh)
+	if err == nil && !set {
+		err = fmt.Errorf("%s: required when %s=%s (24 comma-separated numbers, hour 00..23)", key, keyOptPriceSource, optPriceSourceStatic)
+	}
+	return vals, err
+}
+
+// optCfgCurrency validates the optional currency label of the static tariff.
+func optCfgCurrency(c string) (string, error) {
+	if utf8.RuneCountInString(c) > optCfgMaxCurrencyLen || strings.ContainsFunc(c, unicode.IsSpace) {
+		return "", fmt.Errorf("%s: %q must be at most %d characters without spaces, e.g. AUD", keyOptStaticCurrency, c, optCfgMaxCurrencyLen)
+	}
+	return c, nil
+}
+
+// optCfgStaticIgnored warns about spot-price settings that a static tariff does not use.
+func optCfgStaticIgnored(cfg OptimizeConfig) []string {
+	if cfg.PriceSource != optPriceSourceStatic {
+		return nil
+	}
+	var out []string
+	// vat_rate is left out: the add-on always sends its default.
+	if cfg.SellMargin != 0 {
+		out = append(out, fmt.Sprintf("%s is ignored when %s=%s; %s is the sell price", keyOptSellMargin, keyOptPriceSource, optPriceSourceStatic, keyOptStaticSellPrice))
+	}
+	if cfg.Surcharge != ([24]float64{}) {
+		out = append(out, fmt.Sprintf("%s is ignored when %s=%s; include it in %s", keyOptPurchaseSurcharge, keyOptPriceSource, optPriceSourceStatic, keyOptStaticBuyPrice))
+	}
+	return out
+}
+
+// parseSurcharge normalizes opt_purchase_surcharge (UX §2.2) into 24 hourly
+// values. nil or an empty string yields all zeros.
 func parseSurcharge(v any) ([24]float64, error) {
-	var out [24]float64
+	out, _, err := parseHourly(keyOptPurchaseSurcharge, v, optCfgSurchargeMin, optCfgSurchargeMax)
+	return out, err
+}
+
+// parseHourly normalizes a 24-value hourly option, each value in [lo, hi]; set is false for nil or empty.
+func parseHourly(key string, v any, lo, hi float64) (out [24]float64, set bool, err error) {
 	var items []string
 	switch t := v.(type) {
 	case nil:
-		return out, nil
+		return out, false, nil
 	case string:
 		if strings.TrimSpace(t) == "" {
-			return out, nil
+			return out, false, nil
 		}
 		items = strings.Split(t, ",")
 	case []string:
 		items = t
 	case []any:
 		if len(t) != optCfgSurchargeHours {
-			return out, optCfgSurchargeCountErr(len(t))
+			return out, true, optCfgHourlyCountErr(key, len(t))
 		}
 		items = make([]string, len(t))
 		for i, e := range t {
 			s, ok := optCfgScalarString(e)
 			if !ok {
-				return out, fmt.Errorf("%s: item %d (%v) is not a number", keyOptPurchaseSurcharge, i+1, e)
+				return out, true, fmt.Errorf("%s: item %d (%v) is not a number", key, i+1, e)
 			}
 			items[i] = s
 		}
@@ -344,28 +447,28 @@ func parseSurcharge(v any) ([24]float64, error) {
 			items[i] = strconv.FormatFloat(e, 'g', -1, 64)
 		}
 	default:
-		return out, fmt.Errorf("%s: unsupported value type %T; use 24 comma-separated numbers or a YAML list", keyOptPurchaseSurcharge, v)
+		return out, true, fmt.Errorf("%s: unsupported value type %T; use 24 comma-separated numbers or a YAML list", key, v)
 	}
 
 	if len(items) != optCfgSurchargeHours {
-		return out, optCfgSurchargeCountErr(len(items))
+		return out, true, optCfgHourlyCountErr(key, len(items))
 	}
 	for i, raw := range items {
 		s := strings.TrimSpace(raw)
 		f, err := strconv.ParseFloat(s, 64)
 		if s == "" || err != nil {
-			return out, fmt.Errorf("%s: item %d (%q) is not a number", keyOptPurchaseSurcharge, i+1, s)
+			return out, true, fmt.Errorf("%s: item %d (%q) is not a number", key, i+1, s)
 		}
-		if math.IsNaN(f) || math.IsInf(f, 0) || f < optCfgSurchargeMin || f > optCfgSurchargeMax {
-			return out, fmt.Errorf("%s: item %d (%q) must be a finite number between %v and %v", keyOptPurchaseSurcharge, i+1, s, optCfgSurchargeMin, optCfgSurchargeMax)
+		if math.IsNaN(f) || math.IsInf(f, 0) || f < lo || f > hi {
+			return out, true, fmt.Errorf("%s: item %d (%q) must be a finite number between %v and %v", key, i+1, s, lo, hi)
 		}
 		out[i] = f
 	}
-	return out, nil
+	return out, true, nil
 }
 
-func optCfgSurchargeCountErr(got int) error {
-	return fmt.Errorf("%s: expected exactly 24 comma-separated numbers (hour 00..23), got %d; use '.' as decimal separator", keyOptPurchaseSurcharge, got)
+func optCfgHourlyCountErr(key string, got int) error {
+	return fmt.Errorf("%s: expected exactly 24 comma-separated numbers (hour 00..23), got %d; use '.' as decimal separator", key, got)
 }
 
 // optCfgEntityExample returns a typical entity ID for the given key, used in

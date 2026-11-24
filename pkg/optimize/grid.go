@@ -11,6 +11,9 @@ type GridInput struct {
 	// Prices are hourly spot prices incl. VAT keyed by absolute hour start.
 	// Order does not matter; slots are matched by instant.
 	Prices []HourPrice
+	// BuySell returns the buy and sell price per kWh of a slot; nil derives
+	// them from the spot price with Params (AC-6).
+	BuySell func(h Hour) (buy, sell float64)
 	// Profile is the expected consumption per local hour of day, in Wh.
 	Profile Profile
 	// PV returns the expected full-slot PV energy (Wh) per slot, one value per
@@ -136,10 +139,16 @@ func BuildGrid(in GridInput) (Grid, Battery, []Reason, error) {
 		reasons = rs
 	}
 
+	buySell := in.BuySell
+	if buySell == nil {
+		buySell = func(h Hour) (float64, float64) {
+			return BuySell(h.SpotInclVAT, h.HourOfDay, in.Params.Surcharge, in.Params.VATRate, in.Params.SellMargin)
+		}
+	}
 	sumBuy := 0.0
 	for k := range slots {
 		h := &slots[k]
-		h.Buy, h.Sell = BuySell(h.SpotInclVAT, h.HourOfDay, in.Params.Surcharge, in.Params.VATRate, in.Params.SellMargin)
+		h.Buy, h.Sell = buySell(*h)
 		h.ConsumptionWh = in.Profile[h.HourOfDay] * h.Fraction
 		h.PVWh = pv[k] * h.Fraction
 		sumBuy += h.Buy

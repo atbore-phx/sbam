@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"sbam/pkg/optimize"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -13,6 +15,12 @@ import (
 )
 
 const optCfgTestSurcharge = "0.52,0.52,0.52,0.52,0.52,0.52,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,0.78,2.04,2.04,2.04,2.04,0.78,0.78,0.78"
+
+// Three-band time-of-use tariff: cheap 09-15, peak 15-21, shoulder otherwise.
+const (
+	optCfgTestBuy  = "0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.236916,0.086151,0.086151,0.086151,0.086151,0.086151,0.086151,0.538446,0.538446,0.538446,0.538446,0.538446,0.538446,0.236916,0.236916,0.236916"
+	optCfgTestSell = "0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.02,0.10,0.10,0.10,0.10,0.10,0.10,0.02,0.02,0.02"
+)
 
 // optCfgNoEnv is a getenv that never finds SUPERVISOR_TOKEN.
 func optCfgNoEnv(string) string { return "" }
@@ -34,6 +42,17 @@ func optCfgValidBase(t *testing.T) {
 	viper.Set("optimizer.price_entity", "sensor.nordpool_kwh_dk2_dkk_3_10_025")
 	viper.Set("optimizer.consumption_entity", "sensor.solarnet_power_load_consumed")
 	viper.Set("pw_consumption", 12000.0)
+}
+
+// optCfgStaticBase sets a valid static-tariff configuration without a price
+// entity.
+func optCfgStaticBase(t *testing.T) {
+	t.Helper()
+	optCfgValidBase(t)
+	viper.Set("optimizer.price_entity", "")
+	viper.Set("optimizer.price_source", "static")
+	viper.Set("optimizer.static.buy_price", optCfgTestBuy)
+	viper.Set("optimizer.static.sell_price", optCfgTestSell)
 }
 
 func optCfgProblems(t *testing.T, err error) []string {
@@ -420,6 +439,163 @@ func TestLoadOptimizeConfig_AggregatesProblems(t *testing.T) {
 	assert.Contains(t, msg, "\n  - optimizer.purchase_surcharge: expected exactly 24 comma-separated numbers (hour 00..23), got 23")
 	assert.Contains(t, msg, "\n  - optimizer.battery_efficiency: must be greater than 0 and at most 1, got 0")
 	assert.Contains(t, msg, "\n  - home assistant access:")
+}
+
+func TestLoadOptimizeConfig_StaticTariff(t *testing.T) {
+	t.Run("comma strings, no price entity", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.currency", " AUD ")
+		cfg, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Empty(t, warns)
+		assert.Equal(t, optPriceSourceStatic, cfg.PriceSource)
+		assert.Equal(t, "AUD", cfg.Tariff.Currency)
+		for h, want := range map[int][2]float64{0: {0.236916, 0.02}, 9: {0.086151, 0.02}, 14: {0.086151, 0.02}, 15: {0.538446, 0.10}, 20: {0.538446, 0.10}, 21: {0.236916, 0.02}, 23: {0.236916, 0.02}} {
+			assert.Equal(t, want[0], cfg.Tariff.Buy[h], "buy at hour %d", h)
+			assert.Equal(t, want[1], cfg.Tariff.Sell[h], "sell at hour %d", h)
+		}
+	})
+	t.Run("yaml lists, no currency", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", optCfgAnyList(24))
+		viper.Set("optimizer.static.sell_price", strings.Split(optCfgTestSell, ","))
+		cfg, _, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Equal(t, 0.5, cfg.Tariff.Buy[12])
+		assert.Equal(t, 0.10, cfg.Tariff.Sell[15])
+		assert.Empty(t, cfg.Tariff.Currency)
+	})
+	t.Run("bounds are inclusive", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", strings.Repeat("50,", 23)+"50")
+		viper.Set("optimizer.static.sell_price", strings.Repeat("-5,", 23)+"-5")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.NoError(t, err)
+	})
+}
+
+func TestLoadOptimizeConfig_PriceSource(t *testing.T) {
+	const required = ": required when optimizer.price_source=static (24 comma-separated numbers, hour 00..23)"
+
+	t.Run("default is nordpool", func(t *testing.T) {
+		optCfgValidBase(t)
+		cfg, _, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Equal(t, optPriceSourceNordpool, cfg.PriceSource)
+		assert.Equal(t, optimize.Tariff{}, cfg.Tariff)
+	})
+	t.Run("nordpool still needs the price entity", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.price_source", "nordpool")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{"optimizer.price_entity: required when scheduler_mode=optimize (e.g. sensor.nordpool_kwh_dk2_dkk_3_10_025)"}, optCfgProblems(t, err))
+	})
+	t.Run("nordpool does not read the tariff", func(t *testing.T) {
+		optCfgValidBase(t)
+		viper.Set("optimizer.static.buy_price", "not a tariff")
+		cfg, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Empty(t, warns)
+		assert.Equal(t, optimize.Tariff{}, cfg.Tariff)
+	})
+	t.Run("unknown source", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.price_source", "tibber")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{`optimizer.price_source: "tibber" must be nordpool or static`}, optCfgProblems(t, err))
+	})
+	t.Run("static without prices", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", "")
+		viper.Set("optimizer.static.sell_price", "  ")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{"optimizer.static.buy_price" + required, "optimizer.static.sell_price" + required}, optCfgProblems(t, err))
+	})
+	t.Run("static without sell price", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.sell_price", "")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{"optimizer.static.sell_price" + required}, optCfgProblems(t, err))
+	})
+	t.Run("23 sell values", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.sell_price", strings.Repeat("0.02,", 22)+"0.02")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{"optimizer.static.sell_price: expected exactly 24 comma-separated numbers (hour 00..23), got 23; use '.' as decimal separator"}, optCfgProblems(t, err))
+	})
+	t.Run("price out of bounds", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", "50.5,"+strings.Repeat("0.2,", 22)+"0.2")
+		viper.Set("optimizer.static.sell_price", strings.Repeat("0.02,", 23)+"-5.5")
+		_, _, err := optCfgLoad(optCfgNoEnv)
+		assert.Equal(t, []string{
+			`optimizer.static.buy_price: item 1 ("50.5") must be a finite number between -5 and 50`,
+			`optimizer.static.sell_price: item 24 ("-5.5") must be a finite number between -5 and 50`,
+		}, optCfgProblems(t, err))
+	})
+	t.Run("currency", func(t *testing.T) {
+		for _, bad := range []string{"AU D", "123456789"} {
+			optCfgStaticBase(t)
+			viper.Set("optimizer.static.currency", bad)
+			_, _, err := optCfgLoad(optCfgNoEnv)
+			assert.Equal(t, []string{`optimizer.static.currency: "` + bad + `" must be at most 8 characters without spaces, e.g. AUD`}, optCfgProblems(t, err))
+		}
+	})
+}
+
+// Static tariff warnings: spot-price settings that are not used, and lists that look swapped.
+func TestLoadOptimizeConfig_StaticWarnings(t *testing.T) {
+	const (
+		marginWarn    = "optimizer.sell_margin is ignored when optimizer.price_source=static; optimizer.static.sell_price is the sell price"
+		surchargeWarn = "optimizer.purchase_surcharge is ignored when optimizer.price_source=static; include it in optimizer.static.buy_price"
+		swappedWarn   = "optimizer.static.sell_price is on average higher than optimizer.static.buy_price; check that the two lists are not swapped"
+	)
+	t.Run("swapped lists", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", optCfgTestSell)
+		viper.Set("optimizer.static.sell_price", optCfgTestBuy)
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Equal(t, []string{swappedWarn}, warns)
+	})
+	t.Run("an invalid list is not also reported as swapped", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", strings.Repeat("0.24,", 22)+"0.24")
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		assert.Len(t, optCfgProblems(t, err), 1)
+		assert.Empty(t, warns)
+	})
+	t.Run("sell above buy in a few hours is silent", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.static.buy_price", strings.Repeat("0.24,", 9)+strings.Repeat("0,", 6)+strings.Repeat("0.54,", 6)+"0.24,0.24,0.24")
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Empty(t, warns)
+	})
+	t.Run("sell margin and surcharge", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.sell_margin", 0.3)
+		viper.Set("optimizer.purchase_surcharge", optCfgTestSurcharge)
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Equal(t, []string{marginWarn, surchargeWarn}, warns)
+	})
+	t.Run("vat rate and zero surcharge are silent", func(t *testing.T) {
+		optCfgStaticBase(t)
+		viper.Set("optimizer.vat_rate", 0.25)
+		viper.Set("optimizer.purchase_surcharge", strings.Repeat("0,", 23)+"0")
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Empty(t, warns)
+	})
+	t.Run("nordpool is silent", func(t *testing.T) {
+		optCfgValidBase(t)
+		viper.Set("optimizer.sell_margin", 0.3)
+		viper.Set("optimizer.purchase_surcharge", optCfgTestSurcharge)
+		_, warns, err := optCfgLoad(optCfgNoEnv)
+		require.NoError(t, err)
+		assert.Empty(t, warns)
+	})
 }
 
 func TestOptimizeConfigError_SingularNoun(t *testing.T) {

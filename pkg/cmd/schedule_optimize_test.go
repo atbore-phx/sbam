@@ -1347,3 +1347,19 @@ func TestOptimizeRunner_T0222_DischargeSetpointIsACSide(t *testing.T) {
 	require.NotEmpty(t, preview)
 	assert.Equal(t, math.Round(3000*etaD), preview[len(preview)-1].ContextMap()["setpoint_w"])
 }
+
+// The startup line names the price source and the UTC offset the tariff hours follow.
+func TestLogOptimizeModeActive_PriceSourceAndOffset(t *testing.T) {
+	oldLog := u.Log
+	core, logs := observer.New(zap.InfoLevel)
+	u.Log = zap.New(core).Sugar()
+	t.Cleanup(func() { u.Log = oldLog })
+
+	logOptimizeModeActive(OptimizeConfig{PriceSource: optPriceSourceStatic, Location: time.FixedZone("AWST", 8*3600)})
+
+	entries := logs.FilterMessage("optimize mode active").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	assert.Equal(t, optPriceSourceStatic, fields["price_source"])
+	assert.Equal(t, "+08:00", fields["utc_offset"])
+}
